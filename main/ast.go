@@ -3,15 +3,13 @@ package main
 type AstType int
 
 const (
-	AstClass AstType = iota
-	AstEnum
-	AstFunction
-	AstIdentifier
+	AstIdentifier AstType = iota
 	AstNumLit
 	AstStrLit
 	AstBoolLit
 	AstNullLit
 	//
+	AstFunction
 	AstArray
 	AstObject
 	AstKeyValue
@@ -47,6 +45,15 @@ const (
 	AstAndAssign
 	AstXorAssign
 	AstOrAssign
+	AstDestructuringArrayVar
+	AstDestructuringArrayLet
+	AstDestructuringArrayConst
+	AstDestructuringObjectVar
+	AstDestructuringObjectLet
+	AstDestructuringObjectConst
+	AstVar
+	AstLet
+	AstConst
 	AstExpressionStmnt
 )
 
@@ -105,5 +112,26 @@ func NewBinaryOperation(ast AstType, position Position, lhs, rhs *Ast) *Ast {
 func NewExpressionStatement(position Position, expr *Ast) *Ast {
 	node := newAst(AstExpressionStmnt, position)
 	node.A = expr
+	return node
+}
+
+func NewDestructuringArrayDeclaration(position Position, elements, value *Ast) *Ast {
+	node := newAst(AstArray, position)
+	node.A = elements
+	node.B = value
+	return node
+}
+
+func NewDestructuringObjectDeclaration(position Position, properties, value *Ast) *Ast {
+	node := newAst(AstObject, position)
+	node.A = properties
+	node.B = value
+	return node
+}
+
+func NewFunctionDeclaration(position Position, name *Ast, function *Ast) *Ast {
+	node := newAst(AstFunction, position)
+	node.A = name
+	node.B = function
 	return node
 }

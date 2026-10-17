@@ -2,8 +2,7 @@ package main
 
 const (
 	KeyImport = "import"
-	KeyClass  = "class"
-	KeyEnum   = "enum"
+	KeyAsync  = "async"
 	KeyFn     = "fn"
 	KeyIf     = "if"
 	KeyElse   = "else"

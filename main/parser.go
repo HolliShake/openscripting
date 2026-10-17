@@ -409,7 +409,13 @@ func (p *Parser) scanIdent(pos Position, start int) Token {
 	}
 	tok := p.emit(IDN, start, i, pos)
 	switch tok.Value {
-	case KeyImport, KeyClass, KeyEnum, KeyFn, KeyIf, KeyElse:
+	case KeyImport,
+		KeyFn,
+		KeyIf,
+		KeyElse,
+		KeyTrue,
+		KeyFalse,
+		KeyNull:
 		tok.Type = KEY
 	}
 	return tok
@@ -520,13 +526,23 @@ func (p *Parser) expect(token any) {
 	ThrowError(p.file, fmt.Sprintf("expected token \"%s\", got \"%s\"", token, p.lookahead.Value), p.lookahead.Pos)
 }
 
+func (p *Parser) identifier(required bool) *Ast {
+	if !p.match(IDN) && required {
+		ThrowError(p.file, "expected identifier", p.lookahead.Pos)
+	}
+	if !p.match(IDN) {
+		return nil
+	}
+	ast := NewTerminalAst(AstIdentifier, p.lookahead.Pos, p.lookahead.Value)
+	p.expect(IDN)
+	return ast
+}
+
 func (p *Parser) terminal() *Ast {
 	switch p.lookahead.Type {
 	case IDN:
 		{
-			ast := NewTerminalAst(AstIdentifier, p.lookahead.Pos, p.lookahead.Value)
-			p.expect(IDN)
-			return ast
+			return p.identifier(true)
 		}
 	case NUM:
 		{
@@ -562,7 +578,7 @@ func (p *Parser) terminal() *Ast {
 }
 
 func (p *Parser) group() *Ast {
-	if !p.match("(") {
+	if p.match("(") {
 		p.expect("(")
 		expr := p.expression(true)
 		p.expect(")")
@@ -645,6 +661,15 @@ func binOperator(opt string) AstType {
 	panic("invalid operator")
 }
 
+func (p *Parser) expression(required bool) *Ast {
+	node := p.orAssign()
+	if node == nil && required {
+		ThrowError(p.file, "missing expression", p.lookahead.Pos)
+	}
+	return node
+}
+
+// Precedence methods below are ordered from tightest to loosest.
 func (p *Parser) multiplicative() *Ast {
 	lhs := p.group()
 
@@ -1014,14 +1039,6 @@ func (p *Parser) orAssign() *Ast {
 	return lhs
 }
 
-func (p *Parser) expression(required bool) *Ast {
-	node := p.orAssign()
-	if node == nil && required {
-		ThrowError(p.file, "missing expression", p.lookahead.Pos)
-	}
-	return node
-}
-
 func (p *Parser) expressionStatement() *Ast {
 	node := p.expression(false)
 	if node != nil {
@@ -1101,6 +1118,118 @@ func (p *Parser) listOfKeyValues(required bool, spread bool) *Ast {
 	}
 
 	return head
+}
+
+func (p *Parser) variableDeclaration(key string) *Ast {
+	p.expect(key) // var | let | const
+
+	if p.match("[") { // array destructuring
+		p.expect("[")
+		head := p.identifier(true)
+		tail := head
+		for p.match(",") {
+			p.expect(",")
+			tail.Next = p.identifier(false)
+			if tail.Next == nil {
+				ThrowError(p.file, "missing identifier after comma", p.lookahead.Pos)
+			}
+			tail = tail.Next
+		}
+		p.expect("]")
+		p.expect("=")
+		v := p.expression(true)
+		return nil
+	} else if p.match("{") { // object destructuring
+		p.expect("{")
+		var k *Ast = p.key(true)
+		var v *Ast = nil
+
+		if p.match(":") {
+			p.expect(":")
+			v = p.expression(true)
+		}
+
+		var head *Ast = k
+		var tail *Ast = head
+
+		if k != nil && v != nil {
+			head = NewKeyValue(k.Pos, k, v)
+			tail = head
+		}
+
+		for tail != nil && p.match(",") {
+			p.expect(",")
+
+			k = p.key(false)
+			v = nil
+
+			if p.match(":") {
+				p.expect(":")
+				v = p.expression(true)
+			}
+
+			if k != nil && v != nil {
+				tail.Next = NewKeyValue(k.Pos, k, v)
+			} else {
+				tail.Next = k
+			}
+
+			tail = tail.Next
+		}
+		p.expect("}")
+		p.expect("=")
+		v := p.expression(true)
+		return nil
+	}
+
+	// regular variable dec
+	ident := p.identifier(false)
+	var val *Ast = nil
+
+	// function
+	if p.match("::") {
+		expr := p.functionBlock()
+		return NewFunctionDeclaration(ident.Pos, ident, expr)
+	}
+
+	if p.match("=") {
+		p.expect("=")
+		val = p.expression(true)
+	}
+
+	head := NewKeyValue(ident.Pos, ident, val)
+	tail := head
+
+	for tail != nil && p.match(",") {
+		p.expect(",")
+
+		ident = p.identifier(false)
+		val = nil
+
+		if p.match("=") {
+			p.expect("=")
+			val = p.expression(true)
+		}
+
+		tail.Next = NewKeyValue(ident.Pos, ident, val)
+		tail = tail.Next
+	}
+
+	return head
+}
+
+func (p *Parser) functionBlock() *Ast {
+	p.expect(KeyFn)
+	p.expect("(")
+
+	p.expect(")")
+	async := p.match(KeyAsync)
+	if async {
+		p.expect(KeyAsync)
+	}
+	p.expect("{")
+
+	p.expect("}")
 }
 
 func (p *Parser) Parse() {
