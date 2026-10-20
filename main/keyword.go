@@ -15,3 +15,24 @@ const (
 	KeyFalse  = "false"
 	KeyNull   = "null"
 )
+
+var keywords = map[string]struct{}{
+	KeyImport: {},
+	KeyVar:    {},
+	KeyLet:    {},
+	KeyConst:  {},
+	KeyAsync:  {},
+	KeyClass:  {},
+	KeyFn:     {},
+	KeyLoop:   {},
+	KeyIf:     {},
+	KeyElse:   {},
+	KeyTrue:   {},
+	KeyFalse:  {},
+	KeyNull:   {},
+}
+
+func isKeyword(value string) bool {
+	_, ok := keywords[value]
+	return ok
+}

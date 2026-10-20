@@ -408,14 +408,7 @@ func (p *Parser) scanIdent(pos Position, start int) Token {
 		i++
 	}
 	tok := p.emit(IDN, start, i, pos)
-	switch tok.Value {
-	case KeyImport,
-		KeyFn,
-		KeyIf,
-		KeyElse,
-		KeyTrue,
-		KeyFalse,
-		KeyNull:
+	if isKeyword(tok.Value) {
 		tok.Type = KEY
 	}
 	return tok
@@ -629,6 +622,34 @@ func (p *Parser) group() *Ast {
 	return p.terminal()
 }
 
+func (p *Parser) memberOrCall() *Ast {
+	obj := p.group()
+
+	if obj == nil {
+		return nil
+	}
+
+	for p.match("->") || p.match("[") || p.match("(") {
+		if p.match("->") {
+			p.expect("->")
+			prop := p.identifier(true)
+			obj = NewMemberAccess(obj.Pos, obj, prop)
+		} else if p.match("[") {
+			p.expect("[")
+			index := p.expression(true)
+			p.expect("]")
+			obj = NewIndexAccess(obj.Pos, obj, index)
+		} else if p.match("(") {
+			p.expect("(")
+			args := p.listOfExpression(false, false)
+			p.expect(")")
+			obj = NewCall(obj.Pos, obj, args)
+		}
+	}
+
+	return obj
+}
+
 func binOperator(opt string) AstType {
 	switch opt {
 	case "*":
@@ -703,7 +724,7 @@ func (p *Parser) expression(required bool) *Ast {
 
 // Precedence methods below are ordered from tightest to loosest.
 func (p *Parser) multiplicative() *Ast {
-	lhs := p.group()
+	lhs := p.memberOrCall()
 
 	if lhs == nil {
 		return nil
@@ -713,7 +734,7 @@ func (p *Parser) multiplicative() *Ast {
 		opt := p.lookahead.Value
 		p.expect(opt)
 
-		rhs := p.group()
+		rhs := p.memberOrCall()
 		if rhs == nil {
 			ThrowError(p.file, "missing right-hand operand", p.lookahead.Pos)
 		}
@@ -1179,6 +1200,7 @@ func (p *Parser) variableDeclaration(keyWord string) *Ast {
 		p.expect("]")
 		p.expect("=")
 		v := p.expression(true)
+		p.expect(";")
 		return NewDestructuringArrayDeclaration(arrayDestructuringType, position, head, v)
 	} else if p.match("{") { // object destructuring
 		p.expect("{")
@@ -1220,6 +1242,7 @@ func (p *Parser) variableDeclaration(keyWord string) *Ast {
 		p.expect("}")
 		p.expect("=")
 		value := p.expression(true)
+		p.expect(";")
 		return NewDestructuringObjectDeclaration(objectDestructuringType, position, head, value)
 	}
 
@@ -1282,6 +1305,13 @@ func (p *Parser) classExpression() *Ast {
 	pos := p.lookahead.Pos
 	p.expect(KeyClass)
 
+	var base *Ast = nil
+	if p.match("(") {
+		p.expect("(")
+		base = p.identifier(true)
+		p.expect(")")
+	}
+
 	p.expect("{")
 	var k *Ast = p.identifier(true)
 	p.expect(":")
@@ -1303,7 +1333,7 @@ func (p *Parser) classExpression() *Ast {
 	}
 
 	p.expect("}")
-	return NewObject(pos, head)
+	return NewClassExpression(pos, base, head)
 }
 
 func (p *Parser) functionExpression() *Ast {
@@ -1350,15 +1380,11 @@ func (p *Parser) isInitializer(ast *Ast) bool {
 		return false
 	}
 	switch ast.Type {
-	case AstVar:
-	case AstLet:
-	case AstConst:
-	case AstDestructuringArrayVar:
-	case AstDestructuringArrayLet:
-	case AstDestructuringArrayConst:
-	case AstDestructuringObjectVar:
-	case AstDestructuringObjectLet:
-	case AstDestructuringObjectConst:
+	case AstVar, AstLet, AstConst:
+		return true
+	case AstDestructuringArrayVar, AstDestructuringArrayLet, AstDestructuringArrayConst:
+		return true
+	case AstDestructuringObjectVar, AstDestructuringObjectLet, AstDestructuringObjectConst:
 		return true
 	}
 	return false
@@ -1387,17 +1413,19 @@ func (p *Parser) loopStatement() *Ast {
 	var cond *Ast = nil
 	var mutt *Ast = nil
 	whileMode := false
-	if init != nil && !p.isInitializer(init) {
-		if p.match(";") {
-			p.expect(";")
-		} else {
-			whileMode = true
-		}
-	}
-	if !whileMode {
+	if init != nil && p.isInitializer(init) {
 		cond = p.expression(false)
 		p.expect(";")
 		mutt = p.expression(false)
+	} else {
+		if p.match(";") {
+			p.expect(";")
+			cond = p.expression(false)
+			p.expect(";")
+			mutt = p.expression(false)
+		} else {
+			whileMode = true
+		}
 	}
 	p.expect(")")
 	block := p.blockLevelStatement()

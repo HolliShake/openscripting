@@ -15,6 +15,10 @@ const (
 	AstArray
 	AstObject
 	AstKeyValue
+	// Member and Call Expressions
+	AstMemberAccess
+	AstIndexAccess
+	AstCall
 	// Unary Operations
 	AstSpread
 	// Binary Operations
@@ -107,6 +111,27 @@ func NewObject(position Position, properties *Ast) *Ast {
 	return node
 }
 
+func NewMemberAccess(position Position, object, property *Ast) *Ast {
+	node := newAst(AstMemberAccess, position)
+	node.A = object
+	node.B = property
+	return node
+}
+
+func NewIndexAccess(position Position, object, index *Ast) *Ast {
+	node := newAst(AstIndexAccess, position)
+	node.A = object
+	node.B = index
+	return node
+}
+
+func NewCall(position Position, callee *Ast, arguments *Ast) *Ast {
+	node := newAst(AstCall, position)
+	node.A = callee
+	node.B = arguments
+	return node
+}
+
 func NewSpread(position Position, expr *Ast) *Ast {
 	node := newAst(AstSpread, position)
 	node.A = expr
@@ -120,9 +145,10 @@ func NewBinaryOperation(ast AstType, position Position, lhs, rhs *Ast) *Ast {
 	return node
 }
 
-func NewClassExpression(position Position, attributeHead *Ast) *Ast {
+func NewClassExpression(position Position, base *Ast, attributeHead *Ast) *Ast {
 	node := newAst(AstClassExpression, position)
-	node.A = attributeHead
+	node.A = base
+	node.B = attributeHead
 	return node
 }
 

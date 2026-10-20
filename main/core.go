@@ -56,32 +56,41 @@ type Ast struct {
 	Next  *Ast
 }
 
+type TryCatchTable struct {
+	TryStart   int32 // Opcode index
+	TryEnd     int32 // Opcode index
+	CatchStart int32 // Opcode index
+	CatchEnd   int32 // Opcode index
+}
+
 type Function struct {
-	Name        string
-	Async       bool
-	Argc        int32
-	VarArgIndex int32 // -1 for non vararg functions
-	Bytecode    []int32
+	Name          string
+	Async         bool
+	ParamCount    int32
+	VarArgIndex   int32 // -1 for non vararg functions
+	Bytecode      []int32
+	TryCatchTable []TryCatchTable
+	File          *File
 }
 
 func (s TokenType) String() string {
 	switch s {
 	case KEY:
-		return "KEY"
+		return "keyword"
 	case IDN:
-		return "IDN"
+		return "ident"
 	case NUM:
-		return "NUM"
+		return "number"
 	case STR:
-		return "STR"
+		return "string"
 	case SYM:
-		return "SYM"
+		return "symbol"
 	case ILL:
-		return "ILLEGAL"
+		return "illegal"
 	case EOF:
-		return "EOF"
+		return "eof"
 	default:
-		return "UNKNOWN"
+		return "unknown"
 	}
 }
 
