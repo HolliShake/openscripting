@@ -504,7 +504,7 @@ func (p *Parser) getNextToken() Token {
 	return Token{}
 }
 
-/******************* Parsing ***/
+/******************* Parser helpers ***/
 
 func (p *Parser) match(token any) bool {
 	if token, ok := token.(string); ok {
@@ -537,6 +537,34 @@ func (p *Parser) identifier(required bool) *Ast {
 	p.expect(IDN)
 	return ast
 }
+
+func (p *Parser) listOfStatement() *Ast {
+	var head *Ast = p.statement()
+	tail := head
+
+	for tail != nil {
+		stmt := p.statement()
+		tail.Next = stmt
+		tail = tail.Next
+	}
+
+	return head
+}
+
+func (p *Parser) listOfBlockStatement() *Ast {
+	var head *Ast = p.blockLevelStatement()
+	tail := head
+
+	for tail != nil {
+		stmt := p.blockLevelStatement()
+		tail.Next = stmt
+		tail = tail.Next
+	}
+
+	return head
+}
+
+/******************* Expressions ***/
 
 func (p *Parser) terminal() *Ast {
 	switch p.lookahead.Type {
@@ -593,6 +621,10 @@ func (p *Parser) group() *Ast {
 		expr := p.listOfKeyValues(false, true) // parse object properties
 		p.expect("}")
 		return NewObject(p.lookahead.Pos, expr)
+	} else if p.match(KeyClass) {
+		return p.classExpression()
+	} else if p.match(KeyFn) {
+		return p.functionExpression()
 	}
 	return p.terminal()
 }
@@ -1039,18 +1071,6 @@ func (p *Parser) orAssign() *Ast {
 	return lhs
 }
 
-func (p *Parser) expressionStatement() *Ast {
-	node := p.expression(false)
-	if node != nil {
-		p.expect(";")
-		for p.match(";") {
-			p.expect(";")
-		}
-		return NewExpressionStatement(p.lookahead.Pos, node)
-	}
-	return nil
-}
-
 func (p *Parser) spreadOrExpression(required bool, spread bool) *Ast {
 	if spread && p.match("...") {
 		p.expect("...")
@@ -1120,8 +1140,29 @@ func (p *Parser) listOfKeyValues(required bool, spread bool) *Ast {
 	return head
 }
 
-func (p *Parser) variableDeclaration(key string) *Ast {
-	p.expect(key) // var | let | const
+/******************* Declarations ***/
+
+func (p *Parser) variableDeclaration(keyWord string) *Ast {
+	position := p.lookahead.Pos
+	var declarationType, arrayDestructuringType, objectDestructuringType AstType
+	switch keyWord {
+	case KeyVar:
+		declarationType = AstVar
+		arrayDestructuringType = AstDestructuringArrayVar
+		objectDestructuringType = AstDestructuringObjectVar
+	case KeyLet:
+		declarationType = AstLet
+		arrayDestructuringType = AstDestructuringArrayLet
+		objectDestructuringType = AstDestructuringObjectLet
+	case KeyConst:
+		declarationType = AstConst
+		arrayDestructuringType = AstDestructuringArrayConst
+		objectDestructuringType = AstDestructuringObjectConst
+	default:
+		ThrowError(p.file, "invalid variable declaration", position)
+	}
+
+	p.expect(keyWord) // var | let | const
 
 	if p.match("[") { // array destructuring
 		p.expect("[")
@@ -1138,7 +1179,7 @@ func (p *Parser) variableDeclaration(key string) *Ast {
 		p.expect("]")
 		p.expect("=")
 		v := p.expression(true)
-		return nil
+		return NewDestructuringArrayDeclaration(arrayDestructuringType, position, head, v)
 	} else if p.match("{") { // object destructuring
 		p.expect("{")
 		var k *Ast = p.key(true)
@@ -1178,18 +1219,30 @@ func (p *Parser) variableDeclaration(key string) *Ast {
 		}
 		p.expect("}")
 		p.expect("=")
-		v := p.expression(true)
-		return nil
+		value := p.expression(true)
+		return NewDestructuringObjectDeclaration(objectDestructuringType, position, head, value)
 	}
 
 	// regular variable dec
-	ident := p.identifier(false)
+	var key *Ast = p.identifier(true)
 	var val *Ast = nil
 
-	// function
+	// function or class
 	if p.match("::") {
-		expr := p.functionBlock()
-		return NewFunctionDeclaration(ident.Pos, ident, expr)
+		p.expect("::")
+		if p.match(KeyFn) {
+			exp := p.functionExpression()
+			fun := NewFunctionDeclaration(key.Pos, key, exp)
+			p.expect(";")
+			return fun
+		} else if p.match(KeyClass) {
+			exp := p.classExpression()
+			cls := NewClassDeclaration(key.Pos, key, exp)
+			p.expect(";")
+			return cls
+		}
+
+		ThrowError(p.file, "invalid syntax, expected fn or class", p.lookahead.Pos)
 	}
 
 	if p.match("=") {
@@ -1197,13 +1250,18 @@ func (p *Parser) variableDeclaration(key string) *Ast {
 		val = p.expression(true)
 	}
 
-	head := NewKeyValue(ident.Pos, ident, val)
+	head := NewKeyValue(key.Pos, key, val)
 	tail := head
 
 	for tail != nil && p.match(",") {
 		p.expect(",")
 
-		ident = p.identifier(false)
+		key = p.identifier(false)
+
+		if key == nil {
+			ThrowError(p.file, "missing identifier after comma", p.lookahead.Pos)
+		}
+
 		val = nil
 
 		if p.match("=") {
@@ -1211,28 +1269,197 @@ func (p *Parser) variableDeclaration(key string) *Ast {
 			val = p.expression(true)
 		}
 
-		tail.Next = NewKeyValue(ident.Pos, ident, val)
+		tail.Next = NewKeyValue(key.Pos, key, val)
 		tail = tail.Next
 	}
 
-	return head
+	p.expect(";")
+
+	return NewVariableDeclaration(declarationType, head.Pos, head)
 }
 
-func (p *Parser) functionBlock() *Ast {
-	p.expect(KeyFn)
-	p.expect("(")
+func (p *Parser) classExpression() *Ast {
+	pos := p.lookahead.Pos
+	p.expect(KeyClass)
 
+	p.expect("{")
+	var k *Ast = p.identifier(true)
+	p.expect(":")
+	var v *Ast = p.expression(true)
+
+	var head *Ast = NewKeyValue(k.Pos, k, v)
+	var tail *Ast = head
+
+	for tail != nil && p.match(",") {
+		p.expect(",")
+		k = p.identifier(true)
+		if k == nil {
+			ThrowError(p.file, "missing identifier after comma", p.lookahead.Pos)
+		}
+		p.expect(":")
+		v = p.expression(true)
+		tail.Next = NewKeyValue(k.Pos, k, v)
+		tail = tail.Next
+	}
+
+	p.expect("}")
+	return NewObject(pos, head)
+}
+
+func (p *Parser) functionExpression() *Ast {
+	pos := p.lookahead.Pos
+	p.expect(KeyFn)
+
+	p.expect("(")
+	var parameterHead *Ast = p.identifier(false)
+	var parameterTail *Ast = parameterHead
+	for parameterTail != nil && p.match(",") {
+		p.expect(",")
+		var ident *Ast = p.identifier(false)
+		if ident == nil {
+			ThrowError(p.file, "missing identifier after comma", p.lookahead.Pos)
+		}
+		parameterTail.Next = ident
+		parameterTail = parameterTail.Next
+	}
 	p.expect(")")
+
 	async := p.match(KeyAsync)
 	if async {
 		p.expect(KeyAsync)
 	}
-	p.expect("{")
 
+	p.expect("{")
+	block := p.listOfBlockStatement()
 	p.expect("}")
+
+	return NewFunctionExpression(pos, parameterHead, block)
 }
 
-func (p *Parser) Parse() {
+/******************* Statements ***/
+
+func (p *Parser) loopInitializer() *Ast {
+	if p.match(KeyVar) || p.match(KeyLet) || p.match(KeyConst) {
+		return p.variableDeclaration(p.lookahead.Value)
+	}
+	return p.expression(false)
+}
+
+func (p *Parser) isInitializer(ast *Ast) bool {
+	if ast == nil {
+		return false
+	}
+	switch ast.Type {
+	case AstVar:
+	case AstLet:
+	case AstConst:
+	case AstDestructuringArrayVar:
+	case AstDestructuringArrayLet:
+	case AstDestructuringArrayConst:
+	case AstDestructuringObjectVar:
+	case AstDestructuringObjectLet:
+	case AstDestructuringObjectConst:
+		return true
+	}
+	return false
+}
+
+func (p *Parser) ifStatement() *Ast {
+	pos := p.lookahead.Pos
+	p.expect(KeyIf)
+	p.expect("(")
+	condition := p.expression(true)
+	p.expect(")")
+	thenBlock := p.blockLevelStatement()
+	var elseBlock *Ast = nil
+	if p.match(KeyElse) {
+		p.expect(KeyElse)
+		elseBlock = p.blockLevelStatement()
+	}
+	return NewIfStatement(pos, condition, thenBlock, elseBlock)
+}
+
+func (p *Parser) loopStatement() *Ast {
+	pos := p.lookahead.Pos
+	p.expect(KeyLoop)
+	p.expect("(")
+	var init *Ast = p.loopInitializer()
+	var cond *Ast = nil
+	var mutt *Ast = nil
+	whileMode := false
+	if init != nil && !p.isInitializer(init) {
+		if p.match(";") {
+			p.expect(";")
+		} else {
+			whileMode = true
+		}
+	}
+	if !whileMode {
+		cond = p.expression(false)
+		p.expect(";")
+		mutt = p.expression(false)
+	}
+	p.expect(")")
+	block := p.blockLevelStatement()
+
+	if block == nil {
+		ThrowError(p.file, "missing block after loop", p.lookahead.Pos)
+	}
+
+	if !whileMode {
+		return NewForLoop(pos, init, cond, mutt, block)
+	}
+
+	return NewWhileLoop(pos, init, block)
+}
+
+func (p *Parser) blockStatement() *Ast {
+	pos := p.lookahead.Pos
+	p.expect("{")
+	block := p.listOfBlockStatement()
+	p.expect("}")
+	return NewBlockStatement(pos, block)
+}
+
+func (p *Parser) expressionStatement() *Ast {
+	node := p.expression(false)
+	if node != nil {
+		p.expect(";")
+		for p.match(";") {
+			p.expect(";")
+		}
+		return NewExpressionStatement(p.lookahead.Pos, node)
+	}
+	return nil
+}
+
+func (p *Parser) statement() *Ast {
+	if p.match(KeyVar) {
+		return p.variableDeclaration(KeyVar)
+	}
+	return p.blockLevelStatement()
+}
+
+func (p *Parser) blockLevelStatement() *Ast {
+	if p.match(KeyLet) || p.match(KeyConst) {
+		return p.variableDeclaration(p.lookahead.Value)
+	} else if p.match(KeyIf) {
+		return p.ifStatement()
+	} else if p.match(KeyLoop) {
+		return p.loopStatement()
+	} else if p.match("{") {
+		return p.blockStatement()
+	}
+	return p.expressionStatement()
+}
+
+func (p *Parser) program() *Ast {
+	stmnts := p.listOfStatement()
+	p.expect(EOF)
+	return NewProgram(stmnts)
+}
+
+func (p *Parser) Parse() *Ast {
 	p.lookahead = p.getNextToken()
-	p.expressionStatement()
+	return p.program()
 }

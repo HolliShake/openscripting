@@ -3,19 +3,21 @@ package main
 type AstType int
 
 const (
+	// Expressions
 	AstIdentifier AstType = iota
 	AstNumLit
 	AstStrLit
 	AstBoolLit
 	AstNullLit
-	//
-	AstFunction
+	// Complex Expressions
+	AstClassExpression
+	AstFunctionExpression
 	AstArray
 	AstObject
 	AstKeyValue
-	//
+	// Unary Operations
 	AstSpread
-	//
+	// Binary Operations
 	AstMul
 	AstDiv
 	AstMod
@@ -45,6 +47,9 @@ const (
 	AstAndAssign
 	AstXorAssign
 	AstOrAssign
+	// Declarations
+	AstClass
+	AstFunction
 	AstDestructuringArrayVar
 	AstDestructuringArrayLet
 	AstDestructuringArrayConst
@@ -54,7 +59,13 @@ const (
 	AstVar
 	AstLet
 	AstConst
+	// Statements
+	AstIfStatement
+	AstForLoop
+	AstWhileLoop
+	AstBlock
 	AstExpressionStmnt
+	AstProgram
 )
 
 func newAst(ast AstType, position Position) *Ast {
@@ -109,23 +120,45 @@ func NewBinaryOperation(ast AstType, position Position, lhs, rhs *Ast) *Ast {
 	return node
 }
 
-func NewExpressionStatement(position Position, expr *Ast) *Ast {
-	node := newAst(AstExpressionStmnt, position)
-	node.A = expr
+func NewClassExpression(position Position, attributeHead *Ast) *Ast {
+	node := newAst(AstClassExpression, position)
+	node.A = attributeHead
 	return node
 }
 
-func NewDestructuringArrayDeclaration(position Position, elements, value *Ast) *Ast {
-	node := newAst(AstArray, position)
+func NewFunctionExpression(position Position, parameterHead *Ast, body *Ast) *Ast {
+	node := newAst(AstFunctionExpression, position)
+	node.A = parameterHead
+	node.B = body
+	return node
+}
+
+// Declarations
+
+func NewDestructuringArrayDeclaration(ast AstType, position Position, elements, value *Ast) *Ast {
+	node := newAst(ast, position)
 	node.A = elements
 	node.B = value
 	return node
 }
 
-func NewDestructuringObjectDeclaration(position Position, properties, value *Ast) *Ast {
-	node := newAst(AstObject, position)
+func NewDestructuringObjectDeclaration(ast AstType, position Position, properties, value *Ast) *Ast {
+	node := newAst(ast, position)
 	node.A = properties
 	node.B = value
+	return node
+}
+
+func NewVariableDeclaration(ast AstType, position Position, declarations *Ast) *Ast {
+	node := newAst(ast, position)
+	node.A = declarations
+	return node
+}
+
+func NewClassDeclaration(position Position, className *Ast, class *Ast) *Ast {
+	node := newAst(AstClass, position)
+	node.A = className
+	node.B = class
 	return node
 }
 
@@ -133,5 +166,49 @@ func NewFunctionDeclaration(position Position, name *Ast, function *Ast) *Ast {
 	node := newAst(AstFunction, position)
 	node.A = name
 	node.B = function
+	return node
+}
+
+// Statements
+
+func NewIfStatement(position Position, condition *Ast, thenBlock *Ast, elseBlock *Ast) *Ast {
+	node := newAst(AstIfStatement, position)
+	node.A = condition
+	node.B = thenBlock
+	node.C = elseBlock
+	return node
+}
+
+func NewWhileLoop(position Position, condition *Ast, block *Ast) *Ast {
+	node := newAst(AstWhileLoop, position)
+	node.A = condition
+	node.B = block
+	return node
+}
+
+func NewForLoop(position Position, init, cond, mutt, block *Ast) *Ast {
+	node := newAst(AstForLoop, position)
+	node.A = init
+	node.B = cond
+	node.C = mutt
+	node.D = block
+	return node
+}
+
+func NewBlockStatement(position Position, statements *Ast) *Ast {
+	node := newAst(AstBlock, position)
+	node.A = statements
+	return node
+}
+
+func NewExpressionStatement(position Position, expr *Ast) *Ast {
+	node := newAst(AstExpressionStmnt, position)
+	node.A = expr
+	return node
+}
+
+func NewProgram(statements *Ast) *Ast {
+	node := newAst(AstProgram, Position{})
+	node.A = statements
 	return node
 }

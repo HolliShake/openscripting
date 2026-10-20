@@ -65,16 +65,16 @@ func formatError(file *File, message string, position Position) string {
 func splitSourceLines(content []rune) [][]rune {
 	lines := make([][]rune, 0, 1)
 	start := 0
-	for index, character := range content {
+	for index := 0; index < len(content); index++ {
+		character := content[index]
 		if character != '\r' && character != '\n' && character != '\u0085' && character != '\u2028' && character != '\u2029' {
 			continue
 		}
 		lines = append(lines, append([]rune(nil), content[start:index]...))
 		if character == '\r' && index+1 < len(content) && content[index+1] == '\n' {
-			start = index + 2
-		} else {
-			start = index + 1
+			index++
 		}
+		start = index + 1
 	}
 	lines = append(lines, append([]rune(nil), content[start:]...))
 	return lines

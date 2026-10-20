@@ -1,14 +1,24 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+)
 
 func main() {
 	fmt.Println("Hello, World!")
 
+	file := "C:\\Users\\dtoDev\\Desktop\\openscripting\\tests\\file.os"
+	data, err := os.ReadFile(file)
+	if err != nil {
+		panic(err)
+	}
+	content := []rune(string(data))
+
 	state := State{}
 	parser := NewParser(&state, &File{
-		Name:    "example.os",
-		Content: []rune("2 + 3"),
+		Name:    file,
+		Content: content,
 	})
 	parser.Parse()
 }

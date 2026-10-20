@@ -1,21 +1,20 @@
 
 
 
-
-
 const dog::fn(a, b) async {
-    return fn() {
 
-    };
-}
+};
 
-new {
-    init: fn (self, name) async {
-        self.name = name;
+const Person::class {
+    add: fn(a, b) {
+       a + b;
     }
 };
 
+if (3 > 2) {
 
-const Person::class {
-    
-} & Human;
+}
+
+loop (;;) {
+
+}
