@@ -85,7 +85,7 @@ func emitJump(fn *Function, op int32) int32 {
 }
 
 func labelJump(fn *Function, pos int32) {
-	fn.Bytecode[pos] = int32(len(fn.Bytecode)) - 1
+	fn.Bytecode[pos] = int32(len(fn.Bytecode))
 }
 
 func emit(fn *Function, op int32) {
@@ -339,7 +339,7 @@ func tryFold(fn *Function, ast *Ast) constVal {
 
 /******************* Visitors ***/
 
-func visitExpression(p *Parser, fn *Function, ast *Ast) {
+func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	if c := tryFold(fn, ast); c.folded() {
 		if debugFold {
 			fmt.Printf("result: %+v\n", c)
@@ -350,7 +350,33 @@ func visitExpression(p *Parser, fn *Function, ast *Ast) {
 
 	switch ast.Type {
 	case AstIdentifier:
-		emitString(fn, ast.Value.(string))
+		{
+			name := ast.Value.(string)
+			if !scope.Exists(name) {
+				ThrowError(fn.File, "undefined variable", ast.Pos)
+			}
+
+			isLocal := scope.ExistsFunction(name)
+			sym, exists := scope.GetVariable(name)
+
+			fmt.Printf("IsLocal %v\n", isLocal)
+			if exists && !isLocal {
+				// Capture
+				offset := scope.GetVarCount()
+				scope.AddLocal(name, Symbol{
+					Name:    name,
+					Offset:  offset,
+					Const:   false,
+					Capture: !isLocal,
+					Pos:     ast.Pos,
+				})
+
+				emit(fn, OpDupTop)
+				emitInt(fn, OpStoreLocal, offset)
+			} else {
+				emitInt(fn, OpLoadVar, sym.Offset)
+			}
+		}
 	case AstNumLit:
 		emitFloat(fn, ast.Value.(float64))
 	case AstStrLit:
@@ -359,44 +385,64 @@ func visitExpression(p *Parser, fn *Function, ast *Ast) {
 		emitBool(fn, ast.Value.(bool))
 	case AstNullLit:
 		emit(fn, OpLoadNull)
+	case AstCall:
+		{
+			paramNode := ast.B
+			paramCount := int32(0)
+			for paramNode != nil {
+				visitExpression(p, scope, fn, paramNode)
+				paramCount++
+				paramNode = paramNode.Next
+			}
+			visitExpression(p, scope, fn, ast.A)
+			emitInt(fn, OpCall, paramCount)
+		}
 	case AstPos, AstNeg, AstNot, AstBitNot:
-		visitExpression(p, fn, ast.A)
-		switch ast.Type {
-		case AstPos:
-			emit(fn, OpUnaryPos)
-		case AstNeg:
-			emit(fn, OpUnaryNeg)
-		case AstNot:
-			emit(fn, OpUnaryNot)
-		case AstBitNot:
-			emit(fn, OpUnaryBitNot)
+		{
+			visitExpression(p, scope, fn, ast.A)
+			switch ast.Type {
+			case AstPos:
+				emit(fn, OpUnaryPos)
+			case AstNeg:
+				emit(fn, OpUnaryNeg)
+			case AstNot:
+				emit(fn, OpUnaryNot)
+			case AstBitNot:
+				emit(fn, OpUnaryBitNot)
+			}
 		}
 	case AstMul, AstDiv, AstMod, AstAdd, AstSub,
 		AstShiftLeft, AstShiftRight,
 		AstLess, AstLessEqual, AstGreater, AstGreaterEqual,
 		AstEqual, AstNotEqual,
 		AstBitAnd, AstBitXor, AstBitOr:
-		visitExpression(p, fn, ast.A)
-		visitExpression(p, fn, ast.B)
-		emit(fn, binaryOpcode(ast.Type))
-	case AstAnd, AstOr:
-		visitExpression(p, fn, ast.A)
-		var jumpPos int32
-		if ast.Type == AstAnd {
-			jumpPos = emitJump(fn, OpJmpIfFalseOrPop)
-		} else {
-			jumpPos = emitJump(fn, OpJmpIfTrueOrPop)
+		{
+
+			visitExpression(p, scope, fn, ast.A)
+			visitExpression(p, scope, fn, ast.B)
+			emit(fn, binaryOpcode(ast.Type))
 		}
-		visitExpression(p, fn, ast.B)
-		labelJump(fn, jumpPos)
+	case AstAnd, AstOr:
+		{
+			visitExpression(p, scope, fn, ast.A)
+			var jumpPos int32
+			if ast.Type == AstAnd {
+				jumpPos = emitJump(fn, OpJmpIfFalseOrPop)
+			} else {
+				jumpPos = emitJump(fn, OpJmpIfTrueOrPop)
+			}
+			visitExpression(p, scope, fn, ast.B)
+			labelJump(fn, jumpPos)
+		}
 	default:
-		panic("visitExpression::unexpected AST type")
+		panic(fmt.Sprintf("visitExpression:: unexpected statement type %v", ast.Type))
 	}
 }
 
 func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	function := newFunction(fn.File, ast.A.Value.(string))
 	localScope := Scope{
+		Type:      ScopeTypeFunction,
 		Parent:    scope,
 		Variables: make(map[string]Symbol),
 		VarCount:  0,
@@ -405,6 +451,11 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	nameNode := ast.A
 	parmNode := ast.B.A
 	bodyNode := ast.B.B
+
+	reverse := []struct {
+		Name   string
+		Offset int32
+	}{}
 
 	for parmNode != nil {
 		paramName := parmNode.Value.(string)
@@ -421,8 +472,19 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 			Capture: false,
 			Pos:     parmNode.Pos,
 		})
-		emitInt(function, OpStoreLocal, offset)
+		reverse = append(reverse, struct {
+			Name   string
+			Offset int32
+		}{
+			Name:   paramName,
+			Offset: offset,
+		})
 		parmNode = parmNode.Next
+	}
+
+	for i := len(reverse) - 1; i >= 0; i-- {
+		// fmt.Printf("INDEX: %d %s\n", reverse[i].Offset, reverse[i].Name)
+		emitInt(function, OpStoreLocal, reverse[i].Offset)
 	}
 
 	visibleReturn := false
@@ -445,13 +507,36 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	if !exists {
 		ThrowError(fn.File, "function does not exists", ast.Pos)
 	}
+
+	// Resize the bytecode slice to fit the actual code length
+	function.LocalCount = localScope.VarCount
+	function.Bytecode = function.Bytecode[:len(function.Bytecode)]
+
 	emitInt(fn, OpLoadFunction, funcOffset)
 	emitInt(fn, OpStoreLocal, status.Offset)
 }
 
-func visitReturn(p *Parser, fn *Function, ast *Ast) {
+func visitIfStatement(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+	condNode := ast.A
+	thenNode := ast.B.A
+	elseNode := ast.B.B
+
+	visitExpression(p, scope, fn, condNode)
+
+	jmpIfFalsePos := emitJump(fn, OpPopJmpIfFalse)
+	visitDeclarationOrStatement(p, scope, fn, thenNode)
+	endIf := emitJump(fn, OpJmp)
+
+	labelJump(fn, jmpIfFalsePos)
+	if elseNode != nil {
+		visitDeclarationOrStatement(p, scope, fn, elseNode)
+	}
+	labelJump(fn, endIf)
+}
+
+func visitReturn(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	if ast.A != nil {
-		visitExpression(p, fn, ast.A)
+		visitExpression(p, scope, fn, ast.A)
 	} else {
 		emit(fn, OpLoadNull)
 	}
@@ -463,21 +548,27 @@ func visitDeclarationOrStatement(p *Parser, scope *Scope, fn *Function, ast *Ast
 	switch ast.Type {
 	case AstFunction:
 		visitFunctionDeclaration(p, scope, fn, ast)
+	case AstIfStmt:
+		visitIfStatement(p, scope, fn, ast)
+	case AstLogStmt:
+		visitExpression(p, scope, fn, ast.A)
+		emit(fn, OpStdWrite)
 	case AstExpressionStmnt:
-		visitExpression(p, fn, ast.A)
+		visitExpression(p, scope, fn, ast.A)
 	case AstReturnStmt:
-		visitReturn(p, fn, ast.A)
+		visitReturn(p, scope, fn, ast)
 	default:
 		panic(fmt.Sprintf("visitDeclarationOrStatement:: unexpected statement type %v", ast.Type))
 	}
 }
 
-func compileProgram(p *Parser) {
+func compileProgram(p *Parser) *Function {
 	ast := p.Parse()
 	assert(AstProgram, ast)
 
 	program := newFunction(p.File, "$main")
 	scope := Scope{
+		Type:      ScopeTypeGlobal,
 		Parent:    nil,
 		Variables: make(map[string]Symbol),
 		VarCount:  0,
@@ -504,8 +595,14 @@ func compileProgram(p *Parser) {
 
 	emit(program, OpLoadNull)
 	emit(program, OpReturn)
+
+	// Resize the bytecode slice to fit the actual code length
+	program.LocalCount = scope.VarCount
+	program.Bytecode = program.Bytecode[:len(program.Bytecode)]
+
+	return program
 }
 
-func Compile(p *Parser) {
-	compileProgram(p)
+func Compile(p *Parser) *Function {
+	return compileProgram(p)
 }

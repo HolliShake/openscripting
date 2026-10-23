@@ -1,5 +1,19 @@
 package main
 
+func (s *Scope) ExistsFunction(name string) bool {
+	for scope := s; scope != nil; scope = scope.Parent {
+		if scope != s && scope.Type == ScopeTypeFunction {
+			return false
+		}
+
+		if _, exists := scope.Variables[name]; exists {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (s *Scope) ExistsLocal(name string) bool {
 	if _, exists := s.Variables[name]; exists {
 		return true

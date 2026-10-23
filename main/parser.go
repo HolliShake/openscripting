@@ -1733,6 +1733,14 @@ func (p *Parser) loopStatement() *Ast {
 	return NewWhileLoop(pos, init, block)
 }
 
+func (p *Parser) logStatement() *Ast {
+	pos := p.lookahead.Pos
+	p.expect(KeyLog)
+	expr := p.expression(true)
+	p.expect(";")
+	return NewLogStatement(pos, expr)
+}
+
 func (p *Parser) continueStatement() *Ast {
 	pos := p.lookahead.Pos
 	p.expect(KeyContinue)
@@ -1793,6 +1801,8 @@ func (p *Parser) blockLevelStatement() *Ast {
 		return p.ifStatement()
 	} else if p.match(KeyLoop) {
 		return p.loopStatement()
+	} else if p.match(KeyLog) {
+		return p.logStatement()
 	} else if p.match(KeyContinue) {
 		return p.continueStatement()
 	} else if p.match(KeyBreak) {

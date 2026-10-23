@@ -125,6 +125,7 @@ const (
 	AstIfStmt
 	AstForLoop
 	AstWhileLoop
+	AstLogStmt
 	AstContinueStmt
 	AstBreakStmt
 	AstReturnStmt
@@ -157,7 +158,17 @@ type Lines struct {
 	Line  int32
 }
 
+type ScopeType byte
+
+const (
+	ScopeTypeGlobal ScopeType = iota
+	ScopeTypeFunction
+	ScopeTypeBlock
+	ScopeTypeLoop
+)
+
 type Scope struct {
+	Type      ScopeType
 	Parent    *Scope
 	Variables map[string]Symbol
 	VarCount  int32
@@ -175,6 +186,7 @@ type Function struct {
 	Name          string
 	Async         bool
 	ParamCount    int32
+	LocalCount    int32
 	VarArgIndex   int32 // -1 for non vararg functions
 	Bytecode      []int32
 	TryCatchTable []TryCatchTable
@@ -182,14 +194,32 @@ type Function struct {
 	File          *File
 }
 
+type Cell struct {
+	Value OSValue
+}
+
 type CallFrame struct {
 	Caller   *CallFrame
 	Function *Function
 	Ip       int32 // Instruction pointer
+	Env      []*Cell
 }
 
+type CoroutineState int32
+
+const (
+	CoroutineStateSuspended CoroutineState = iota
+	CoroutineStateRunning
+	CoroutineStateDead
+)
+
 type Coroutine struct {
-	Frame *CallFrame
+	Parent       *Coroutine
+	State        CoroutineState
+	Frame        *CallFrame
+	Sp           int32 // Stack pointer
+	OperandStack []OSValue
+	Transfer     OSValue
 }
 
 func (s TokenType) String() string {

@@ -54,9 +54,9 @@ func NewIndexAccess(position Position, object, index *Ast) *Ast {
 	return node
 }
 
-func NewCall(position Position, callee *Ast, arguments *Ast) *Ast {
+func NewCall(position Position, obj *Ast, arguments *Ast) *Ast {
 	node := newAst(AstCall, position)
-	node.A = callee
+	node.A = obj
 	node.B = arguments
 	return node
 }
@@ -189,6 +189,12 @@ func NewForLoop(position Position, init, cond, mutt, block *Ast) *Ast {
 	node.B = cond
 	node.C = mutt
 	node.D = block
+	return node
+}
+
+func NewLogStatement(position Position, expr *Ast) *Ast {
+	node := newAst(AstLogStmt, position)
+	node.A = expr
 	return node
 }
 

@@ -7,6 +7,8 @@ const (
 	OpLoadFalse
 	OpLoadNull
 	OpLoadFunction
+	OpLoadVar
+	OpCall
 	OpUnaryPos
 	OpUnaryNeg
 	OpUnaryNot
@@ -29,10 +31,13 @@ const (
 	OpBinBitOr
 	OpBinAnd
 	OpBinOr
+	OpDupTop
+	OpJmp
 	OpPopJmpIfFalse
 	OpPopJmpIfTrue
 	OpJmpIfFalseOrPop
 	OpJmpIfTrueOrPop
 	OpStoreLocal
+	OpStdWrite
 	OpReturn
 )

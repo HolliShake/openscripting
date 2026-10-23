@@ -6,6 +6,7 @@ const (
 	KeyVar      = "var"
 	KeyLet      = "let"
 	KeyConst    = "const"
+	KeyLog      = "log"
 	KeyAsync    = "async"
 	KeyClass    = "class"
 	KeyFn       = "fn"
@@ -28,7 +29,7 @@ const (
 
 func isKeyword(value string) bool {
 	switch value {
-	case KeyImport, KeyFrom, KeyVar, KeyLet, KeyConst, KeyAsync, KeyClass,
+	case KeyImport, KeyFrom, KeyVar, KeyLet, KeyConst, KeyLog, KeyAsync, KeyClass,
 		KeyFn, KeyLoop, KeyTry, KeyCatch, KeySwitch, KeyCase, KeyDefault,
 		KeyIf, KeyElse, KeyContinue, KeyBreak, KeyReturn, KeyAwait,
 		KeyTrue, KeyFalse, KeyNull:

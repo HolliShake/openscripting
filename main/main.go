@@ -20,5 +20,6 @@ func main() {
 		Name:    file,
 		Content: content,
 	})
-	Compile(parser)
+	program := Compile(parser)
+	Run(&state, program)
 }
