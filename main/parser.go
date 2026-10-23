@@ -838,7 +838,13 @@ func (p *Parser) postfix() *Ast {
 
 	for p.match("++") || p.match("--") {
 		opt := p.lookahead.Value
-		p.expect(opt)
+		switch opt {
+		case "++":
+			p.expect("++")
+		case "--":
+			p.expect("--")
+		}
+
 		lhs = NewPostfixOperation(postfixOperator(opt), lhs.Pos, lhs)
 	}
 
@@ -848,7 +854,17 @@ func (p *Parser) postfix() *Ast {
 func (p *Parser) unary() *Ast {
 	if p.match("+") || p.match("-") || p.match("!") || p.match("~") {
 		opt := p.lookahead.Value
-		p.expect(opt)
+		switch opt {
+		case "+":
+			p.expect("+")
+		case "-":
+			p.expect("-")
+		case "!":
+			p.expect("!")
+		case "~":
+			p.expect("~")
+		}
+
 		operand := p.unary()
 		if operand == nil {
 			ThrowError(p.File, "missing operand", p.lookahead.Pos)
@@ -858,7 +874,7 @@ func (p *Parser) unary() *Ast {
 
 	if p.match(KeyAwait) {
 		opt := p.lookahead.Value
-		p.expect(opt)
+		p.expect(KeyAwait)
 		operand := p.unary()
 		if operand == nil {
 			ThrowError(p.File, "missing operand", p.lookahead.Pos)
@@ -878,7 +894,14 @@ func (p *Parser) multiplicative() *Ast {
 
 	for p.match("*") || p.match("/") || p.match("%") {
 		opt := p.lookahead.Value
-		p.expect(opt)
+		switch opt {
+		case "*":
+			p.expect("*")
+		case "/":
+			p.expect("/")
+		case "%":
+			p.expect("%")
+		}
 
 		rhs := p.unary()
 		if rhs == nil {
@@ -905,9 +928,14 @@ func (p *Parser) additive() *Ast {
 
 	for p.match("+") || p.match("-") {
 		opt := p.lookahead.Value
-		p.expect(opt)
-		rhs := p.multiplicative()
+		switch opt {
+		case "+":
+			p.expect("+")
+		case "-":
+			p.expect("-")
+		}
 
+		rhs := p.multiplicative()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
@@ -931,7 +959,12 @@ func (p *Parser) shift() *Ast {
 
 	for p.match("<<") || p.match(">>") {
 		opt := p.lookahead.Value
-		p.expect(opt)
+		switch opt {
+		case "<<":
+			p.expect("<<")
+		case ">>":
+			p.expect(">>")
+		}
 
 		rhs := p.additive()
 		if rhs == nil {
@@ -952,7 +985,16 @@ func (p *Parser) relational() *Ast {
 
 	for p.match("<") || p.match("<=") || p.match(">") || p.match(">=") {
 		opt := p.lookahead.Value
-		p.expect(opt)
+		switch opt {
+		case "<":
+			p.expect("<")
+		case "<=":
+			p.expect("<=")
+		case ">":
+			p.expect(">")
+		case ">=":
+			p.expect(">=")
+		}
 
 		rhs := p.shift()
 		if rhs == nil {
@@ -973,7 +1015,12 @@ func (p *Parser) equality() *Ast {
 
 	for p.match("==") || p.match("!=") {
 		opt := p.lookahead.Value
-		p.expect(opt)
+		switch opt {
+		case "==":
+			p.expect("==")
+		case "!=":
+			p.expect("!=")
+		}
 
 		rhs := p.relational()
 		if rhs == nil {
@@ -994,7 +1041,7 @@ func (p *Parser) bitwiseAnd() *Ast {
 
 	for p.match("&") {
 		opt := p.lookahead.Value
-		p.expect(opt)
+		p.expect("&")
 
 		rhs := p.equality()
 		if rhs == nil {
@@ -1015,7 +1062,7 @@ func (p *Parser) bitwiseXor() *Ast {
 
 	for p.match("^") {
 		opt := p.lookahead.Value
-		p.expect(opt)
+		p.expect("^")
 
 		rhs := p.bitwiseAnd()
 		if rhs == nil {
@@ -1036,7 +1083,7 @@ func (p *Parser) bitwiseOr() *Ast {
 
 	for p.match("|") {
 		opt := p.lookahead.Value
-		p.expect(opt)
+		p.expect("|")
 
 		rhs := p.bitwiseXor()
 		if rhs == nil {
@@ -1057,7 +1104,7 @@ func (p *Parser) logicalAnd() *Ast {
 
 	for p.match("&&") {
 		opt := p.lookahead.Value
-		p.expect(opt)
+		p.expect("&&")
 
 		rhs := p.bitwiseOr()
 		if rhs == nil {
@@ -1078,7 +1125,7 @@ func (p *Parser) logicalOr() *Ast {
 
 	for p.match("||") {
 		opt := p.lookahead.Value
-		p.expect(opt)
+		p.expect("||")
 
 		rhs := p.logicalAnd()
 		if rhs == nil {
@@ -1099,7 +1146,7 @@ func (p *Parser) assignment() *Ast {
 
 	if p.match("=") {
 		opt := p.lookahead.Value
-		p.expect(opt)
+		p.expect("=")
 
 		rhs := p.assignment()
 		if rhs == nil {

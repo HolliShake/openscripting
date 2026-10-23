@@ -48,9 +48,14 @@ func emitFloat(fn *Function, value float64) {
 
 func emitString(fn *Function, value string) {
 	emit(fn, OpLoadStr)
-	strBytes := []rune(value)
-	emit(fn, int32(len(strBytes))) // onlyl int32 size for string length
-	fn.Bytecode = append(fn.Bytecode, strBytes...)
+	lengthIndex := len(fn.Bytecode)
+	emit(fn, 0)
+	runeCount := int32(0)
+	for _, char := range value {
+		fn.Bytecode = append(fn.Bytecode, int32(char))
+		runeCount++
+	}
+	fn.Bytecode[lengthIndex] = runeCount
 }
 
 func emitAny(fn *Function, value any) {
@@ -75,6 +80,45 @@ func emitAny(fn *Function, value any) {
 
 	panic("unsupported type")
 
+}
+
+func binaryOpcode(astType AstType) int32 {
+	switch astType {
+	case AstMul:
+		return OpBinMul
+	case AstDiv:
+		return OpBinDiv
+	case AstMod:
+		return OpBinMod
+	case AstAdd:
+		return OpBinAdd
+	case AstSub:
+		return OpBinSub
+	case AstShiftLeft:
+		return OpBinShiftLeft
+	case AstShiftRight:
+		return OpBinShiftRight
+	case AstLess:
+		return OpBinLess
+	case AstLessEqual:
+		return OpBinLessEqual
+	case AstGreater:
+		return OpBinGreater
+	case AstGreaterEqual:
+		return OpBinGreaterEqual
+	case AstEqual:
+		return OpBinEqual
+	case AstNotEqual:
+		return OpBinNotEqual
+	case AstBitAnd:
+		return OpBinBitAnd
+	case AstBitXor:
+		return OpBinBitXor
+	case AstBitOr:
+		return OpBinBitOr
+	default:
+		panic("invalid binary operator")
+	}
 }
 
 func isString(value any) bool {
@@ -318,28 +362,7 @@ func visitExpression(p *Parser, fn *Function, ast *Ast) {
 		visitExpression(p, fn, ast.A)
 		visitExpression(p, fn, ast.B)
 
-		opcode := map[AstType]int32{
-			AstMul:          OpBinMul,
-			AstDiv:          OpBinDiv,
-			AstMod:          OpBinMod,
-			AstAdd:          OpBinAdd,
-			AstSub:          OpBinSub,
-			AstShiftLeft:    OpBinShiftLeft,
-			AstShiftRight:   OpBinShiftRight,
-			AstLess:         OpBinLess,
-			AstLessEqual:    OpBinLessEqual,
-			AstGreater:      OpBinGreater,
-			AstGreaterEqual: OpBinGreaterEqual,
-			AstEqual:        OpBinEqual,
-			AstNotEqual:     OpBinNotEqual,
-			AstBitAnd:       OpBinBitAnd,
-			AstBitXor:       OpBinBitXor,
-			AstBitOr:        OpBinBitOr,
-			AstAnd:          OpBinAnd,
-			AstOr:           OpBinOr,
-		}[ast.Type]
-
-		emit(fn, opcode)
+		emit(fn, binaryOpcode(ast.Type))
 	case AstAnd, AstOr:
 		{
 			/*
