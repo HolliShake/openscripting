@@ -20,5 +20,5 @@ func main() {
 		Name:    file,
 		Content: content,
 	})
-	parser.Parse()
+	Compile(parser)
 }

@@ -96,7 +96,7 @@ func hexValue(ch rune) (uint32, bool) {
 /******************* Cursor ***/
 
 func NewParser(state *State, file *File) *Parser {
-	return &Parser{state: state, file: file}
+	return &Parser{state: state, File: file}
 }
 
 func (p *Parser) pushError(err string) {
@@ -104,22 +104,22 @@ func (p *Parser) pushError(err string) {
 }
 
 func (p *Parser) current() rune {
-	if p.offset >= len(p.file.Content) {
+	if p.offset >= len(p.File.Content) {
 		return 0
 	}
-	return p.file.Content[p.offset]
+	return p.File.Content[p.offset]
 }
 
 func (p *Parser) peek(distance int) rune {
 	index := p.offset + distance
-	if index >= len(p.file.Content) {
+	if index >= len(p.File.Content) {
 		return 0
 	}
-	return p.file.Content[index]
+	return p.File.Content[index]
 }
 
 func (p *Parser) advance() rune {
-	src := p.file.Content
+	src := p.File.Content
 	if p.offset >= len(src) {
 		return 0
 	}
@@ -145,13 +145,13 @@ func (p *Parser) advance() rune {
 func (p *Parser) emit(t TokenType, start, end int, pos Position) Token {
 	p.colm += end - start
 	p.offset = end
-	return Token{Type: t, Value: string(p.file.Content[start:end]), Pos: pos}
+	return Token{Type: t, Value: string(p.File.Content[start:end]), Pos: pos}
 }
 
 /******************* Trivia ***/
 
 func (p *Parser) skipTrivia() (Token, bool) {
-	src := p.file.Content
+	src := p.File.Content
 	n := len(src)
 	for {
 		for p.offset < n {
@@ -196,7 +196,7 @@ func (p *Parser) skipTrivia() (Token, bool) {
 			p.colm += i - p.offset
 			p.offset = i
 			if i >= n {
-				ThrowError(p.file, "unterminated block comment", pos)
+				ThrowError(p.File, "unterminated block comment", pos)
 			}
 			p.offset += 2
 			p.colm += 2
@@ -209,13 +209,13 @@ func (p *Parser) skipTrivia() (Token, bool) {
 /******************* Scanners ***/
 
 func (p *Parser) scanEscape() {
-	src := p.file.Content
+	src := p.File.Content
 	n := len(src)
 	pos := Position{Line: p.line, Column: p.colm}
 	p.offset++ // backslash
 	p.colm++
 	if p.offset >= n || isLineBreak(src[p.offset]) {
-		ThrowError(p.file, "invalid escape sequence", pos)
+		ThrowError(p.File, "invalid escape sequence", pos)
 	}
 
 	escape := p.advance()
@@ -245,7 +245,7 @@ func (p *Parser) scanEscape() {
 				break
 			}
 			if value > 0x10ffff>>4 {
-				ThrowError(p.file, "invalid escape sequence", pos)
+				ThrowError(p.File, "invalid escape sequence", pos)
 			}
 			value = value<<4 | d
 			digits++
@@ -255,23 +255,23 @@ func (p *Parser) scanEscape() {
 
 		if braced {
 			if digits == 0 || digits > 6 || p.offset >= n || src[p.offset] != '}' {
-				ThrowError(p.file, "invalid escape sequence", pos)
+				ThrowError(p.File, "invalid escape sequence", pos)
 			}
 			p.offset++
 			p.colm++
 		} else if digits != width {
-			ThrowError(p.file, "invalid escape sequence", pos)
+			ThrowError(p.File, "invalid escape sequence", pos)
 		}
 		if escape != 'x' && (value > 0x10ffff || value >= 0xd800 && value <= 0xdfff) {
-			ThrowError(p.file, "invalid escape sequence", pos)
+			ThrowError(p.File, "invalid escape sequence", pos)
 		}
 	default:
-		ThrowError(p.file, "invalid escape sequence", pos)
+		ThrowError(p.File, "invalid escape sequence", pos)
 	}
 }
 
 func (p *Parser) scanString(pos Position) Token {
-	src := p.file.Content
+	src := p.File.Content
 	n := len(src)
 	start := p.offset
 	quote := src[start]
@@ -308,7 +308,7 @@ loop:
 		case c == '\\':
 			p.scanEscape()
 		case isLineBreak(c):
-			ThrowError(p.file, "unterminated string literal", pos)
+			ThrowError(p.File, "unterminated string literal", pos)
 		default: // the other quote character
 			p.offset++
 			p.colm++
@@ -316,13 +316,13 @@ loop:
 	}
 
 	if !terminated {
-		ThrowError(p.file, "unterminated string literal", pos)
+		ThrowError(p.File, "unterminated string literal", pos)
 	}
 	return Token{Type: STR, Value: string(src[start:p.offset]), Pos: pos}
 }
 
 func (p *Parser) scanNumber(pos Position, start int) Token {
-	src := p.file.Content
+	src := p.File.Content
 	n := len(src)
 	i := start
 
@@ -361,7 +361,7 @@ func (p *Parser) scanNumber(pos Position, start int) Token {
 				i++
 			}
 			if !hasDigit {
-				ThrowError(p.file, "invalid numeric literal", pos)
+				ThrowError(p.File, "invalid numeric literal", pos)
 			}
 			return p.emit(NUM, start, i, pos)
 		}
@@ -393,7 +393,7 @@ func (p *Parser) scanNumber(pos Position, start int) Token {
 }
 
 func (p *Parser) scanIdent(pos Position, start int) Token {
-	src := p.file.Content
+	src := p.File.Content
 	n := len(src)
 	i := start + 1
 	for i < n {
@@ -463,7 +463,7 @@ func (p *Parser) getNextToken() Token {
 	if tok, ok := p.skipTrivia(); ok {
 		return tok
 	}
-	src := p.file.Content
+	src := p.File.Content
 	pos := Position{Line: p.line, Column: p.colm}
 	i := p.offset
 	if i >= len(src) {
@@ -483,7 +483,7 @@ func (p *Parser) getNextToken() Token {
 		case cls&clsSymbol != 0:
 			return p.emit(SYM, i, i+symbolLen(src, i), pos)
 		}
-		ThrowError(p.file, fmt.Sprintf("unexpected character %q", ch), pos)
+		ThrowError(p.File, fmt.Sprintf("unexpected character %q", ch), pos)
 	}
 
 	if p.isIdentifierStart(ch) {
@@ -493,7 +493,7 @@ func (p *Parser) getNextToken() Token {
 		return p.scanNumber(pos, i)
 	}
 	p.advance()
-	ThrowError(p.file, fmt.Sprintf("unexpected character %q", ch), pos)
+	ThrowError(p.File, fmt.Sprintf("unexpected character %q", ch), pos)
 	return Token{}
 }
 
@@ -516,18 +516,24 @@ func (p *Parser) expect(token any) {
 		p.lookahead = p.getNextToken()
 		return
 	}
-	ThrowError(p.file, fmt.Sprintf("expected token \"%s\", got \"%s\"", token, p.lookahead.Value), p.lookahead.Pos)
+	ThrowError(p.File, fmt.Sprintf("expected token \"%s\", got \"%s\"", token, p.lookahead.Value), p.lookahead.Pos)
 }
 
 func (p *Parser) identifier(required bool) *Ast {
 	if !p.match(IDN) && required {
-		ThrowError(p.file, "expected identifier", p.lookahead.Pos)
+		ThrowError(p.File, "expected identifier", p.lookahead.Pos)
 	}
 	if !p.match(IDN) {
 		return nil
 	}
 	ast := NewTerminalAst(AstIdentifier, p.lookahead.Pos, p.lookahead.Value)
 	p.expect(IDN)
+	return ast
+}
+
+func (p *Parser) stringLit() *Ast {
+	ast := NewTerminalAst(AstStrLit, p.lookahead.Pos, p.lookahead.Value)
+	p.expect(STR)
 	return ast
 }
 
@@ -569,7 +575,7 @@ func (p *Parser) terminal() *Ast {
 		{
 			v, err := strconv.ParseFloat(p.lookahead.Value, 64)
 			if err != nil {
-				ThrowError(p.file, "invalid number format", p.lookahead.Pos)
+				ThrowError(p.File, "invalid number format", p.lookahead.Pos)
 			}
 			ast := NewTerminalAst(AstNumLit, p.lookahead.Pos, v)
 			p.expect(NUM)
@@ -577,9 +583,7 @@ func (p *Parser) terminal() *Ast {
 		}
 	case STR:
 		{
-			ast := NewTerminalAst(AstStrLit, p.lookahead.Pos, p.lookahead.Value)
-			p.expect(STR)
-			return ast
+			return p.stringLit()
 		}
 	case KEY:
 		{
@@ -618,8 +622,79 @@ func (p *Parser) group() *Ast {
 		return p.classExpression()
 	} else if p.match(KeyFn) {
 		return p.functionExpression()
+	} else if p.match(KeySwitch) {
+		return p.switchExpression()
 	}
 	return p.terminal()
+}
+
+func (p *Parser) switchExpression() *Ast {
+	pos := p.lookahead.Pos
+	p.expect(KeySwitch)
+	p.expect("(")
+	condition := p.expression(true)
+	p.expect(")")
+	p.expect("{")
+
+	var caseHead *Ast = nil
+	var caseTail *Ast = nil
+
+	caseExpr := p.listOfExpression(true, false)
+	p.expect("=>")
+	caseBlock := p.expression(true)
+
+	caseHead = NewKeyValue(caseExpr.Pos, caseExpr, caseBlock)
+	caseTail = caseHead
+
+	hasDefault := false
+
+	for caseTail != nil && p.match(",") {
+		p.expect(",")
+
+		if p.match(KeyDefault) {
+			if hasDefault {
+				ThrowError(p.File, "multiple default cases are not allowed", p.lookahead.Pos)
+			}
+
+			hasDefault = true
+			p.expect(KeyDefault)
+			p.expect("=>")
+			defaultBlock := p.expression(true)
+			defaultNode := NewKeyValue(
+				p.lookahead.Pos,
+				NewTerminalAst(AstNullLit, p.lookahead.Pos, nil),
+				defaultBlock,
+			)
+			if caseHead == nil {
+				caseHead = defaultNode
+				caseTail = defaultNode
+			} else {
+				caseTail.Next = defaultNode
+				caseTail = caseTail.Next
+			}
+			continue
+		}
+
+		caseExpr := p.listOfExpression(false, false)
+		if caseExpr == nil {
+			ThrowError(p.File, "invalid case expression", p.lookahead.Pos)
+		}
+		p.expect("=>")
+		caseBlock := p.expression(true)
+
+		caseNode := NewKeyValue(caseExpr.Pos, caseExpr, caseBlock)
+		if caseHead == nil {
+			caseHead = caseNode
+			caseTail = caseNode
+		} else {
+			caseTail.Next = caseNode
+			caseTail = caseTail.Next
+		}
+	}
+
+	p.expect("}")
+
+	return NewSwitchStatement(pos, condition, caseHead)
 }
 
 func (p *Parser) memberOrCall() *Ast {
@@ -648,6 +723,36 @@ func (p *Parser) memberOrCall() *Ast {
 	}
 
 	return obj
+}
+
+func postfixOperator(opt string) AstType {
+	switch opt {
+	case "++":
+		return AstInc
+	case "--":
+		return AstDec
+	}
+	panic("invalid postfix operator")
+}
+
+func unaryOperator(opt string) AstType {
+	switch opt {
+	case "+":
+		return AstPos
+	case "++":
+		return AstInc
+	case "-":
+		return AstNeg
+	case "--":
+		return AstDec
+	case "!":
+		return AstNot
+	case "~":
+		return AstBitNot
+	case KeyAwait:
+		return AstAwait
+	}
+	panic("invalid unary operator")
 }
 
 func binOperator(opt string) AstType {
@@ -715,16 +820,57 @@ func binOperator(opt string) AstType {
 }
 
 func (p *Parser) expression(required bool) *Ast {
-	node := p.orAssign()
+	node := p.ternaryOperation()
 	if node == nil && required {
-		ThrowError(p.file, "missing expression", p.lookahead.Pos)
+		ThrowError(p.File, "missing expression", p.lookahead.Pos)
 	}
 	return node
 }
 
 // Precedence methods below are ordered from tightest to loosest.
-func (p *Parser) multiplicative() *Ast {
+
+func (p *Parser) postfix() *Ast {
 	lhs := p.memberOrCall()
+
+	if lhs == nil {
+		return nil
+	}
+
+	for p.match("++") || p.match("--") {
+		opt := p.lookahead.Value
+		p.expect(opt)
+		lhs = NewPostfixOperation(postfixOperator(opt), lhs.Pos, lhs)
+	}
+
+	return lhs
+}
+
+func (p *Parser) unary() *Ast {
+	if p.match("+") || p.match("-") || p.match("!") || p.match("~") {
+		opt := p.lookahead.Value
+		p.expect(opt)
+		operand := p.unary()
+		if operand == nil {
+			ThrowError(p.File, "missing operand", p.lookahead.Pos)
+		}
+		return NewUnaryOperation(unaryOperator(opt), operand.Pos, operand)
+	}
+
+	if p.match(KeyAwait) {
+		opt := p.lookahead.Value
+		p.expect(opt)
+		operand := p.unary()
+		if operand == nil {
+			ThrowError(p.File, "missing operand", p.lookahead.Pos)
+		}
+		return NewUnaryOperation(unaryOperator(opt), operand.Pos, operand)
+	}
+
+	return p.postfix()
+}
+
+func (p *Parser) multiplicative() *Ast {
+	lhs := p.unary()
 
 	if lhs == nil {
 		return nil
@@ -734,9 +880,9 @@ func (p *Parser) multiplicative() *Ast {
 		opt := p.lookahead.Value
 		p.expect(opt)
 
-		rhs := p.memberOrCall()
+		rhs := p.unary()
 		if rhs == nil {
-			ThrowError(p.file, "missing right-hand operand", p.lookahead.Pos)
+			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
 
 		lhs = NewBinaryOperation(
@@ -763,7 +909,7 @@ func (p *Parser) additive() *Ast {
 		rhs := p.multiplicative()
 
 		if rhs == nil {
-			ThrowError(p.file, "missing right-hand operand", p.lookahead.Pos)
+			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
 
 		lhs = NewBinaryOperation(
@@ -789,7 +935,7 @@ func (p *Parser) shift() *Ast {
 
 		rhs := p.additive()
 		if rhs == nil {
-			ThrowError(p.file, "missing right-hand operand", p.lookahead.Pos)
+			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
 
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
@@ -810,7 +956,7 @@ func (p *Parser) relational() *Ast {
 
 		rhs := p.shift()
 		if rhs == nil {
-			ThrowError(p.file, "missing right-hand operand", p.lookahead.Pos)
+			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
 
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
@@ -831,7 +977,7 @@ func (p *Parser) equality() *Ast {
 
 		rhs := p.relational()
 		if rhs == nil {
-			ThrowError(p.file, "missing right-hand operand", p.lookahead.Pos)
+			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
 
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
@@ -852,7 +998,7 @@ func (p *Parser) bitwiseAnd() *Ast {
 
 		rhs := p.equality()
 		if rhs == nil {
-			ThrowError(p.file, "missing right-hand operand", p.lookahead.Pos)
+			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
 
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
@@ -873,7 +1019,7 @@ func (p *Parser) bitwiseXor() *Ast {
 
 		rhs := p.bitwiseAnd()
 		if rhs == nil {
-			ThrowError(p.file, "missing right-hand operand", p.lookahead.Pos)
+			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
 
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
@@ -894,7 +1040,7 @@ func (p *Parser) bitwiseOr() *Ast {
 
 		rhs := p.bitwiseXor()
 		if rhs == nil {
-			ThrowError(p.file, "missing right-hand operand", p.lookahead.Pos)
+			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
 
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
@@ -915,7 +1061,7 @@ func (p *Parser) logicalAnd() *Ast {
 
 		rhs := p.bitwiseOr()
 		if rhs == nil {
-			ThrowError(p.file, "missing right-hand operand", p.lookahead.Pos)
+			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
 
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
@@ -936,7 +1082,7 @@ func (p *Parser) logicalOr() *Ast {
 
 		rhs := p.logicalAnd()
 		if rhs == nil {
-			ThrowError(p.file, "missing right-hand operand", p.lookahead.Pos)
+			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
 
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
@@ -957,7 +1103,7 @@ func (p *Parser) assignment() *Ast {
 
 		rhs := p.assignment()
 		if rhs == nil {
-			ThrowError(p.file, "missing right-hand operand", p.lookahead.Pos)
+			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
 
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
@@ -978,7 +1124,7 @@ func (p *Parser) mulAssign() *Ast {
 
 		rhs := p.mulAssign()
 		if rhs == nil {
-			ThrowError(p.file, "missing right-hand operand", p.lookahead.Pos)
+			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
 
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
@@ -999,7 +1145,7 @@ func (p *Parser) addAssign() *Ast {
 
 		rhs := p.addAssign()
 		if rhs == nil {
-			ThrowError(p.file, "missing right-hand operand", p.lookahead.Pos)
+			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
 
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
@@ -1020,7 +1166,7 @@ func (p *Parser) shiftAssign() *Ast {
 
 		rhs := p.shiftAssign()
 		if rhs == nil {
-			ThrowError(p.file, "missing right-hand operand", p.lookahead.Pos)
+			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
 
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
@@ -1041,7 +1187,7 @@ func (p *Parser) andAssign() *Ast {
 
 		rhs := p.andAssign()
 		if rhs == nil {
-			ThrowError(p.file, "missing right-hand operand", p.lookahead.Pos)
+			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
 
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
@@ -1062,7 +1208,7 @@ func (p *Parser) xorAssign() *Ast {
 
 		rhs := p.xorAssign()
 		if rhs == nil {
-			ThrowError(p.file, "missing right-hand operand", p.lookahead.Pos)
+			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
 
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
@@ -1083,13 +1229,31 @@ func (p *Parser) orAssign() *Ast {
 
 		rhs := p.orAssign()
 		if rhs == nil {
-			ThrowError(p.file, "missing right-hand operand", p.lookahead.Pos)
+			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
 
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
 	return lhs
+}
+
+func (p *Parser) ternaryOperation() *Ast {
+	condition := p.orAssign()
+	if condition == nil {
+		return nil
+	}
+
+	if !p.match("?") {
+		return condition
+	}
+
+	p.expect("?")
+	thenExpr := p.expression(true)
+	p.expect(":")
+	elseExpr := p.expression(true)
+
+	return NewTernaryOperation(condition.Pos, condition, thenExpr, elseExpr)
 }
 
 func (p *Parser) spreadOrExpression(required bool, spread bool) *Ast {
@@ -1108,7 +1272,7 @@ func (p *Parser) listOfExpression(required bool, spread bool) *Ast {
 		p.expect(",")
 		tail.Next = p.spreadOrExpression(false, spread) // expression or spread
 		if tail.Next == nil {
-			ThrowError(p.file, "missing expression after comma", p.lookahead.Pos)
+			ThrowError(p.File, "missing expression after comma", p.lookahead.Pos)
 		}
 		tail = tail.Next
 	}
@@ -1118,14 +1282,10 @@ func (p *Parser) listOfExpression(required bool, spread bool) *Ast {
 
 func (p *Parser) key(required bool) *Ast {
 	if p.match(IDN) || p.match(STR) {
-		node := p.terminal()
-		if node == nil && required {
-			ThrowError(p.file, "missing key", p.lookahead.Pos)
-		}
-		return node
+		return p.terminal()
 	}
 	if required {
-		ThrowError(p.file, "missing key", p.lookahead.Pos)
+		ThrowError(p.File, "missing key", p.lookahead.Pos)
 	}
 	return nil
 }
@@ -1140,7 +1300,7 @@ func (p *Parser) keyValue(required bool, spread bool) *Ast {
 	p.expect(":")
 	v := p.expression(false)
 	if v == nil {
-		ThrowError(p.file, "missing value for key", p.lookahead.Pos)
+		ThrowError(p.File, "missing value for key", p.lookahead.Pos)
 	}
 	return NewKeyValue(k.Pos, k, v)
 }
@@ -1153,7 +1313,7 @@ func (p *Parser) listOfKeyValues(required bool, spread bool) *Ast {
 		p.expect(",")
 		tail.Next = p.keyValue(false, spread)
 		if tail.Next == nil {
-			ThrowError(p.file, "missing key-value after comma", p.lookahead.Pos)
+			ThrowError(p.File, "missing key-value after comma", p.lookahead.Pos)
 		}
 		tail = tail.Next
 	}
@@ -1163,48 +1323,17 @@ func (p *Parser) listOfKeyValues(required bool, spread bool) *Ast {
 
 /******************* Declarations ***/
 
-func (p *Parser) variableDeclaration(keyWord string) *Ast {
-	position := p.lookahead.Pos
-	var declarationType, arrayDestructuringType, objectDestructuringType AstType
-	switch keyWord {
-	case KeyVar:
-		declarationType = AstVar
-		arrayDestructuringType = AstDestructuringArrayVar
-		objectDestructuringType = AstDestructuringObjectVar
-	case KeyLet:
-		declarationType = AstLet
-		arrayDestructuringType = AstDestructuringArrayLet
-		objectDestructuringType = AstDestructuringObjectLet
-	case KeyConst:
-		declarationType = AstConst
-		arrayDestructuringType = AstDestructuringArrayConst
-		objectDestructuringType = AstDestructuringObjectConst
-	default:
-		ThrowError(p.file, "invalid variable declaration", position)
-	}
-
-	p.expect(keyWord) // var | let | const
-
-	if p.match("[") { // array destructuring
-		p.expect("[")
-		head := p.identifier(true)
-		tail := head
-		for p.match(",") {
-			p.expect(",")
-			tail.Next = p.identifier(false)
-			if tail.Next == nil {
-				ThrowError(p.file, "missing identifier after comma", p.lookahead.Pos)
-			}
-			tail = tail.Next
-		}
-		p.expect("]")
-		p.expect("=")
-		v := p.expression(true)
+func (p *Parser) importStatement() *Ast {
+	pos := p.lookahead.Pos
+	p.expect(KeyImport)
+	// import logic here (e.g., import "module")
+	if p.match(STR) {
+		module := p.stringLit()
 		p.expect(";")
-		return NewDestructuringArrayDeclaration(arrayDestructuringType, position, head, v)
-	} else if p.match("{") { // object destructuring
+		return NewImport(pos, module, nil)
+	} else if p.match("{") {
 		p.expect("{")
-		var k *Ast = p.key(true)
+		var k *Ast = p.identifier(true)
 		var v *Ast = nil
 
 		if p.match(":") {
@@ -1223,7 +1352,94 @@ func (p *Parser) variableDeclaration(keyWord string) *Ast {
 		for tail != nil && p.match(",") {
 			p.expect(",")
 
-			k = p.key(false)
+			k = p.identifier(false)
+			v = nil
+
+			if p.match(":") {
+				p.expect(":")
+				v = p.expression(true)
+			}
+
+			if k != nil && v != nil {
+				tail.Next = NewKeyValue(k.Pos, k, v)
+			} else {
+				tail.Next = k
+			}
+
+			tail = tail.Next
+		}
+		p.expect("}")
+		p.expect(KeyFrom)
+		module := p.stringLit()
+		p.expect(";")
+		return NewImport(pos, module, head)
+	}
+
+	ThrowError(p.File, "missing module in import statement", pos)
+	return nil
+}
+
+func (p *Parser) variableDeclaration(keyWord string) *Ast {
+	position := p.lookahead.Pos
+	var declarationType, arrayDestructuringType, objectDestructuringType AstType
+	switch keyWord {
+	case KeyVar:
+		declarationType = AstVar
+		arrayDestructuringType = AstDestructuringArrayVar
+		objectDestructuringType = AstDestructuringObjectVar
+	case KeyLet:
+		declarationType = AstLet
+		arrayDestructuringType = AstDestructuringArrayLet
+		objectDestructuringType = AstDestructuringObjectLet
+	case KeyConst:
+		declarationType = AstConst
+		arrayDestructuringType = AstDestructuringArrayConst
+		objectDestructuringType = AstDestructuringObjectConst
+	default:
+		ThrowError(p.File, "invalid variable declaration", position)
+	}
+
+	p.expect(keyWord) // var | let | const
+
+	if p.match("[") { // array destructuring
+		p.expect("[")
+		head := p.identifier(true)
+		tail := head
+		for p.match(",") {
+			p.expect(",")
+			tail.Next = p.identifier(false)
+			if tail.Next == nil {
+				ThrowError(p.File, "missing identifier after comma", p.lookahead.Pos)
+			}
+			tail = tail.Next
+		}
+		p.expect("]")
+		p.expect("=")
+		v := p.expression(true)
+		p.expect(";")
+		return NewDestructuringArrayDeclaration(arrayDestructuringType, position, head, v)
+	} else if p.match("{") { // object destructuring
+		p.expect("{")
+		var k *Ast = p.identifier(true)
+		var v *Ast = nil
+
+		if p.match(":") {
+			p.expect(":")
+			v = p.expression(true)
+		}
+
+		var head *Ast = k
+		var tail *Ast = head
+
+		if k != nil && v != nil {
+			head = NewKeyValue(k.Pos, k, v)
+			tail = head
+		}
+
+		for tail != nil && p.match(",") {
+			p.expect(",")
+
+			k = p.identifier(false)
 			v = nil
 
 			if p.match(":") {
@@ -1265,7 +1481,7 @@ func (p *Parser) variableDeclaration(keyWord string) *Ast {
 			return cls
 		}
 
-		ThrowError(p.file, "invalid syntax, expected fn or class", p.lookahead.Pos)
+		ThrowError(p.File, "invalid syntax, expected fn or class", p.lookahead.Pos)
 	}
 
 	if p.match("=") {
@@ -1282,7 +1498,7 @@ func (p *Parser) variableDeclaration(keyWord string) *Ast {
 		key = p.identifier(false)
 
 		if key == nil {
-			ThrowError(p.file, "missing identifier after comma", p.lookahead.Pos)
+			ThrowError(p.File, "missing identifier after comma", p.lookahead.Pos)
 		}
 
 		val = nil
@@ -1323,9 +1539,6 @@ func (p *Parser) classExpression() *Ast {
 	for tail != nil && p.match(",") {
 		p.expect(",")
 		k = p.identifier(true)
-		if k == nil {
-			ThrowError(p.file, "missing identifier after comma", p.lookahead.Pos)
-		}
 		p.expect(":")
 		v = p.expression(true)
 		tail.Next = NewKeyValue(k.Pos, k, v)
@@ -1347,7 +1560,7 @@ func (p *Parser) functionExpression() *Ast {
 		p.expect(",")
 		var ident *Ast = p.identifier(false)
 		if ident == nil {
-			ThrowError(p.file, "missing identifier after comma", p.lookahead.Pos)
+			ThrowError(p.File, "missing identifier after comma", p.lookahead.Pos)
 		}
 		parameterTail.Next = ident
 		parameterTail = parameterTail.Next
@@ -1388,6 +1601,77 @@ func (p *Parser) isInitializer(ast *Ast) bool {
 		return true
 	}
 	return false
+}
+
+func (p *Parser) tryCatch() *Ast {
+	pos := p.lookahead.Pos
+	p.expect(KeyTry)
+	p.expect("{")
+	tryBlock := p.listOfBlockStatement()
+	p.expect("}")
+
+	var catchParam *Ast = nil
+	var catchBlock *Ast = nil
+	if p.match(KeyCatch) {
+		p.expect(KeyCatch)
+		p.expect("(")
+		catchParam = p.identifier(true)
+		p.expect(")")
+		p.expect("{")
+		catchBlock = p.listOfBlockStatement()
+		p.expect("}")
+	}
+
+	return NewTryCatch(pos, tryBlock, catchParam, catchBlock)
+}
+
+func (p *Parser) switchStatement() *Ast {
+	pos := p.lookahead.Pos
+	p.expect(KeySwitch)
+	p.expect("(")
+	condition := p.expression(true)
+	p.expect(")")
+	p.expect("{")
+
+	var caseHead *Ast = nil
+	var caseTail *Ast = nil
+
+	for p.match(KeyCase) {
+		p.expect(KeyCase)
+		caseExpr := p.listOfExpression(true, false)
+		p.expect(":")
+		caseBlock := p.listOfBlockStatement()
+		caseNode := NewKeyValue(caseExpr.Pos, caseExpr, caseBlock)
+		if caseHead == nil {
+			caseHead = caseNode
+			caseTail = caseNode
+		} else {
+			caseTail.Next = caseNode
+			caseTail = caseTail.Next
+		}
+	}
+
+	if p.match(KeyDefault) {
+		p.expect(KeyDefault)
+		p.expect(":")
+		defaultBlock := p.listOfBlockStatement()
+		defaultNode := NewKeyValue(
+			p.lookahead.Pos,
+			NewTerminalAst(AstNullLit, p.lookahead.Pos, nil),
+			defaultBlock,
+		)
+		if caseHead == nil {
+			caseHead = defaultNode
+			caseTail = defaultNode
+		} else {
+			caseTail.Next = defaultNode
+			caseTail = caseTail.Next
+		}
+	}
+
+	p.expect("}")
+
+	return NewSwitchStatement(pos, condition, caseHead)
 }
 
 func (p *Parser) ifStatement() *Ast {
@@ -1431,7 +1715,7 @@ func (p *Parser) loopStatement() *Ast {
 	block := p.blockLevelStatement()
 
 	if block == nil {
-		ThrowError(p.file, "missing block after loop", p.lookahead.Pos)
+		ThrowError(p.File, "missing block after loop", p.lookahead.Pos)
 	}
 
 	if !whileMode {
@@ -1439,6 +1723,28 @@ func (p *Parser) loopStatement() *Ast {
 	}
 
 	return NewWhileLoop(pos, init, block)
+}
+
+func (p *Parser) continueStatement() *Ast {
+	pos := p.lookahead.Pos
+	p.expect(KeyContinue)
+	p.expect(";")
+	return NewContinueStatement(pos)
+}
+
+func (p *Parser) breakStatement() *Ast {
+	pos := p.lookahead.Pos
+	p.expect(KeyBreak)
+	p.expect(";")
+	return NewBreakStatement(pos)
+}
+
+func (p *Parser) returnStatement() *Ast {
+	pos := p.lookahead.Pos
+	p.expect(KeyReturn)
+	value := p.expression(false)
+	p.expect(";")
+	return NewReturnStatement(pos, value)
 }
 
 func (p *Parser) blockStatement() *Ast {
@@ -1462,7 +1768,9 @@ func (p *Parser) expressionStatement() *Ast {
 }
 
 func (p *Parser) statement() *Ast {
-	if p.match(KeyVar) {
+	if p.match(KeyImport) {
+		return p.importStatement()
+	} else if p.match(KeyVar) {
 		return p.variableDeclaration(KeyVar)
 	}
 	return p.blockLevelStatement()
@@ -1471,10 +1779,18 @@ func (p *Parser) statement() *Ast {
 func (p *Parser) blockLevelStatement() *Ast {
 	if p.match(KeyLet) || p.match(KeyConst) {
 		return p.variableDeclaration(p.lookahead.Value)
+	} else if p.match(KeySwitch) {
+		return p.switchStatement()
 	} else if p.match(KeyIf) {
 		return p.ifStatement()
 	} else if p.match(KeyLoop) {
 		return p.loopStatement()
+	} else if p.match(KeyContinue) {
+		return p.continueStatement()
+	} else if p.match(KeyBreak) {
+		return p.breakStatement()
+	} else if p.match(KeyReturn) {
+		return p.returnStatement()
 	} else if p.match("{") {
 		return p.blockStatement()
 	}

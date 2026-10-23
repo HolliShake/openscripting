@@ -20,6 +20,13 @@ const (
 	AstIndexAccess
 	AstCall
 	// Unary Operations
+	AstPos
+	AstInc
+	AstNeg
+	AstDec
+	AstNot
+	AstBitNot
+	AstAwait
 	AstSpread
 	// Binary Operations
 	AstMul
@@ -51,7 +58,9 @@ const (
 	AstAndAssign
 	AstXorAssign
 	AstOrAssign
+	AstTernaryOperation
 	// Declarations
+	AstImport
 	AstClass
 	AstFunction
 	AstDestructuringArrayVar
@@ -64,9 +73,14 @@ const (
 	AstLet
 	AstConst
 	// Statements
-	AstIfStatement
+	AstTryCatch
+	AstSwitchStmt
+	AstIfStmt
 	AstForLoop
 	AstWhileLoop
+	AstContinueStmt
+	AstBreakStmt
+	AstReturnStmt
 	AstBlock
 	AstExpressionStmnt
 	AstProgram
@@ -132,6 +146,18 @@ func NewCall(position Position, callee *Ast, arguments *Ast) *Ast {
 	return node
 }
 
+func NewPostfixOperation(ast AstType, position Position, operand *Ast) *Ast {
+	node := newAst(ast, position)
+	node.A = operand
+	return node
+}
+
+func NewUnaryOperation(ast AstType, position Position, operand *Ast) *Ast {
+	node := newAst(ast, position)
+	node.A = operand
+	return node
+}
+
 func NewSpread(position Position, expr *Ast) *Ast {
 	node := newAst(AstSpread, position)
 	node.A = expr
@@ -142,6 +168,14 @@ func NewBinaryOperation(ast AstType, position Position, lhs, rhs *Ast) *Ast {
 	node := newAst(ast, position)
 	node.A = lhs
 	node.B = rhs
+	return node
+}
+
+func NewTernaryOperation(position Position, condition, thenExpr, elseExpr *Ast) *Ast {
+	node := newAst(AstTernaryOperation, position)
+	node.A = condition
+	node.B = thenExpr
+	node.C = elseExpr
 	return node
 }
 
@@ -181,6 +215,13 @@ func NewVariableDeclaration(ast AstType, position Position, declarations *Ast) *
 	return node
 }
 
+func NewImport(position Position, moduleName *Ast, attributes *Ast) *Ast {
+	node := newAst(AstImport, position)
+	node.A = moduleName
+	node.B = attributes
+	return node
+}
+
 func NewClassDeclaration(position Position, className *Ast, class *Ast) *Ast {
 	node := newAst(AstClass, position)
 	node.A = className
@@ -197,8 +238,23 @@ func NewFunctionDeclaration(position Position, name *Ast, function *Ast) *Ast {
 
 // Statements
 
+func NewTryCatch(position Position, tryBlock, catchParam, catchBlock *Ast) *Ast {
+	node := newAst(AstTryCatch, position)
+	node.A = tryBlock
+	node.B = catchParam
+	node.C = catchBlock
+	return node
+}
+
+func NewSwitchStatement(position Position, condition *Ast, caseHead *Ast) *Ast {
+	node := newAst(AstSwitchStmt, position)
+	node.A = condition
+	node.B = caseHead
+	return node
+}
+
 func NewIfStatement(position Position, condition *Ast, thenBlock *Ast, elseBlock *Ast) *Ast {
-	node := newAst(AstIfStatement, position)
+	node := newAst(AstIfStmt, position)
 	node.A = condition
 	node.B = thenBlock
 	node.C = elseBlock
@@ -218,6 +274,22 @@ func NewForLoop(position Position, init, cond, mutt, block *Ast) *Ast {
 	node.B = cond
 	node.C = mutt
 	node.D = block
+	return node
+}
+
+func NewContinueStatement(position Position) *Ast {
+	node := newAst(AstContinueStmt, position)
+	return node
+}
+
+func NewBreakStatement(position Position) *Ast {
+	node := newAst(AstBreakStmt, position)
+	return node
+}
+
+func NewReturnStatement(position Position, value *Ast) *Ast {
+	node := newAst(AstReturnStmt, position)
+	node.A = value
 	return node
 }
 

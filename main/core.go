@@ -20,7 +20,13 @@ type File struct {
 }
 
 type State struct {
-	File []*File
+	File    []*File
+	Imports map[string]*Import
+}
+
+type Import struct {
+	IsImporting bool
+	Node        *Ast
 }
 
 type Position struct {
@@ -36,7 +42,7 @@ type Token struct {
 
 type Parser struct {
 	state     *State
-	file      *File
+	File      *File
 	line      int
 	colm      int
 	offset    int
@@ -63,6 +69,11 @@ type TryCatchTable struct {
 	CatchEnd   int32 // Opcode index
 }
 
+type Lines struct {
+	Index int32 // Opcode index
+	Line  int32
+}
+
 type Function struct {
 	Name          string
 	Async         bool
@@ -70,7 +81,18 @@ type Function struct {
 	VarArgIndex   int32 // -1 for non vararg functions
 	Bytecode      []int32
 	TryCatchTable []TryCatchTable
+	Lines         []Lines
 	File          *File
+}
+
+type CallFrame struct {
+	Caller   *CallFrame
+	Function *Function
+	Ip       int32 // Instruction pointer
+}
+
+type Coroutine struct {
+	Frame *CallFrame
 }
 
 func (s TokenType) String() string {
