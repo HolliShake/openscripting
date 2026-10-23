@@ -73,56 +73,59 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 
 		switch op {
 		case OpLoadNum:
-			a := readByte()
-			b := readByte()
+			{
+				a := readByte()
+				b := readByte()
 
-			push(OSValue{
-				Type:   OSVInt,
-				Number: CombineFloat(a, b),
-			})
-
+				push(OSValue{
+					Type:   OSVInt,
+					Number: CombineFloat(a, b),
+				})
+			}
 		case OpLoadStr:
-			size := int32(readByte())
+			{
+				size := int32(readByte())
 
-			if ip+size > codeLen {
-				panic("invalid string literal: exceeds bytecode")
+				if ip+size > codeLen {
+					panic("invalid string literal: exceeds bytecode")
+				}
+
+				bytes := make([]int32, size)
+
+				for i := int32(0); i < size; i++ {
+					bytes[i] = readByte()
+				}
+
+				// Keep the string representation compatible with the
+				// existing OSValue implementation.
+				value := string(bytes)
+
+				push(OSValue{
+					Type:   OSVString,
+					Opaque: unsafe.Pointer(&value),
+				})
 			}
-
-			bytes := make([]int32, size)
-
-			for i := int32(0); i < size; i++ {
-				bytes[i] = readByte()
-			}
-
-			// Keep the string representation compatible with the
-			// existing OSValue implementation.
-			value := string(bytes)
-
-			push(OSValue{
-				Type:   OSVString,
-				Opaque: unsafe.Pointer(&value),
-			})
-
 		case OpLoadNull:
 			push(vm.Null)
-
 		case OpLoadFunction:
-			funcIndex := int(readByte())
+			{
+				funcIndex := int(readByte())
 
-			if funcIndex >= len(state.Functions) {
-				panic(fmt.Sprintf("invalid function index: %d", funcIndex))
+				if funcIndex >= len(state.Functions) {
+					panic(fmt.Sprintf("invalid function index: %d", funcIndex))
+				}
+
+				fn := state.Functions[funcIndex]
+
+				if fn == nil {
+					panic(fmt.Sprintf("function at index %d is nil", funcIndex))
+				}
+
+				push(OSValue{
+					Type:   OSVFunction,
+					Opaque: unsafe.Pointer(fn),
+				})
 			}
-
-			fn := state.Functions[funcIndex]
-
-			if fn == nil {
-				panic(fmt.Sprintf("function at index %d is nil", funcIndex))
-			}
-
-			push(OSValue{
-				Type:   OSVFunction,
-				Opaque: unsafe.Pointer(fn),
-			})
 		case OpLoadCap:
 			{
 				capIndex := int(readByte())
@@ -143,58 +146,59 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 				push(frame.Env[varIndex].Value)
 			}
-
 		case OpCall:
-			argCount := int32(readByte())
+			{
+				argCount := int32(readByte())
 
-			// Expected stack layout:
-			// [..., arg1, arg2, ..., argN, function]
-			fnValue := pop()
+				// Expected stack layout:
+				// [..., arg1, arg2, ..., argN, function]
+				fnValue := pop()
 
-			if fnValue.Type != OSVFunction || fnValue.Opaque == nil {
-				panic("attempted to call a non-function value " + fnValue.String())
+				if fnValue.Type != OSVFunction || fnValue.Opaque == nil {
+					panic("attempted to call a non-function value " + fnValue.String())
+				}
+
+				fn := (*Function)(fnValue.Opaque)
+
+				if argCount < 0 || argCount > sp {
+					panic("invalid function argument count")
+				}
+
+				if fn == nil {
+					panic("attempted to call a nil function")
+				}
+
+				// Copy arguments in their original order before switching
+				// to the new coroutine.
+				argStart := sp - argCount
+				args := make([]OSValue, argCount)
+
+				copy(args, stack[argStart:sp])
+
+				// Remove arguments from the caller's operand stack.
+				sp = argStart
+
+				// Save the caller AFTER consuming its arguments.
+				saveState()
+
+				caller := co
+				callee := NewCoroutine(caller, fn, 255)
+
+				if callee == nil {
+					panic("failed to create coroutine")
+				}
+
+				if int32(len(callee.OperandStack)) < argCount {
+					panic("callee operand stack is too small for arguments")
+				}
+
+				// Place arguments on the callee's stack.
+				copy(callee.OperandStack[:argCount], args)
+				callee.Sp = argCount
+
+				vm.Current = callee
+				return
 			}
-
-			fn := (*Function)(fnValue.Opaque)
-
-			if argCount < 0 || argCount > sp {
-				panic("invalid function argument count")
-			}
-
-			if fn == nil {
-				panic("attempted to call a nil function")
-			}
-
-			// Copy arguments in their original order before switching
-			// to the new coroutine.
-			argStart := sp - argCount
-			args := make([]OSValue, argCount)
-
-			copy(args, stack[argStart:sp])
-
-			// Remove arguments from the caller's operand stack.
-			sp = argStart
-
-			// Save the caller AFTER consuming its arguments.
-			saveState()
-
-			caller := co
-			callee := NewCoroutine(caller, fn, 255)
-
-			if callee == nil {
-				panic("failed to create coroutine")
-			}
-
-			if int32(len(callee.OperandStack)) < argCount {
-				panic("callee operand stack is too small for arguments")
-			}
-
-			// Place arguments on the callee's stack.
-			copy(callee.OperandStack[:argCount], args)
-			callee.Sp = argCount
-
-			vm.Current = callee
-			return
 		case OpBinMul:
 			{
 				// Stack layout: [..., left, right]
@@ -267,9 +271,10 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 
 		case OpStdWrite:
-			value := pop()
-			fmt.Println("log:", value.String())
-
+			{
+				value := pop()
+				fmt.Println("log:", value.String())
+			}
 		case OpJmp:
 			{
 				offset := int(readByte())
@@ -288,40 +293,41 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				push(stack[sp-1])
 			}
 		case OpReturn:
-			var returnValue OSValue
+			{
+				var returnValue OSValue
 
-			if sp > 0 {
-				returnValue = pop()
-			} else {
-				returnValue = vm.Null
-			}
+				if sp > 0 {
+					returnValue = pop()
+				} else {
+					returnValue = vm.Null
+				}
 
-			// Save the completed coroutine's final state.
-			saveState()
+				// Save the completed coroutine's final state.
+				saveState()
 
-			co.State = CoroutineStateDead
+				co.State = CoroutineStateDead
 
-			caller := co.Parent
+				caller := co.Parent
 
-			if caller == nil {
-				// The root coroutine has finished.
-				vm.Current = nil
+				if caller == nil {
+					// The root coroutine has finished.
+					vm.Current = nil
+					return
+				}
+
+				// Restore the caller and push the return value onto
+				// its operand stack.
+				vm.Current = caller
+
+				if caller.Sp < 0 || caller.Sp >= int32(len(caller.OperandStack)) {
+					panic("invalid caller stack pointer on return")
+				}
+
+				caller.OperandStack[caller.Sp] = returnValue
+				caller.Sp++
+
 				return
 			}
-
-			// Restore the caller and push the return value onto
-			// its operand stack.
-			vm.Current = caller
-
-			if caller.Sp < 0 || caller.Sp >= int32(len(caller.OperandStack)) {
-				panic("invalid caller stack pointer on return")
-			}
-
-			caller.OperandStack[caller.Sp] = returnValue
-			caller.Sp++
-
-			return
-
 		default:
 			panic(fmt.Sprintf("unknown opcode %v at offset %d", op, ip-1))
 		}
