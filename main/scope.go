@@ -1,17 +1,17 @@
 package main
 
 func (s *Scope) ExistsFunction(name string) bool {
-	for scope := s; scope != nil; scope = scope.Parent {
-		if scope != s && scope.Type == ScopeTypeFunction {
-			return false
-		}
+	currentFunctionScope := s
 
-		if _, exists := scope.Variables[name]; exists {
-			return true
-		}
+	for currentFunctionScope != nil && (currentFunctionScope.Type != ScopeTypeFunction && currentFunctionScope.Type != ScopeTypeGlobal) {
+		currentFunctionScope = currentFunctionScope.Parent
 	}
 
-	return false
+	if currentFunctionScope == nil {
+		return false
+	}
+
+	return currentFunctionScope.ExistsLocal(name)
 }
 
 func (s *Scope) ExistsLocal(name string) bool {

@@ -7,6 +7,7 @@ const (
 	OpLoadFalse
 	OpLoadNull
 	OpLoadFunction
+	OpLoadCap
 	OpLoadVar
 	OpCall
 	OpUnaryPos
@@ -37,6 +38,7 @@ const (
 	OpPopJmpIfTrue
 	OpJmpIfFalseOrPop
 	OpJmpIfTrueOrPop
+	OpStoreCap
 	OpStoreLocal
 	OpStdWrite
 	OpReturn

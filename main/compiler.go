@@ -356,10 +356,9 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 				ThrowError(fn.File, "undefined variable", ast.Pos)
 			}
 
-			isLocal := scope.ExistsFunction(name)
+			isLocal := scope.ExistsLocal(name)
 			sym, exists := scope.GetVariable(name)
 
-			fmt.Printf("IsLocal %v\n", isLocal)
 			if exists && !isLocal {
 				// Capture
 				offset := scope.GetVarCount()
@@ -370,9 +369,9 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 					Capture: !isLocal,
 					Pos:     ast.Pos,
 				})
-
-				emit(fn, OpDupTop)
-				emitInt(fn, OpStoreLocal, offset)
+				emitInt(fn, OpLoadCap, sym.Offset)
+				emitInt(fn, OpStoreCap, offset)
+				emit(fn, sym.Offset)
 			} else {
 				emitInt(fn, OpLoadVar, sym.Offset)
 			}
@@ -441,6 +440,7 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 
 func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	function := newFunction(fn.File, ast.A.Value.(string))
+	funcOffset := p.state.SaveFunction(function)
 	localScope := Scope{
 		Type:      ScopeTypeFunction,
 		Parent:    scope,
@@ -500,8 +500,6 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		emit(function, OpLoadNull)
 		emit(function, OpReturn)
 	}
-
-	funcOffset := p.state.SaveFunction(function)
 
 	status, exists := scope.GetVariable(nameNode.Value.(string))
 	if !exists {

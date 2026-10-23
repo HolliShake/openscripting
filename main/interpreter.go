@@ -123,15 +123,24 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				Type:   OSVFunction,
 				Opaque: unsafe.Pointer(fn),
 			})
-
+		case OpLoadCap:
+			{
+				capIndex := int(readByte())
+				parentCoro := co.Parent
+				for parentCoro != nil && parentCoro.Frame.Function == frame.Function {
+					parentCoro = parentCoro.Parent
+				}
+				if parentCoro == nil || capIndex >= len(parentCoro.Frame.Env) || parentCoro.Frame.Env[capIndex] == nil {
+					panic(fmt.Sprintf("invalid captured variable index: %d", capIndex))
+				}
+				push(parentCoro.Frame.Env[capIndex].Value)
+			}
 		case OpLoadVar:
 			{
 				varIndex := int(readByte())
-
 				if varIndex >= len(frame.Env) || frame.Env[varIndex] == nil {
 					panic(fmt.Sprintf("invalid local variable index: %d of %d", varIndex, len(frame.Env)))
 				}
-
 				push(frame.Env[varIndex].Value)
 			}
 
@@ -186,7 +195,17 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 
 			vm.Current = callee
 			return
+		case OpBinMul:
+			{
+				// Stack layout: [..., left, right]
+				rhs := pop()
+				lhs := pop()
 
+				push(OSValue{
+					Type:   OSVInt,
+					Number: lhs.Number * rhs.Number,
+				})
+			}
 		case OpBinAdd:
 			{
 				// Stack layout: [..., left, right]
@@ -220,14 +239,32 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					push(vm.False)
 				}
 			}
-		case OpStoreLocal:
-			localIndex := int(readByte())
+		case OpStoreCap:
+			{
+				capIndex := int(readByte())
+				srcIndex := int(readByte())
 
-			if localIndex >= len(frame.Env) || frame.Env[localIndex] == nil {
-				panic(fmt.Sprintf("invalid local variable index: %d", localIndex))
+				parentCoro := co.Parent
+				if parentCoro == nil || srcIndex >= len(parentCoro.Frame.Env) {
+					panic(fmt.Sprintf("invalid captured variable index: %d", srcIndex))
+				}
+
+				cell := parentCoro.Frame.Env[srcIndex]
+				if capIndex >= len(frame.Env) {
+					panic(fmt.Sprintf("invalid local capture index: %d", capIndex))
+				}
+				frame.Env[capIndex] = cell
 			}
+		case OpStoreLocal:
+			{
+				localIndex := int(readByte())
 
-			frame.Env[localIndex].Value = pop()
+				if localIndex >= len(frame.Env) || frame.Env[localIndex] == nil {
+					panic(fmt.Sprintf("invalid local variable index: %d (frame.Env length: %d)", localIndex, len(frame.Env)))
+				}
+
+				frame.Env[localIndex].Value = pop()
+			}
 
 		case OpStdWrite:
 			value := pop()
@@ -244,9 +281,11 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				condition := pop()
 				if !CoerceToBool(condition) {
 					ip = int32(offset)
-				} else {
-					ip++
 				}
+			}
+		case OpDupTop:
+			{
+				push(stack[sp-1])
 			}
 		case OpReturn:
 			var returnValue OSValue
