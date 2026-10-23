@@ -499,19 +499,17 @@ func (p *Parser) getNextToken() Token {
 
 /******************* Parser helpers ***/
 
-func (p *Parser) match(token any) bool {
-	if token, ok := token.(string); ok {
-		return (p.lookahead.Type == IDN ||
-			p.lookahead.Type == KEY ||
-			p.lookahead.Type == SYM) && token == p.lookahead.Value
-	}
-	if token, ok := token.(TokenType); ok {
-		return p.lookahead.Type == token
-	}
-	return false
+func (p *Parser) match(token string) bool {
+	return (p.lookahead.Type == IDN ||
+		p.lookahead.Type == KEY ||
+		p.lookahead.Type == SYM) && token == p.lookahead.Value
 }
 
-func (p *Parser) expect(token any) {
+func (p *Parser) matchType(token TokenType) bool {
+	return p.lookahead.Type == token
+}
+
+func (p *Parser) expect(token string) {
 	if p.match(token) {
 		p.lookahead = p.getNextToken()
 		return
@@ -519,21 +517,29 @@ func (p *Parser) expect(token any) {
 	ThrowError(p.File, fmt.Sprintf("expected token \"%s\", got \"%s\"", token, p.lookahead.Value), p.lookahead.Pos)
 }
 
+func (p *Parser) expectType(token TokenType) {
+	if p.matchType(token) {
+		p.lookahead = p.getNextToken()
+		return
+	}
+	ThrowError(p.File, fmt.Sprintf("expected token \"%s\", got \"%s\"", token, p.lookahead.Value), p.lookahead.Pos)
+}
+
 func (p *Parser) identifier(required bool) *Ast {
-	if !p.match(IDN) && required {
+	if !p.matchType(IDN) && required {
 		ThrowError(p.File, "expected identifier", p.lookahead.Pos)
 	}
-	if !p.match(IDN) {
+	if !p.matchType(IDN) {
 		return nil
 	}
 	ast := NewTerminalAst(AstIdentifier, p.lookahead.Pos, p.lookahead.Value)
-	p.expect(IDN)
+	p.expectType(IDN)
 	return ast
 }
 
 func (p *Parser) stringLit() *Ast {
 	ast := NewTerminalAst(AstStrLit, p.lookahead.Pos, p.lookahead.Value)
-	p.expect(STR)
+	p.expectType(STR)
 	return ast
 }
 
@@ -578,7 +584,7 @@ func (p *Parser) terminal() *Ast {
 				ThrowError(p.File, "invalid number format", p.lookahead.Pos)
 			}
 			ast := NewTerminalAst(AstNumLit, p.lookahead.Pos, v)
-			p.expect(NUM)
+			p.expectType(NUM)
 			return ast
 		}
 	case STR:
@@ -589,12 +595,12 @@ func (p *Parser) terminal() *Ast {
 		{
 			if p.lookahead.Value == KeyTrue || p.lookahead.Value == KeyFalse {
 				ast := NewTerminalAst(AstBoolLit, p.lookahead.Pos, p.lookahead.Value == KeyTrue)
-				p.expect(KEY)
+				p.expectType(KEY)
 				return ast
 			}
 			if p.lookahead.Value == KeyNull {
 				ast := NewTerminalAst(AstNullLit, p.lookahead.Pos, nil)
-				p.expect(KEY)
+				p.expectType(KEY)
 				return ast
 			}
 		}
@@ -1328,7 +1334,7 @@ func (p *Parser) listOfExpression(required bool, spread bool) *Ast {
 }
 
 func (p *Parser) key(required bool) *Ast {
-	if p.match(IDN) || p.match(STR) {
+	if p.matchType(IDN) || p.matchType(STR) {
 		return p.terminal()
 	}
 	if required {
@@ -1374,7 +1380,7 @@ func (p *Parser) importStatement() *Ast {
 	pos := p.lookahead.Pos
 	p.expect(KeyImport)
 	// import logic here (e.g., import "module")
-	if p.match(STR) {
+	if p.matchType(STR) {
 		module := p.stringLit()
 		p.expect(";")
 		return NewImport(pos, module, nil)
@@ -1846,7 +1852,7 @@ func (p *Parser) blockLevelStatement() *Ast {
 
 func (p *Parser) program() *Ast {
 	stmnts := p.listOfStatement()
-	p.expect(EOF)
+	p.expectType(EOF)
 	return NewProgram(stmnts)
 }
 
