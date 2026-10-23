@@ -1,86 +1,204 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"strconv"
-	"strings"
+	"unicode/utf8"
 )
 
 const ExitFailure = 1
 const ExitSuccess = 0
 
-func FormatError(file *File, message string, position Position) {
-	fmt.Fprint(os.Stderr, formatError(file, message, position))
+// errWriter is a fixed-size, stack-allocated buffered writer for stderr.
+// Output is flushed whenever the buffer fills, so no heap growth is ever needed.
+type errWriter struct {
+	buf [2048]byte
+	n   int
 }
 
-func formatError(file *File, message string, position Position) string {
-	name := "<unknown>"
-	var lines [][]rune
-	if file != nil {
-		if file.Name != "" {
-			name = file.Name
+func (w *errWriter) flush() {
+	if w.n > 0 {
+		_, _ = os.Stderr.Write(w.buf[:w.n])
+		w.n = 0
+	}
+}
+
+func (w *errWriter) str(s string) {
+	for len(s) > 0 {
+		if w.n == len(w.buf) {
+			w.flush()
 		}
-		lines = splitSourceLines(file.Content)
-	} else {
-		lines = [][]rune{{}}
+		c := copy(w.buf[w.n:], s)
+		w.n += c
+		s = s[c:]
+	}
+}
+
+func (w *errWriter) byte(b byte) {
+	if w.n == len(w.buf) {
+		w.flush()
+	}
+	w.buf[w.n] = b
+	w.n++
+}
+
+func (w *errWriter) rune(r rune) {
+	if len(w.buf)-w.n < utf8.UTFMax {
+		w.flush()
+	}
+	// Capacity is guaranteed, so this appends in place without allocating.
+	w.n = len(utf8.AppendRune(w.buf[:w.n], r))
+}
+
+func (w *errWriter) spaces(count int) {
+	for ; count > 0; count-- {
+		w.byte(' ')
+	}
+}
+
+func (w *errWriter) int(value int) {
+	if len(w.buf)-w.n < 20 {
+		w.flush()
+	}
+	w.n = len(strconv.AppendInt(w.buf[:w.n], int64(value), 10))
+}
+
+func (w *errWriter) header(file *File, position Position) {
+	name := "<unknown>"
+	if file != nil && file.Name != "" {
+		name = file.Name
+	}
+	w.byte('[')
+	w.str(name)
+	w.byte(':')
+	w.int(position.Line + 1)
+	w.byte(':')
+	w.int(position.Column + 1)
+	w.str("]: ")
+}
+
+func (w *errWriter) snippet(file *File, position Position) {
+	var content []rune
+	if file != nil {
+		content = file.Content
 	}
 
+	lineCount := sourceLineCount(content)
 	line := position.Line
 	if line < 0 {
 		line = 0
 	}
-	if line >= len(lines) {
-		line = len(lines) - 1
+	if line >= lineCount {
+		line = lineCount - 1
 	}
 	column := position.Column
 	if column < 0 {
 		column = 0
 	}
-	if column > len(lines[line]) {
-		column = len(lines[line])
-	}
-
 	start := line - 1
 	if start < 0 {
 		start = 0
 	}
 	end := line + 2
-	if end >= len(lines) {
-		end = len(lines) - 1
+	if end >= lineCount {
+		end = lineCount - 1
 	}
-	width := len(strconv.Itoa(end + 1))
+	width := digitCount(end + 1)
 
-	var output strings.Builder
-	fmt.Fprintf(&output, "[%s:%d:%d]: %s\n", name, position.Line+1, position.Column+1, message)
-	for index := start; index <= end; index++ {
-		fmt.Fprintf(&output, "%*d | %s\n", width, index+1, string(lines[index]))
-		if index == line {
-			fmt.Fprintf(&output, "%s | %s^\n", strings.Repeat(" ", width), strings.Repeat(" ", visualColumn(lines[index], column)))
-		}
-	}
-	return output.String()
-}
-
-func splitSourceLines(content []rune) [][]rune {
-	lines := make([][]rune, 0, 1)
-	start := 0
-	for index := 0; index < len(content); index++ {
-		character := content[index]
-		if character != '\r' && character != '\n' && character != '\u0085' && character != '\u2028' && character != '\u2029' {
+	currentLine := 0
+	lineStart := 0
+	for index := 0; index <= len(content); index++ {
+		if index < len(content) && !isSourceLineBreak(content[index]) {
 			continue
 		}
-		lines = append(lines, append([]rune(nil), content[start:index]...))
-		if character == '\r' && index+1 < len(content) && content[index+1] == '\n' {
+		if currentLine >= start && currentLine <= end {
+			w.spaces(width - digitCount(currentLine+1))
+			w.int(currentLine + 1)
+			w.str(" | ")
+			for i := lineStart; i < index; i++ {
+				w.rune(content[i])
+			}
+			w.byte('\n')
+			if currentLine == line {
+				w.spaces(width)
+				w.str(" | ")
+				w.spaces(visualColumn(content[lineStart:index], column))
+				w.str("^\n")
+			}
+		}
+		if currentLine > end { // nothing more to print
+			break
+		}
+		if index == len(content) {
+			break
+		}
+		if content[index] == '\r' && index+1 < len(content) && content[index+1] == '\n' {
 			index++
 		}
-		start = index + 1
+		currentLine++
+		lineStart = index + 1
 	}
-	lines = append(lines, append([]rune(nil), content[start:]...))
-	return lines
+}
+
+func digitCount(n int) int {
+	d := 1
+	for n >= 10 {
+		n /= 10
+		d++
+	}
+	return d
+}
+
+// formatError writes "[file:line:col]: <parts...>\n" followed by the source snippet.
+// parts is not retained, so the variadic slice stays on the caller's stack.
+func formatError(file *File, position Position, parts ...string) {
+	var w errWriter
+	w.header(file, position)
+	for _, part := range parts {
+		w.str(part)
+	}
+	w.byte('\n')
+	w.snippet(file, position)
+	w.flush()
+}
+
+func FormatError(file *File, message string, position Position) {
+	formatError(file, position, message)
+}
+
+func ThrowError(file *File, message string, position Position) {
+	formatError(file, position, message)
+	os.Exit(ExitFailure)
+}
+
+func ThrowExpectedTokenError(file *File, expected, actual string, position Position) {
+	formatError(file, position, `expected token "`, expected, `", got "`, actual, `"`)
+	os.Exit(ExitFailure)
+}
+
+func sourceLineCount(content []rune) int {
+	lineCount := 1
+	for index := 0; index < len(content); index++ {
+		if !isSourceLineBreak(content[index]) {
+			continue
+		}
+		lineCount++
+		if content[index] == '\r' && index+1 < len(content) && content[index+1] == '\n' {
+			index++
+		}
+	}
+	return lineCount
+}
+
+func isSourceLineBreak(character rune) bool {
+	return character == '\r' || character == '\n' || character == '\u0085' ||
+		character == '\u2028' || character == '\u2029'
 }
 
 func visualColumn(line []rune, column int) int {
+	if column > len(line) {
+		column = len(line)
+	}
 	visual := 0
 	for _, character := range line[:column] {
 		if character == '\t' {
@@ -90,9 +208,4 @@ func visualColumn(line []rune, column int) int {
 		}
 	}
 	return visual
-}
-
-func ThrowError(file *File, message string, position Position) {
-	FormatError(file, message, position)
-	os.Exit(ExitFailure)
 }

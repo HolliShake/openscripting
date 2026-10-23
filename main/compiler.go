@@ -2,10 +2,69 @@ package main
 
 import (
 	"fmt"
-	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 )
+
+// Set to true to print every folded constant.
+const debugFold = false
+
+/******************* Constant values (no boxing) ***/
+
+type constKind uint8
+
+const (
+	kNone constKind = iota
+	kNum
+	kStr
+	kBool
+)
+
+// constVal is returned by value, so folding never allocates
+// (except for string concatenation, which has to).
+type constVal struct {
+	kind constKind
+	num  float64
+	str  string
+	b    bool
+}
+
+var noConst constVal
+
+func numConst(f float64) constVal { return constVal{kind: kNum, num: f} }
+func strConst(s string) constVal  { return constVal{kind: kStr, str: s} }
+func boolConst(b bool) constVal   { return constVal{kind: kBool, b: b} }
+func (c constVal) folded() bool   { return c.kind != kNone }
+func (c constVal) isNumber() bool { return c.kind == kNum }
+func (c constVal) isString() bool { return c.kind == kStr }
+func (c constVal) isBool() bool   { return c.kind == kBool }
+
+// constEqual replaces reflect.DeepEqual for the supported kinds.
+func constEqual(a, b constVal) bool {
+	if a.kind != b.kind {
+		return false
+	}
+	switch a.kind {
+	case kNum:
+		return a.num == b.num
+	case kStr:
+		return a.str == b.str
+	case kBool:
+		return a.b == b.b
+	}
+	return false
+}
+
+/******************* Emit helpers ***/
+
+const initialBytecodeCap = 256
+
+func newFunction(file *File, name string) *Function {
+	fn := NewFunction(file, name, false)
+	fn.Bytecode = make([]int32, 0, initialBytecodeCap)
+	return fn
+}
 
 func assert(astType AstType, ast *Ast) {
 	if ast.Type != astType {
@@ -16,21 +75,17 @@ func assert(astType AstType, ast *Ast) {
 func emitLine(fn *Function, line Position) {
 	fn.Lines = append(fn.Lines, Lines{
 		Index: int32(len(fn.Bytecode)),
-		Line:  int32(line.Line)},
-	)
+		Line:  int32(line.Line),
+	})
 }
 
 func emitJump(fn *Function, op int32) int32 {
-	fn.Bytecode = append(fn.Bytecode, op)
-	// Reserve space for jump offset
-	pos := int32(len(fn.Bytecode))
-	fn.Bytecode = append(fn.Bytecode, 0)
-	return pos
+	fn.Bytecode = append(fn.Bytecode, op, 0) // opcode + reserved offset
+	return int32(len(fn.Bytecode)) - 1
 }
 
 func labelJump(fn *Function, pos int32) {
-	offset := int32(len(fn.Bytecode)) - 1
-	fn.Bytecode[pos] = offset
+	fn.Bytecode[pos] = int32(len(fn.Bytecode)) - 1
 }
 
 func emit(fn *Function, op int32) {
@@ -47,9 +102,10 @@ func emitFloat(fn *Function, value float64) {
 }
 
 func emitString(fn *Function, value string) {
-	emit(fn, OpLoadStr)
-	lengthIndex := len(fn.Bytecode)
-	emit(fn, 0)
+	// One growth up front: rune count <= byte length.
+	fn.Bytecode = slices.Grow(fn.Bytecode, len(value)+2)
+	fn.Bytecode = append(fn.Bytecode, OpLoadStr, 0)
+	lengthIndex := len(fn.Bytecode) - 1
 	runeCount := int32(0)
 	for _, char := range value {
 		fn.Bytecode = append(fn.Bytecode, int32(char))
@@ -58,28 +114,25 @@ func emitString(fn *Function, value string) {
 	fn.Bytecode[lengthIndex] = runeCount
 }
 
-func emitAny(fn *Function, value any) {
-	if isNumber(value) {
-		emitFloat(fn, value.(float64))
-		return
+func emitBool(fn *Function, value bool) {
+	if value {
+		emit(fn, OpLoadTrue)
+	} else {
+		emit(fn, OpLoadFalse)
 	}
+}
 
-	if isString(value) {
-		emitString(fn, value.(string))
-		return
+func emitConst(fn *Function, c constVal) {
+	switch c.kind {
+	case kNum:
+		emitFloat(fn, c.num)
+	case kStr:
+		emitString(fn, c.str)
+	case kBool:
+		emitBool(fn, c.b)
+	default:
+		panic("unsupported type")
 	}
-
-	if value, ok := value.(bool); ok {
-		if value {
-			emit(fn, OpLoadTrue)
-		} else {
-			emit(fn, OpLoadFalse)
-		}
-		return
-	}
-
-	panic("unsupported type")
-
 }
 
 func binaryOpcode(astType AstType) int32 {
@@ -121,214 +174,189 @@ func binaryOpcode(astType AstType) int32 {
 	}
 }
 
-func isString(value any) bool {
-	_, ok := value.(string)
-	return ok
-}
+/******************* Constant folding ***/
 
-func isNumber(value any) bool {
-	_, ok := value.(float64)
-	return ok
-}
-
-func isBool(value any) bool {
-	_, ok := value.(bool)
-	return ok
-}
-
-func tryFold(fn *Function, ast *Ast) (result any, folded bool) {
+// tryFold returns a constant if the expression can be evaluated at compile time.
+// Check result.folded() to know whether it succeeded.
+func tryFold(fn *Function, ast *Ast) constVal {
 	switch ast.Type {
 	case AstNumLit:
 		if value, ok := ast.Value.(float64); ok {
-			return value, true
+			return numConst(value)
 		}
 		value, err := strconv.ParseFloat(ast.Value.(string), 64)
 		if err != nil {
 			panic("invalid number literal")
 		}
-		return value, true
+		return numConst(value)
 	case AstStrLit:
-		return ast.Value.(string), true
+		return strConst(ast.Value.(string))
 	case AstBoolLit:
-		return ast.Value.(bool), true
-	case AstPos,
-		AstNeg,
-		AstNot,
-		AstBitNot:
-		value, valueFolded := tryFold(fn, ast.A)
-		if !valueFolded {
-			return nil, false
+		return boolConst(ast.Value.(bool))
+
+	case AstPos, AstNeg, AstNot, AstBitNot:
+		v := tryFold(fn, ast.A)
+		if !v.folded() {
+			return noConst
 		}
 		switch ast.Type {
 		case AstPos:
-			if isNumber(value) {
-				return value, true
+			if v.isNumber() {
+				return v
 			}
 			ThrowError(fn.File, "invalid operand for unary plus", ast.Pos)
 		case AstNeg:
-			if isNumber(value) {
-				return -value.(float64), true
+			if v.isNumber() {
+				return numConst(-v.num)
 			}
 			ThrowError(fn.File, "invalid operand for negation", ast.Pos)
 		case AstNot:
-			if isBool(value) {
-				return !value.(bool), true
+			if v.isBool() {
+				return boolConst(!v.b)
 			}
 			ThrowError(fn.File, "invalid operand for logical not", ast.Pos)
 		case AstBitNot:
-			if isNumber(value) {
-				return float64(^int64(value.(float64))), true
+			if v.isNumber() {
+				return numConst(float64(^int64(v.num)))
 			}
 			ThrowError(fn.File, "invalid operand for bitwise not", ast.Pos)
 		}
-	case AstMul,
-		AstDiv,
-		AstMod,
-		AstAdd,
-		AstSub:
-		lhs, lFolded := tryFold(fn, ast.A)
-		rhs, rFolded := tryFold(fn, ast.B)
-		if !lFolded || !rFolded {
-			return nil, false
+
+	case AstMul, AstDiv, AstMod, AstAdd, AstSub:
+		lhs := tryFold(fn, ast.A)
+		rhs := tryFold(fn, ast.B)
+		if !lhs.folded() || !rhs.folded() {
+			return noConst
 		}
-		if ast.Type == AstAdd && isString(lhs) && isString(rhs) {
-			return lhs.(string) + rhs.(string), true
+		if ast.Type == AstAdd && lhs.isString() && rhs.isString() {
+			return strConst(lhs.str + rhs.str)
 		}
-		if !isNumber(lhs) || !isNumber(rhs) {
+		if !lhs.isNumber() || !rhs.isNumber() {
 			ThrowError(fn.File, "invalid operands for arithmetic operation", ast.Pos)
 		}
-		left, right := lhs.(float64), rhs.(float64)
+		left, right := lhs.num, rhs.num
 		switch ast.Type {
 		case AstMul:
-			return left * right, true
+			return numConst(left * right)
 		case AstDiv:
 			if right == 0 {
 				ThrowError(fn.File, "zero division", ast.Pos)
 			}
-			return left / right, true
+			return numConst(left / right)
 		case AstMod:
 			if right == 0 {
 				ThrowError(fn.File, "zero division", ast.Pos)
 			}
-			return left - float64(int64(left/right))*right, true
+			return numConst(left - float64(int64(left/right))*right)
 		case AstAdd:
-			return left + right, true
+			return numConst(left + right)
 		case AstSub:
-			return left - right, true
+			return numConst(left - right)
 		}
-	case AstLess,
-		AstLessEqual,
-		AstGreater,
-		AstGreaterEqual,
-		AstEqual,
-		AstNotEqual:
-		lhs, lFolded := tryFold(fn, ast.A)
-		rhs, rFolded := tryFold(fn, ast.B)
-		if !lFolded || !rFolded {
-			return nil, false
+
+	case AstLess, AstLessEqual, AstGreater, AstGreaterEqual, AstEqual, AstNotEqual:
+		lhs := tryFold(fn, ast.A)
+		rhs := tryFold(fn, ast.B)
+		if !lhs.folded() || !rhs.folded() {
+			return noConst
 		}
-		var comparison int
-		if isNumber(lhs) && isNumber(rhs) {
-			left, right := lhs.(float64), rhs.(float64)
-			if left < right {
+		comparison := 0
+		if lhs.isNumber() && rhs.isNumber() {
+			if lhs.num < rhs.num {
 				comparison = -1
-			} else if left > right {
+			} else if lhs.num > rhs.num {
 				comparison = 1
 			}
-		} else if isString(lhs) && isString(rhs) {
-			comparison = strings.Compare(lhs.(string), rhs.(string))
+		} else if lhs.isString() && rhs.isString() {
+			comparison = strings.Compare(lhs.str, rhs.str)
 		} else if ast.Type != AstEqual && ast.Type != AstNotEqual {
 			ThrowError(fn.File, "invalid operands for comparison", ast.Pos)
 		}
 		switch ast.Type {
 		case AstLess:
-			return comparison < 0, true
+			return boolConst(comparison < 0)
 		case AstLessEqual:
-			return comparison <= 0, true
+			return boolConst(comparison <= 0)
 		case AstGreater:
-			return comparison > 0, true
+			return boolConst(comparison > 0)
 		case AstGreaterEqual:
-			return comparison >= 0, true
+			return boolConst(comparison >= 0)
 		case AstEqual:
-			return reflect.DeepEqual(lhs, rhs), true
+			return boolConst(constEqual(lhs, rhs))
 		case AstNotEqual:
-			return !reflect.DeepEqual(lhs, rhs), true
+			return boolConst(!constEqual(lhs, rhs))
 		}
-	case AstBitAnd,
-		AstBitXor,
-		AstBitOr,
-		AstShiftLeft,
-		AstShiftRight:
-		lhs, lFolded := tryFold(fn, ast.A)
-		rhs, rFolded := tryFold(fn, ast.B)
-		if !lFolded || !rFolded {
-			return nil, false
+
+	case AstBitAnd, AstBitXor, AstBitOr, AstShiftLeft, AstShiftRight:
+		lhs := tryFold(fn, ast.A)
+		rhs := tryFold(fn, ast.B)
+		if !lhs.folded() || !rhs.folded() {
+			return noConst
 		}
-		if !isNumber(lhs) || !isNumber(rhs) {
+		if !lhs.isNumber() || !rhs.isNumber() {
 			ThrowError(fn.File, "invalid operands for bitwise operation", ast.Pos)
 		}
-		left, right := int64(lhs.(float64)), int64(rhs.(float64))
+		left, right := int64(lhs.num), int64(rhs.num)
 		switch ast.Type {
 		case AstBitAnd:
-			return float64(left & right), true
+			return numConst(float64(left & right))
 		case AstBitXor:
-			return float64(left ^ right), true
+			return numConst(float64(left ^ right))
 		case AstBitOr:
-			return float64(left | right), true
+			return numConst(float64(left | right))
 		case AstShiftLeft:
-			return float64(left << uint(right)), true
+			return numConst(float64(left << uint(right)))
 		case AstShiftRight:
-			return float64(left >> uint(right)), true
+			return numConst(float64(left >> uint(right)))
 		}
+
 	case AstAnd, AstOr:
-		lhs, lFolded := tryFold(fn, ast.A)
-		if !lFolded {
-			return nil, false
+		lhs := tryFold(fn, ast.A)
+		if !lhs.folded() {
+			return noConst
 		}
-		if !isBool(lhs) {
+		if !lhs.isBool() {
 			ThrowError(fn.File, "invalid left operand for logical operation", ast.Pos)
 		}
 		if ast.Type == AstAnd {
-			if !lhs.(bool) {
-				return false, true
+			if !lhs.b {
+				return boolConst(false)
 			}
-		} else if lhs.(bool) {
-			return true, true
+		} else if lhs.b {
+			return boolConst(true)
 		}
-		rhs, rFolded := tryFold(fn, ast.B)
-		if !rFolded {
-			return nil, false
+		rhs := tryFold(fn, ast.B)
+		if !rhs.folded() {
+			return noConst
 		}
-		if !isBool(rhs) {
+		if !rhs.isBool() {
 			ThrowError(fn.File, "invalid right operand for logical operation", ast.Pos)
 		}
-		return rhs.(bool), true
+		return rhs
 	}
-	return nil, false
+	return noConst
 }
 
+/******************* Visitors ***/
+
 func visitExpression(p *Parser, fn *Function, ast *Ast) {
-	if result, folded := tryFold(fn, ast); folded {
-		fmt.Printf("result: %v\n", result)
-		emitAny(fn, result)
+	if c := tryFold(fn, ast); c.folded() {
+		if debugFold {
+			fmt.Printf("result: %+v\n", c)
+		}
+		emitConst(fn, c)
 		return
 	}
 
 	switch ast.Type {
 	case AstIdentifier:
-		{
-			emitString(fn, ast.Value.(string))
-		}
+		emitString(fn, ast.Value.(string))
 	case AstNumLit:
 		emitFloat(fn, ast.Value.(float64))
 	case AstStrLit:
 		emitString(fn, ast.Value.(string))
 	case AstBoolLit:
-		if ast.Value.(bool) {
-			emit(fn, OpLoadTrue)
-		} else {
-			emit(fn, OpLoadFalse)
-		}
+		emitBool(fn, ast.Value.(bool))
 	case AstNullLit:
 		emit(fn, OpLoadNull)
 	case AstPos, AstNeg, AstNot, AstBitNot:
@@ -343,52 +371,31 @@ func visitExpression(p *Parser, fn *Function, ast *Ast) {
 		case AstBitNot:
 			emit(fn, OpUnaryBitNot)
 		}
-	case AstMul,
-		AstDiv,
-		AstMod,
-		AstAdd,
-		AstSub,
-		AstShiftLeft,
-		AstShiftRight,
-		AstLess,
-		AstLessEqual,
-		AstGreater,
-		AstGreaterEqual,
-		AstEqual,
-		AstNotEqual,
-		AstBitAnd,
-		AstBitXor,
-		AstBitOr:
+	case AstMul, AstDiv, AstMod, AstAdd, AstSub,
+		AstShiftLeft, AstShiftRight,
+		AstLess, AstLessEqual, AstGreater, AstGreaterEqual,
+		AstEqual, AstNotEqual,
+		AstBitAnd, AstBitXor, AstBitOr:
 		visitExpression(p, fn, ast.A)
 		visitExpression(p, fn, ast.B)
-
 		emit(fn, binaryOpcode(ast.Type))
 	case AstAnd, AstOr:
-		{
-			/*
-
-				var x = false && true; // false
-				var y = false || true; // true
-			*/
-			visitExpression(p, fn, ast.A)
-			var jumpPos int32 = 0
-			switch ast.Type {
-			case AstAnd:
-				jumpPos = emitJump(fn, OpJmpIfFalseOrPop)
-			case AstOr:
-				jumpPos = emitJump(fn, OpJmpIfTrueOrPop)
-			}
-			visitExpression(p, fn, ast.B)
-			labelJump(fn, jumpPos)
+		visitExpression(p, fn, ast.A)
+		var jumpPos int32
+		if ast.Type == AstAnd {
+			jumpPos = emitJump(fn, OpJmpIfFalseOrPop)
+		} else {
+			jumpPos = emitJump(fn, OpJmpIfTrueOrPop)
 		}
-
+		visitExpression(p, fn, ast.B)
+		labelJump(fn, jumpPos)
 	default:
 		panic("visitExpression::unexpected AST type")
 	}
 }
 
 func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
-	function := NewFunction(fn.File, ast.A.Value.(string), false)
+	function := newFunction(fn.File, ast.A.Value.(string))
 	localScope := Scope{
 		Parent:    scope,
 		Variables: make(map[string]Symbol),
@@ -407,7 +414,6 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		}
 
 		offset := localScope.GetVarCount()
-
 		localScope.AddLocal(paramName, Symbol{
 			Name:    paramName,
 			Offset:  offset,
@@ -415,16 +421,13 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 			Capture: false,
 			Pos:     parmNode.Pos,
 		})
-
 		emitInt(function, OpStoreLocal, offset)
-
-		// Process each parameter here
 		parmNode = parmNode.Next
 	}
 
 	visibleReturn := false
 	for bodyNode != nil {
-		if !visibleReturn && bodyNode.Type == AstReturnStmt {
+		if bodyNode.Type == AstReturnStmt {
 			visibleReturn = true
 		}
 		visitDeclarationOrStatement(p, &localScope, function, bodyNode)
@@ -438,12 +441,12 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 
 	funcOffset := p.state.SaveFunction(function)
 
-	if status, exists := scope.GetVariable(nameNode.Value.(string)); exists {
-		emitInt(fn, OpLoadFunction, funcOffset)
-		emitInt(fn, OpStoreLocal, status.Offset)
-	} else {
+	status, exists := scope.GetVariable(nameNode.Value.(string))
+	if !exists {
 		ThrowError(fn.File, "function does not exists", ast.Pos)
 	}
+	emitInt(fn, OpLoadFunction, funcOffset)
+	emitInt(fn, OpStoreLocal, status.Offset)
 }
 
 func visitReturn(p *Parser, fn *Function, ast *Ast) {
@@ -465,9 +468,7 @@ func visitDeclarationOrStatement(p *Parser, scope *Scope, fn *Function, ast *Ast
 	case AstReturnStmt:
 		visitReturn(p, fn, ast.A)
 	default:
-		panic(
-			fmt.Sprintf("visitDeclarationOrStatement:: unexpected statement type %v", ast.Type),
-		)
+		panic(fmt.Sprintf("visitDeclarationOrStatement:: unexpected statement type %v", ast.Type))
 	}
 }
 
@@ -475,35 +476,30 @@ func compileProgram(p *Parser) {
 	ast := p.Parse()
 	assert(AstProgram, ast)
 
-	program := NewFunction(p.File, "$main", false)
+	program := newFunction(p.File, "$main")
 	scope := Scope{
 		Parent:    nil,
 		Variables: make(map[string]Symbol),
 		VarCount:  0,
 	}
 
-	current := ast.A
 	// forward function declarations
-	for current != nil {
+	for current := ast.A; current != nil; current = current.Next {
 		if current.Type == AstFunction {
 			nameNode := current.A
 			funcName := nameNode.Value.(string)
-			offset := scope.GetVarCount()
 			scope.AddLocal(funcName, Symbol{
 				Name:    funcName,
-				Offset:  offset,
+				Offset:  scope.GetVarCount(),
 				Const:   false,
 				Capture: false,
 				Pos:     nameNode.Pos,
 			})
 		}
-		current = current.Next
 	}
 
-	current = ast.A
-	for current != nil {
+	for current := ast.A; current != nil; current = current.Next {
 		visitDeclarationOrStatement(p, &scope, program, current)
-		current = current.Next
 	}
 
 	emit(program, OpLoadNull)

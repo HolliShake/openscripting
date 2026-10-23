@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+)
 
 type TokenType int
 
@@ -215,5 +218,8 @@ func (p Position) String() string {
 }
 
 func (t Token) String() string {
-	return fmt.Sprintf("Token {Type: %s, Value: %q, Pos: %s}", t.Type, t.Value, t.Pos)
+	typeStr := t.Type.String()
+	valStr := strconv.Quote(t.Value)
+	posStr := t.Pos.String()
+	return fmt.Sprintf("Token {Type: %s, Value: %s, Pos: %s}", typeStr, valStr, posStr)
 }

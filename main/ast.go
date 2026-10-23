@@ -1,17 +1,18 @@
 package main
 
-func newAst(ast AstType, position Position) *Ast {
-	return &Ast{
-		Type:  ast,
-		Pos:   position,
-		Value: nil,
-		A:     nil,
-		B:     nil,
-		C:     nil,
-		D:     nil,
-		E:     nil,
-		Next:  nil,
+const astChunk = 256
+
+var astSlab []Ast
+
+func newAst(t AstType, pos Position) *Ast {
+	if len(astSlab) == 0 {
+		astSlab = make([]Ast, astChunk)
 	}
+	n := &astSlab[0]
+	astSlab = astSlab[1:]
+	n.Type = t
+	n.Pos = pos
+	return n
 }
 
 func NewKeyValue(position Position, key, value *Ast) *Ast {

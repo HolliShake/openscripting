@@ -26,33 +26,14 @@ const (
 	KeyNull     = "null"
 )
 
-var keywords = map[string]struct{}{
-	KeyImport:   {},
-	KeyFrom:     {},
-	KeyVar:      {},
-	KeyLet:      {},
-	KeyConst:    {},
-	KeyAsync:    {},
-	KeyClass:    {},
-	KeyFn:       {},
-	KeyLoop:     {},
-	KeyTry:      {},
-	KeyCatch:    {},
-	KeySwitch:   {},
-	KeyCase:     {},
-	KeyDefault:  {},
-	KeyIf:       {},
-	KeyElse:     {},
-	KeyContinue: {},
-	KeyBreak:    {},
-	KeyReturn:   {},
-	KeyAwait:    {},
-	KeyTrue:     {},
-	KeyFalse:    {},
-	KeyNull:     {},
-}
-
 func isKeyword(value string) bool {
-	_, ok := keywords[value]
-	return ok
+	switch value {
+	case KeyImport, KeyFrom, KeyVar, KeyLet, KeyConst, KeyAsync, KeyClass,
+		KeyFn, KeyLoop, KeyTry, KeyCatch, KeySwitch, KeyCase, KeyDefault,
+		KeyIf, KeyElse, KeyContinue, KeyBreak, KeyReturn, KeyAwait,
+		KeyTrue, KeyFalse, KeyNull:
+		return true
+	default:
+		return false
+	}
 }

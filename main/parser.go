@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"strconv"
 	"unicode"
 )
@@ -16,9 +15,16 @@ const (
 	clsStop // ends a plain run inside a string literal
 )
 
+const (
+	symbolChars   = "+-*/%=!<>&|^~?:.,;(){}[]#@\\"
+	maxKeywordLen = 16
+)
+
 var (
 	class           [128]uint8
 	hexVal          [128]uint8 // 0xFF = not a hex digit
+	singleSym       [128]string
+	keywords        map[string]string // keyword text -> canonical static string
 	otherIDStart    = unicode.Properties["Other_ID_Start"]
 	otherIDContinue = unicode.Properties["Other_ID_Continue"]
 )
@@ -32,8 +38,10 @@ func init() {
 	for c := '0'; c <= '9'; c++ {
 		class[c] |= clsIDCont | clsDigit
 	}
-	for _, c := range "+-*/%=!<>&|^~?:.,;(){}[]#@\\" {
+	for i := 0; i < len(symbolChars); i++ {
+		c := symbolChars[i]
 		class[c] |= clsSymbol
+		singleSym[c] = symbolChars[i : i+1] // substring of a constant: no allocation
 	}
 	for _, c := range "'\"\\\n\r" {
 		class[c] |= clsStop
@@ -47,6 +55,18 @@ func init() {
 	for c := 'a'; c <= 'f'; c++ {
 		hexVal[c] = uint8(c-'a') + 10
 		hexVal[c-'a'+'A'] = uint8(c-'a') + 10
+	}
+
+	// Only words that isKeyword accepts are added, so behavior can never diverge.
+	keywords = make(map[string]string, 32)
+	for _, k := range [...]string{
+		KeyTrue, KeyFalse, KeyNull, KeyClass, KeyFn, KeySwitch, KeyAwait, KeyAsync,
+		KeyImport, KeyFrom, KeyVar, KeyLet, KeyConst, KeyTry, KeyCatch, KeyCase,
+		KeyDefault, KeyIf, KeyElse, KeyLoop, KeyContinue, KeyBreak, KeyReturn,
+	} {
+		if len(k) <= maxKeywordLen && isKeyword(k) {
+			keywords[k] = k
+		}
 	}
 }
 
@@ -142,10 +162,19 @@ func (p *Parser) advance() rune {
 }
 
 // emit finishes a token known to contain no line break.
+// This is the only place a token string is allocated.
 func (p *Parser) emit(t TokenType, start, end int, pos Position) Token {
 	p.colm += end - start
 	p.offset = end
 	return Token{Type: t, Value: string(p.File.Content[start:end]), Pos: pos}
+}
+
+// emitStatic finishes an ASCII token whose text is already a static string.
+// No allocation.
+func (p *Parser) emitStatic(t TokenType, s string, pos Position) Token {
+	p.colm += len(s)
+	p.offset += len(s)
+	return Token{Type: t, Value: s, Pos: pos}
 }
 
 /******************* Trivia ***/
@@ -407,54 +436,120 @@ func (p *Parser) scanIdent(pos Position, start int) Token {
 		}
 		i++
 	}
+
+	// Keyword fast path: look up through a stack buffer, so keywords cost zero
+	// allocations. The map lookup with string(bytes) does not allocate.
+	if length := i - start; length <= maxKeywordLen && src[start] >= 'a' && src[start] <= 'z' {
+		var buf [maxKeywordLen]byte
+		ascii := true
+		for j := 0; j < length; j++ {
+			c := src[start+j]
+			if c >= 128 {
+				ascii = false
+				break
+			}
+			buf[j] = byte(c)
+		}
+		if ascii {
+			if kw, ok := keywords[string(buf[:length])]; ok {
+				p.colm += length
+				p.offset = i
+				return Token{Type: KEY, Value: kw, Pos: pos}
+			}
+		}
+	}
+
 	tok := p.emit(IDN, start, i, pos)
-	if isKeyword(tok.Value) {
+	if isKeyword(tok.Value) { // fallback, in case isKeyword knows more words
 		tok.Type = KEY
 	}
 	return tok
 }
 
-// symbolLen returns 1-3: the length of the operator starting at src[i].
-func symbolLen(src []rune, i int) int {
-	if i+1 >= len(src) {
-		return 1
+// symbolAt returns the operator starting at src[i] as a static string.
+// The result is never allocated. Longest-match rules are identical to the old symbolLen.
+func symbolAt(src []rune, i int) string {
+	c := src[i]
+	var d, e rune
+	if i+1 < len(src) {
+		d = src[i+1]
 	}
-	c, d := src[i], src[i+1]
+	if i+2 < len(src) {
+		e = src[i+2]
+	}
 	switch c {
 	case '=':
-		if d == '=' || d == '>' {
-			return 2
-		}
-	case '!', '*', '/', '%':
 		if d == '=' {
-			return 2
+			return "=="
 		}
-	case '<', '>':
-		if d == '=' || d == c {
-			return 2
+		if d == '>' {
+			return "=>"
 		}
-	case '&', '|':
-		if d == c {
-			return 2
+	case '!':
+		if d == '=' {
+			return "!="
+		}
+	case '*':
+		if d == '=' {
+			return "*="
+		}
+	case '/':
+		if d == '=' {
+			return "/="
+		}
+	case '%':
+		if d == '=' {
+			return "%="
+		}
+	case '<':
+		if d == '=' {
+			return "<="
+		}
+		if d == '<' {
+			return "<<"
+		}
+	case '>':
+		if d == '=' {
+			return ">="
+		}
+		if d == '>' {
+			return ">>"
+		}
+	case '&':
+		if d == '&' {
+			return "&&"
+		}
+	case '|':
+		if d == '|' {
+			return "||"
 		}
 	case '+':
-		if d == '+' || d == '=' {
-			return 2
+		if d == '+' {
+			return "++"
+		}
+		if d == '=' {
+			return "+="
 		}
 	case '-':
-		if d == '-' || d == '=' || d == '>' {
-			return 2
+		if d == '-' {
+			return "--"
+		}
+		if d == '=' {
+			return "-="
+		}
+		if d == '>' {
+			return "->"
 		}
 	case ':':
 		if d == ':' {
-			return 2
+			return "::"
 		}
 	case '.':
-		if d == '.' && i+2 < len(src) && src[i+2] == '.' {
-			return 3
+		if d == '.' && e == '.' {
+			return "..."
 		}
 	}
-	return 1
+	return singleSym[c]
 }
 
 /******************* Lexer entry ***/
@@ -481,9 +576,9 @@ func (p *Parser) getNextToken() Token {
 		case ch == '"' || ch == '\'':
 			return p.scanString(pos)
 		case cls&clsSymbol != 0:
-			return p.emit(SYM, i, i+symbolLen(src, i), pos)
+			return p.emitStatic(SYM, symbolAt(src, i), pos)
 		}
-		ThrowError(p.File, fmt.Sprintf("unexpected character %q", ch), pos)
+		ThrowError(p.File, "unexpected character "+strconv.QuoteRune(ch), pos)
 	}
 
 	if p.isIdentifierStart(ch) {
@@ -493,11 +588,15 @@ func (p *Parser) getNextToken() Token {
 		return p.scanNumber(pos, i)
 	}
 	p.advance()
-	ThrowError(p.File, fmt.Sprintf("unexpected character %q", ch), pos)
+	ThrowError(p.File, "unexpected character "+strconv.QuoteRune(ch), pos)
 	return Token{}
 }
 
 /******************* Parser helpers ***/
+
+func (p *Parser) next() {
+	p.lookahead = p.getNextToken()
+}
 
 func (p *Parser) match(token string) bool {
 	return (p.lookahead.Type == IDN ||
@@ -511,29 +610,29 @@ func (p *Parser) matchType(token TokenType) bool {
 
 func (p *Parser) expect(token string) {
 	if p.match(token) {
-		p.lookahead = p.getNextToken()
+		p.next()
 		return
 	}
-	ThrowError(p.File, fmt.Sprintf("expected token \"%s\", got \"%s\"", token, p.lookahead.Value), p.lookahead.Pos)
+	ThrowExpectedTokenError(p.File, token, p.lookahead.Value, p.lookahead.Pos)
 }
 
 func (p *Parser) expectType(token TokenType) {
 	if p.matchType(token) {
-		p.lookahead = p.getNextToken()
+		p.next()
 		return
 	}
-	ThrowError(p.File, fmt.Sprintf("expected token \"%s\", got \"%s\"", token, p.lookahead.Value), p.lookahead.Pos)
+	ThrowExpectedTokenError(p.File, token.String(), p.lookahead.Value, p.lookahead.Pos)
 }
 
 func (p *Parser) identifier(required bool) *Ast {
-	if !p.matchType(IDN) && required {
-		ThrowError(p.File, "expected identifier", p.lookahead.Pos)
-	}
 	if !p.matchType(IDN) {
+		if required {
+			ThrowError(p.File, "expected identifier", p.lookahead.Pos)
+		}
 		return nil
 	}
 	ast := NewTerminalAst(AstIdentifier, p.lookahead.Pos, p.lookahead.Value)
-	p.expectType(IDN)
+	p.next()
 	return ast
 }
 
@@ -544,7 +643,7 @@ func (p *Parser) stringLit() *Ast {
 }
 
 func (p *Parser) listOfStatement() *Ast {
-	var head *Ast = p.statement()
+	head := p.statement()
 	tail := head
 
 	for tail != nil {
@@ -557,7 +656,7 @@ func (p *Parser) listOfStatement() *Ast {
 }
 
 func (p *Parser) listOfBlockStatement() *Ast {
-	var head *Ast = p.blockLevelStatement()
+	head := p.blockLevelStatement()
 	tail := head
 
 	for tail != nil {
@@ -574,35 +673,27 @@ func (p *Parser) listOfBlockStatement() *Ast {
 func (p *Parser) terminal() *Ast {
 	switch p.lookahead.Type {
 	case IDN:
-		{
-			return p.identifier(true)
-		}
+		return p.identifier(true)
 	case NUM:
-		{
-			v, err := strconv.ParseFloat(p.lookahead.Value, 64)
-			if err != nil {
-				ThrowError(p.File, "invalid number format", p.lookahead.Pos)
-			}
-			ast := NewTerminalAst(AstNumLit, p.lookahead.Pos, v)
-			p.expectType(NUM)
+		v, err := strconv.ParseFloat(p.lookahead.Value, 64)
+		if err != nil {
+			ThrowError(p.File, "invalid number format", p.lookahead.Pos)
+		}
+		ast := NewTerminalAst(AstNumLit, p.lookahead.Pos, v)
+		p.next()
+		return ast
+	case STR:
+		return p.stringLit()
+	case KEY:
+		if p.lookahead.Value == KeyTrue || p.lookahead.Value == KeyFalse {
+			ast := NewTerminalAst(AstBoolLit, p.lookahead.Pos, p.lookahead.Value == KeyTrue)
+			p.next()
 			return ast
 		}
-	case STR:
-		{
-			return p.stringLit()
-		}
-	case KEY:
-		{
-			if p.lookahead.Value == KeyTrue || p.lookahead.Value == KeyFalse {
-				ast := NewTerminalAst(AstBoolLit, p.lookahead.Pos, p.lookahead.Value == KeyTrue)
-				p.expectType(KEY)
-				return ast
-			}
-			if p.lookahead.Value == KeyNull {
-				ast := NewTerminalAst(AstNullLit, p.lookahead.Pos, nil)
-				p.expectType(KEY)
-				return ast
-			}
+		if p.lookahead.Value == KeyNull {
+			ast := NewTerminalAst(AstNullLit, p.lookahead.Pos, nil)
+			p.next()
+			return ast
 		}
 	}
 	return nil
@@ -610,17 +701,17 @@ func (p *Parser) terminal() *Ast {
 
 func (p *Parser) group() *Ast {
 	if p.match("(") {
-		p.expect("(")
+		p.next()
 		expr := p.expression(true)
 		p.expect(")")
 		return expr
 	} else if p.match("[") {
-		p.expect("[")
+		p.next()
 		expr := p.listOfExpression(false, true)
 		p.expect("]")
 		return NewArray(p.lookahead.Pos, expr)
 	} else if p.match("{") {
-		p.expect("{")
+		p.next()
 		expr := p.listOfKeyValues(false, true) // parse object properties
 		p.expect("}")
 		return NewObject(p.lookahead.Pos, expr)
@@ -642,20 +733,17 @@ func (p *Parser) switchExpression() *Ast {
 	p.expect(")")
 	p.expect("{")
 
-	var caseHead *Ast = nil
-	var caseTail *Ast = nil
-
 	caseExpr := p.listOfExpression(true, false)
 	p.expect("=>")
 	caseBlock := p.expression(true)
 
-	caseHead = NewKeyValue(caseExpr.Pos, caseExpr, caseBlock)
-	caseTail = caseHead
+	caseHead := NewKeyValue(caseExpr.Pos, caseExpr, caseBlock)
+	caseTail := caseHead
 
 	hasDefault := false
 
 	for caseTail != nil && p.match(",") {
-		p.expect(",")
+		p.next()
 
 		if p.match(KeyDefault) {
 			if hasDefault {
@@ -663,7 +751,7 @@ func (p *Parser) switchExpression() *Ast {
 			}
 
 			hasDefault = true
-			p.expect(KeyDefault)
+			p.next()
 			p.expect("=>")
 			defaultBlock := p.expression(true)
 			defaultNode := NewKeyValue(
@@ -671,13 +759,8 @@ func (p *Parser) switchExpression() *Ast {
 				NewTerminalAst(AstNullLit, p.lookahead.Pos, nil),
 				defaultBlock,
 			)
-			if caseHead == nil {
-				caseHead = defaultNode
-				caseTail = defaultNode
-			} else {
-				caseTail.Next = defaultNode
-				caseTail = caseTail.Next
-			}
+			caseTail.Next = defaultNode
+			caseTail = caseTail.Next
 			continue
 		}
 
@@ -688,14 +771,8 @@ func (p *Parser) switchExpression() *Ast {
 		p.expect("=>")
 		caseBlock := p.expression(true)
 
-		caseNode := NewKeyValue(caseExpr.Pos, caseExpr, caseBlock)
-		if caseHead == nil {
-			caseHead = caseNode
-			caseTail = caseNode
-		} else {
-			caseTail.Next = caseNode
-			caseTail = caseTail.Next
-		}
+		caseTail.Next = NewKeyValue(caseExpr.Pos, caseExpr, caseBlock)
+		caseTail = caseTail.Next
 	}
 
 	p.expect("}")
@@ -710,25 +787,25 @@ func (p *Parser) memberOrCall() *Ast {
 		return nil
 	}
 
-	for p.match("->") || p.match("[") || p.match("(") {
+	for {
 		if p.match("->") {
-			p.expect("->")
+			p.next()
 			prop := p.identifier(true)
 			obj = NewMemberAccess(obj.Pos, obj, prop)
 		} else if p.match("[") {
-			p.expect("[")
+			p.next()
 			index := p.expression(true)
 			p.expect("]")
 			obj = NewIndexAccess(obj.Pos, obj, index)
 		} else if p.match("(") {
-			p.expect("(")
+			p.next()
 			args := p.listOfExpression(false, false)
 			p.expect(")")
 			obj = NewCall(obj.Pos, obj, args)
+		} else {
+			return obj
 		}
 	}
-
-	return obj
 }
 
 func postfixOperator(opt string) AstType {
@@ -834,6 +911,7 @@ func (p *Parser) expression(required bool) *Ast {
 }
 
 // Precedence methods below are ordered from tightest to loosest.
+// The operator is matched once, so it is consumed with next() instead of a second expect().
 
 func (p *Parser) postfix() *Ast {
 	lhs := p.memberOrCall()
@@ -844,13 +922,7 @@ func (p *Parser) postfix() *Ast {
 
 	for p.match("++") || p.match("--") {
 		opt := p.lookahead.Value
-		switch opt {
-		case "++":
-			p.expect("++")
-		case "--":
-			p.expect("--")
-		}
-
+		p.next()
 		lhs = NewPostfixOperation(postfixOperator(opt), lhs.Pos, lhs)
 	}
 
@@ -858,29 +930,10 @@ func (p *Parser) postfix() *Ast {
 }
 
 func (p *Parser) unary() *Ast {
-	if p.match("+") || p.match("-") || p.match("!") || p.match("~") {
+	if p.match("+") || p.match("-") || p.match("!") || p.match("~") || p.match(KeyAwait) {
 		opt := p.lookahead.Value
-		switch opt {
-		case "+":
-			p.expect("+")
-		case "-":
-			p.expect("-")
-		case "!":
-			p.expect("!")
-		case "~":
-			p.expect("~")
-		}
+		p.next()
 
-		operand := p.unary()
-		if operand == nil {
-			ThrowError(p.File, "missing operand", p.lookahead.Pos)
-		}
-		return NewUnaryOperation(unaryOperator(opt), operand.Pos, operand)
-	}
-
-	if p.match(KeyAwait) {
-		opt := p.lookahead.Value
-		p.expect(KeyAwait)
 		operand := p.unary()
 		if operand == nil {
 			ThrowError(p.File, "missing operand", p.lookahead.Pos)
@@ -893,33 +946,19 @@ func (p *Parser) unary() *Ast {
 
 func (p *Parser) multiplicative() *Ast {
 	lhs := p.unary()
-
 	if lhs == nil {
 		return nil
 	}
 
 	for p.match("*") || p.match("/") || p.match("%") {
 		opt := p.lookahead.Value
-		switch opt {
-		case "*":
-			p.expect("*")
-		case "/":
-			p.expect("/")
-		case "%":
-			p.expect("%")
-		}
+		p.next()
 
 		rhs := p.unary()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
-
-		lhs = NewBinaryOperation(
-			binOperator(opt),
-			lhs.Pos,
-			lhs,
-			rhs,
-		)
+		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
 	return lhs
@@ -927,31 +966,19 @@ func (p *Parser) multiplicative() *Ast {
 
 func (p *Parser) additive() *Ast {
 	lhs := p.multiplicative()
-
 	if lhs == nil {
 		return nil
 	}
 
 	for p.match("+") || p.match("-") {
 		opt := p.lookahead.Value
-		switch opt {
-		case "+":
-			p.expect("+")
-		case "-":
-			p.expect("-")
-		}
+		p.next()
 
 		rhs := p.multiplicative()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
-
-		lhs = NewBinaryOperation(
-			binOperator(opt),
-			lhs.Pos,
-			lhs,
-			rhs,
-		)
+		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
 	return lhs
@@ -965,18 +992,12 @@ func (p *Parser) shift() *Ast {
 
 	for p.match("<<") || p.match(">>") {
 		opt := p.lookahead.Value
-		switch opt {
-		case "<<":
-			p.expect("<<")
-		case ">>":
-			p.expect(">>")
-		}
+		p.next()
 
 		rhs := p.additive()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
-
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -991,22 +1012,12 @@ func (p *Parser) relational() *Ast {
 
 	for p.match("<") || p.match("<=") || p.match(">") || p.match(">=") {
 		opt := p.lookahead.Value
-		switch opt {
-		case "<":
-			p.expect("<")
-		case "<=":
-			p.expect("<=")
-		case ">":
-			p.expect(">")
-		case ">=":
-			p.expect(">=")
-		}
+		p.next()
 
 		rhs := p.shift()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
-
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1021,18 +1032,12 @@ func (p *Parser) equality() *Ast {
 
 	for p.match("==") || p.match("!=") {
 		opt := p.lookahead.Value
-		switch opt {
-		case "==":
-			p.expect("==")
-		case "!=":
-			p.expect("!=")
-		}
+		p.next()
 
 		rhs := p.relational()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
-
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1047,13 +1052,12 @@ func (p *Parser) bitwiseAnd() *Ast {
 
 	for p.match("&") {
 		opt := p.lookahead.Value
-		p.expect("&")
+		p.next()
 
 		rhs := p.equality()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
-
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1068,13 +1072,12 @@ func (p *Parser) bitwiseXor() *Ast {
 
 	for p.match("^") {
 		opt := p.lookahead.Value
-		p.expect("^")
+		p.next()
 
 		rhs := p.bitwiseAnd()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
-
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1089,13 +1092,12 @@ func (p *Parser) bitwiseOr() *Ast {
 
 	for p.match("|") {
 		opt := p.lookahead.Value
-		p.expect("|")
+		p.next()
 
 		rhs := p.bitwiseXor()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
-
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1110,13 +1112,12 @@ func (p *Parser) logicalAnd() *Ast {
 
 	for p.match("&&") {
 		opt := p.lookahead.Value
-		p.expect("&&")
+		p.next()
 
 		rhs := p.bitwiseOr()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
-
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1131,13 +1132,12 @@ func (p *Parser) logicalOr() *Ast {
 
 	for p.match("||") {
 		opt := p.lookahead.Value
-		p.expect("||")
+		p.next()
 
 		rhs := p.logicalAnd()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
-
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1152,13 +1152,12 @@ func (p *Parser) assignment() *Ast {
 
 	if p.match("=") {
 		opt := p.lookahead.Value
-		p.expect("=")
+		p.next()
 
 		rhs := p.assignment()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
-
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1173,13 +1172,12 @@ func (p *Parser) mulAssign() *Ast {
 
 	for p.match("*=") || p.match("/=") || p.match("%=") {
 		opt := p.lookahead.Value
-		p.expect(opt)
+		p.next()
 
 		rhs := p.mulAssign()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
-
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1194,13 +1192,12 @@ func (p *Parser) addAssign() *Ast {
 
 	for p.match("+=") || p.match("-=") {
 		opt := p.lookahead.Value
-		p.expect(opt)
+		p.next()
 
 		rhs := p.addAssign()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
-
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1215,13 +1212,12 @@ func (p *Parser) shiftAssign() *Ast {
 
 	for p.match("<<=") || p.match(">>=") {
 		opt := p.lookahead.Value
-		p.expect(opt)
+		p.next()
 
 		rhs := p.shiftAssign()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
-
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1236,13 +1232,12 @@ func (p *Parser) andAssign() *Ast {
 
 	for p.match("&=") {
 		opt := p.lookahead.Value
-		p.expect(opt)
+		p.next()
 
 		rhs := p.andAssign()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
-
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1257,13 +1252,12 @@ func (p *Parser) xorAssign() *Ast {
 
 	for p.match("^=") {
 		opt := p.lookahead.Value
-		p.expect(opt)
+		p.next()
 
 		rhs := p.xorAssign()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
-
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1278,13 +1272,12 @@ func (p *Parser) orAssign() *Ast {
 
 	for p.match("|=") {
 		opt := p.lookahead.Value
-		p.expect(opt)
+		p.next()
 
 		rhs := p.orAssign()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
-
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1301,7 +1294,7 @@ func (p *Parser) ternaryOperation() *Ast {
 		return condition
 	}
 
-	p.expect("?")
+	p.next()
 	thenExpr := p.expression(true)
 	p.expect(":")
 	elseExpr := p.expression(true)
@@ -1311,18 +1304,18 @@ func (p *Parser) ternaryOperation() *Ast {
 
 func (p *Parser) spreadOrExpression(required bool, spread bool) *Ast {
 	if spread && p.match("...") {
-		p.expect("...")
+		p.next()
 		return NewSpread(p.lookahead.Pos, p.expression(true))
 	}
 	return p.expression(required)
 }
 
 func (p *Parser) listOfExpression(required bool, spread bool) *Ast {
-	var head *Ast = p.spreadOrExpression(required, spread)
-	var tail *Ast = head
+	head := p.spreadOrExpression(required, spread)
+	tail := head
 
 	for tail != nil && p.match(",") {
-		p.expect(",")
+		p.next()
 		tail.Next = p.spreadOrExpression(false, spread) // expression or spread
 		if tail.Next == nil {
 			ThrowError(p.File, "missing expression after comma", p.lookahead.Pos)
@@ -1345,7 +1338,7 @@ func (p *Parser) key(required bool) *Ast {
 
 func (p *Parser) keyValue(required bool, spread bool) *Ast {
 	if spread && p.match("...") {
-		p.expect("...")
+		p.next()
 		return NewSpread(p.lookahead.Pos, p.expression(true))
 	}
 
@@ -1359,11 +1352,11 @@ func (p *Parser) keyValue(required bool, spread bool) *Ast {
 }
 
 func (p *Parser) listOfKeyValues(required bool, spread bool) *Ast {
-	var head *Ast = p.keyValue(required, spread)
-	var tail *Ast = head
+	head := p.keyValue(required, spread)
+	tail := head
 
 	for tail != nil && p.match(",") {
-		p.expect(",")
+		p.next()
 		tail.Next = p.keyValue(false, spread)
 		if tail.Next == nil {
 			ThrowError(p.File, "missing key-value after comma", p.lookahead.Pos)
@@ -1376,51 +1369,57 @@ func (p *Parser) listOfKeyValues(required bool, spread bool) *Ast {
 
 /******************* Declarations ***/
 
+// objectPattern parses `a, b: expr, c` (shared by import lists and object destructuring).
+func (p *Parser) objectPattern() *Ast {
+	k := p.identifier(true)
+	var v *Ast
+
+	if p.match(":") {
+		p.next()
+		v = p.expression(true)
+	}
+
+	head := k
+	tail := head
+
+	if k != nil && v != nil {
+		head = NewKeyValue(k.Pos, k, v)
+		tail = head
+	}
+
+	for tail != nil && p.match(",") {
+		p.next()
+
+		k = p.identifier(false)
+		v = nil
+
+		if p.match(":") {
+			p.next()
+			v = p.expression(true)
+		}
+
+		if k != nil && v != nil {
+			tail.Next = NewKeyValue(k.Pos, k, v)
+		} else {
+			tail.Next = k
+		}
+
+		tail = tail.Next
+	}
+
+	return head
+}
+
 func (p *Parser) importStatement() *Ast {
 	pos := p.lookahead.Pos
 	p.expect(KeyImport)
-	// import logic here (e.g., import "module")
 	if p.matchType(STR) {
 		module := p.stringLit()
 		p.expect(";")
 		return NewImport(pos, module, nil)
 	} else if p.match("{") {
-		p.expect("{")
-		var k *Ast = p.identifier(true)
-		var v *Ast = nil
-
-		if p.match(":") {
-			p.expect(":")
-			v = p.expression(true)
-		}
-
-		var head *Ast = k
-		var tail *Ast = head
-
-		if k != nil && v != nil {
-			head = NewKeyValue(k.Pos, k, v)
-			tail = head
-		}
-
-		for tail != nil && p.match(",") {
-			p.expect(",")
-
-			k = p.identifier(false)
-			v = nil
-
-			if p.match(":") {
-				p.expect(":")
-				v = p.expression(true)
-			}
-
-			if k != nil && v != nil {
-				tail.Next = NewKeyValue(k.Pos, k, v)
-			} else {
-				tail.Next = k
-			}
-
-			tail = tail.Next
-		}
+		p.next()
+		head := p.objectPattern()
 		p.expect("}")
 		p.expect(KeyFrom)
 		module := p.stringLit()
@@ -1455,11 +1454,11 @@ func (p *Parser) variableDeclaration(keyWord string, topLevel bool) *Ast {
 	p.expect(keyWord) // var | let | const
 
 	if p.match("[") { // array destructuring
-		p.expect("[")
+		p.next()
 		head := p.identifier(true)
 		tail := head
 		for p.match(",") {
-			p.expect(",")
+			p.next()
 			tail.Next = p.identifier(false)
 			if tail.Next == nil {
 				ThrowError(p.File, "missing identifier after comma", p.lookahead.Pos)
@@ -1472,42 +1471,8 @@ func (p *Parser) variableDeclaration(keyWord string, topLevel bool) *Ast {
 		p.expect(";")
 		return NewDestructuringArrayDeclaration(arrayDestructuringType, position, head, v)
 	} else if p.match("{") { // object destructuring
-		p.expect("{")
-		var k *Ast = p.identifier(true)
-		var v *Ast = nil
-
-		if p.match(":") {
-			p.expect(":")
-			v = p.expression(true)
-		}
-
-		var head *Ast = k
-		var tail *Ast = head
-
-		if k != nil && v != nil {
-			head = NewKeyValue(k.Pos, k, v)
-			tail = head
-		}
-
-		for tail != nil && p.match(",") {
-			p.expect(",")
-
-			k = p.identifier(false)
-			v = nil
-
-			if p.match(":") {
-				p.expect(":")
-				v = p.expression(true)
-			}
-
-			if k != nil && v != nil {
-				tail.Next = NewKeyValue(k.Pos, k, v)
-			} else {
-				tail.Next = k
-			}
-
-			tail = tail.Next
-		}
+		p.next()
+		head := p.objectPattern()
 		p.expect("}")
 		p.expect("=")
 		value := p.expression(true)
@@ -1516,12 +1481,12 @@ func (p *Parser) variableDeclaration(keyWord string, topLevel bool) *Ast {
 	}
 
 	// regular variable dec
-	var key *Ast = p.identifier(true)
-	var val *Ast = nil
+	key := p.identifier(true)
+	var val *Ast
 
 	// function or class
 	if topLevel && p.match("::") {
-		p.expect("::")
+		p.next()
 		if p.match(KeyFn) {
 			exp := p.functionExpression()
 			fun := NewFunctionDeclaration(key.Pos, key, exp)
@@ -1538,7 +1503,7 @@ func (p *Parser) variableDeclaration(keyWord string, topLevel bool) *Ast {
 	}
 
 	if p.match("=") {
-		p.expect("=")
+		p.next()
 		val = p.expression(true)
 	}
 
@@ -1546,18 +1511,16 @@ func (p *Parser) variableDeclaration(keyWord string, topLevel bool) *Ast {
 	tail := head
 
 	for tail != nil && p.match(",") {
-		p.expect(",")
+		p.next()
 
 		key = p.identifier(false)
-
 		if key == nil {
 			ThrowError(p.File, "missing identifier after comma", p.lookahead.Pos)
 		}
 
 		val = nil
-
 		if p.match("=") {
-			p.expect("=")
+			p.next()
 			val = p.expression(true)
 		}
 
@@ -1574,23 +1537,23 @@ func (p *Parser) classExpression() *Ast {
 	pos := p.lookahead.Pos
 	p.expect(KeyClass)
 
-	var base *Ast = nil
+	var base *Ast
 	if p.match("(") {
-		p.expect("(")
+		p.next()
 		base = p.identifier(true)
 		p.expect(")")
 	}
 
 	p.expect("{")
-	var k *Ast = p.identifier(true)
+	k := p.identifier(true)
 	p.expect(":")
-	var v *Ast = p.expression(true)
+	v := p.expression(true)
 
-	var head *Ast = NewKeyValue(k.Pos, k, v)
-	var tail *Ast = head
+	head := NewKeyValue(k.Pos, k, v)
+	tail := head
 
 	for tail != nil && p.match(",") {
-		p.expect(",")
+		p.next()
 		k = p.identifier(true)
 		p.expect(":")
 		v = p.expression(true)
@@ -1607,11 +1570,11 @@ func (p *Parser) functionExpression() *Ast {
 	p.expect(KeyFn)
 
 	p.expect("(")
-	var parameterHead *Ast = p.identifier(false)
-	var parameterTail *Ast = parameterHead
+	parameterHead := p.identifier(false)
+	parameterTail := parameterHead
 	for parameterTail != nil && p.match(",") {
-		p.expect(",")
-		var ident *Ast = p.identifier(false)
+		p.next()
+		ident := p.identifier(false)
 		if ident == nil {
 			ThrowError(p.File, "missing identifier after comma", p.lookahead.Pos)
 		}
@@ -1620,9 +1583,8 @@ func (p *Parser) functionExpression() *Ast {
 	}
 	p.expect(")")
 
-	async := p.match(KeyAsync)
-	if async {
-		p.expect(KeyAsync)
+	if p.match(KeyAsync) {
+		p.next()
 	}
 
 	p.expect("{")
@@ -1663,10 +1625,9 @@ func (p *Parser) tryCatch() *Ast {
 	tryBlock := p.listOfBlockStatement()
 	p.expect("}")
 
-	var catchParam *Ast = nil
-	var catchBlock *Ast = nil
+	var catchParam, catchBlock *Ast
 	if p.match(KeyCatch) {
-		p.expect(KeyCatch)
+		p.next()
 		p.expect("(")
 		catchParam = p.identifier(true)
 		p.expect(")")
@@ -1686,11 +1647,10 @@ func (p *Parser) switchStatement() *Ast {
 	p.expect(")")
 	p.expect("{")
 
-	var caseHead *Ast = nil
-	var caseTail *Ast = nil
+	var caseHead, caseTail *Ast
 
 	for p.match(KeyCase) {
-		p.expect(KeyCase)
+		p.next()
 		caseExpr := p.listOfExpression(true, false)
 		p.expect(":")
 		caseBlock := p.listOfBlockStatement()
@@ -1705,7 +1665,7 @@ func (p *Parser) switchStatement() *Ast {
 	}
 
 	if p.match(KeyDefault) {
-		p.expect(KeyDefault)
+		p.next()
 		p.expect(":")
 		defaultBlock := p.listOfBlockStatement()
 		defaultNode := NewKeyValue(
@@ -1715,10 +1675,8 @@ func (p *Parser) switchStatement() *Ast {
 		)
 		if caseHead == nil {
 			caseHead = defaultNode
-			caseTail = defaultNode
 		} else {
 			caseTail.Next = defaultNode
-			caseTail = caseTail.Next
 		}
 	}
 
@@ -1734,9 +1692,9 @@ func (p *Parser) ifStatement() *Ast {
 	condition := p.expression(true)
 	p.expect(")")
 	thenBlock := p.blockLevelStatement()
-	var elseBlock *Ast = nil
+	var elseBlock *Ast
 	if p.match(KeyElse) {
-		p.expect(KeyElse)
+		p.next()
 		elseBlock = p.blockLevelStatement()
 	}
 	return NewIfStatement(pos, condition, thenBlock, elseBlock)
@@ -1746,23 +1704,20 @@ func (p *Parser) loopStatement() *Ast {
 	pos := p.lookahead.Pos
 	p.expect(KeyLoop)
 	p.expect("(")
-	var init *Ast = p.loopInitializer()
-	var cond *Ast = nil
-	var mutt *Ast = nil
+	init := p.loopInitializer()
+	var cond, mutt *Ast
 	whileMode := false
 	if init != nil && p.isInitializer(init) {
 		cond = p.expression(false)
 		p.expect(";")
 		mutt = p.expression(false)
+	} else if p.match(";") {
+		p.next()
+		cond = p.expression(false)
+		p.expect(";")
+		mutt = p.expression(false)
 	} else {
-		if p.match(";") {
-			p.expect(";")
-			cond = p.expression(false)
-			p.expect(";")
-			mutt = p.expression(false)
-		} else {
-			whileMode = true
-		}
+		whileMode = true
 	}
 	p.expect(")")
 	block := p.blockLevelStatement()
@@ -1813,7 +1768,7 @@ func (p *Parser) expressionStatement() *Ast {
 	if node != nil {
 		p.expect(";")
 		for p.match(";") {
-			p.expect(";")
+			p.next()
 		}
 		return NewExpressionStatement(p.lookahead.Pos, node)
 	}
@@ -1857,6 +1812,6 @@ func (p *Parser) program() *Ast {
 }
 
 func (p *Parser) Parse() *Ast {
-	p.lookahead = p.getNextToken()
+	p.next()
 	return p.program()
 }
