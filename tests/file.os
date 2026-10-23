@@ -2,6 +2,6 @@
 
 
 
-const add::fn(a, b) {
+var add::fn(a, b) {
     return a + b;
 };

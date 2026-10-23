@@ -37,6 +37,10 @@ func emit(fn *Function, op int32) {
 	fn.Bytecode = append(fn.Bytecode, op)
 }
 
+func emitInt(fn *Function, op int32, value int32) {
+	fn.Bytecode = append(fn.Bytecode, op, value)
+}
+
 func emitFloat(fn *Function, value float64) {
 	whole, decimal := SliceFloat(value)
 	fn.Bytecode = append(fn.Bytecode, OpLoadNum, whole, decimal)
@@ -259,7 +263,7 @@ func tryFold(fn *Function, ast *Ast) (result any, folded bool) {
 	return nil, false
 }
 
-func visitExpression(fn *Function, ast *Ast) {
+func visitExpression(p *Parser, fn *Function, ast *Ast) {
 	if result, folded := tryFold(fn, ast); folded {
 		fmt.Printf("result: %v\n", result)
 		emitAny(fn, result)
@@ -267,6 +271,10 @@ func visitExpression(fn *Function, ast *Ast) {
 	}
 
 	switch ast.Type {
+	case AstIdentifier:
+		{
+			emitString(fn, ast.Value.(string))
+		}
 	case AstNumLit:
 		emitFloat(fn, ast.Value.(float64))
 	case AstStrLit:
@@ -280,7 +288,7 @@ func visitExpression(fn *Function, ast *Ast) {
 	case AstNullLit:
 		emit(fn, OpLoadNull)
 	case AstPos, AstNeg, AstNot, AstBitNot:
-		visitExpression(fn, ast.A)
+		visitExpression(p, fn, ast.A)
 		switch ast.Type {
 		case AstPos:
 			emit(fn, OpUnaryPos)
@@ -307,8 +315,8 @@ func visitExpression(fn *Function, ast *Ast) {
 		AstBitAnd,
 		AstBitXor,
 		AstBitOr:
-		visitExpression(fn, ast.A)
-		visitExpression(fn, ast.B)
+		visitExpression(p, fn, ast.A)
+		visitExpression(p, fn, ast.B)
 
 		opcode := map[AstType]int32{
 			AstMul:          OpBinMul,
@@ -339,7 +347,7 @@ func visitExpression(fn *Function, ast *Ast) {
 				var x = false && true; // false
 				var y = false || true; // true
 			*/
-			visitExpression(fn, ast.A)
+			visitExpression(p, fn, ast.A)
 			var jumpPos int32 = 0
 			switch ast.Type {
 			case AstAnd:
@@ -347,7 +355,7 @@ func visitExpression(fn *Function, ast *Ast) {
 			case AstOr:
 				jumpPos = emitJump(fn, OpJmpIfTrueOrPop)
 			}
-			visitExpression(fn, ast.B)
+			visitExpression(p, fn, ast.B)
 			labelJump(fn, jumpPos)
 		}
 
@@ -356,11 +364,83 @@ func visitExpression(fn *Function, ast *Ast) {
 	}
 }
 
-func visitDeclarationOrStatement(fn *Function, ast *Ast) {
+func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+	function := NewFunction(fn.File, ast.A.Value.(string), false)
+	localScope := Scope{
+		Parent:    scope,
+		Variables: make(map[string]Symbol),
+		VarCount:  0,
+	}
+
+	nameNode := ast.A
+	parmNode := ast.B.A
+	bodyNode := ast.B.B
+
+	for parmNode != nil {
+		paramName := parmNode.Value.(string)
+
+		if localScope.ExistsLocal(paramName) {
+			ThrowError(fn.File, "variable is already defined in scope", parmNode.Pos)
+		}
+
+		offset := localScope.GetVarCount()
+
+		localScope.AddLocal(paramName, Symbol{
+			Name:    paramName,
+			Offset:  offset,
+			Const:   false,
+			Capture: false,
+			Pos:     parmNode.Pos,
+		})
+
+		emitInt(function, OpStoreLocal, offset)
+
+		// Process each parameter here
+		parmNode = parmNode.Next
+	}
+
+	visibleReturn := false
+	for bodyNode != nil {
+		if !visibleReturn && bodyNode.Type == AstReturnStmt {
+			visibleReturn = true
+		}
+		visitDeclarationOrStatement(p, &localScope, function, bodyNode)
+		bodyNode = bodyNode.Next
+	}
+
+	if !visibleReturn {
+		emit(function, OpLoadNull)
+		emit(function, OpReturn)
+	}
+
+	funcOffset := p.state.SaveFunction(function)
+
+	if status, exists := scope.GetVariable(nameNode.Value.(string)); exists {
+		emitInt(fn, OpLoadFunction, funcOffset)
+		emitInt(fn, OpStoreLocal, status.Offset)
+	} else {
+		ThrowError(fn.File, "function does not exists", ast.Pos)
+	}
+}
+
+func visitReturn(p *Parser, fn *Function, ast *Ast) {
+	if ast.A != nil {
+		visitExpression(p, fn, ast.A)
+	} else {
+		emit(fn, OpLoadNull)
+	}
+	emit(fn, OpReturn)
+}
+
+func visitDeclarationOrStatement(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	emitLine(fn, ast.Pos)
 	switch ast.Type {
+	case AstFunction:
+		visitFunctionDeclaration(p, scope, fn, ast)
 	case AstExpressionStmnt:
-		visitExpression(fn, ast.A)
+		visitExpression(p, fn, ast.A)
+	case AstReturnStmt:
+		visitReturn(p, fn, ast.A)
 	default:
 		panic(
 			fmt.Sprintf("visitDeclarationOrStatement:: unexpected statement type %v", ast.Type),
@@ -373,10 +453,33 @@ func compileProgram(p *Parser) {
 	assert(AstProgram, ast)
 
 	program := NewFunction(p.File, "$main", false)
+	scope := Scope{
+		Parent:    nil,
+		Variables: make(map[string]Symbol),
+		VarCount:  0,
+	}
 
 	current := ast.A
+	// forward function declarations
 	for current != nil {
-		visitDeclarationOrStatement(program, current)
+		if current.Type == AstFunction {
+			nameNode := current.A
+			funcName := nameNode.Value.(string)
+			offset := scope.GetVarCount()
+			scope.AddLocal(funcName, Symbol{
+				Name:    funcName,
+				Offset:  offset,
+				Const:   false,
+				Capture: false,
+				Pos:     nameNode.Pos,
+			})
+		}
+		current = current.Next
+	}
+
+	current = ast.A
+	for current != nil {
+		visitDeclarationOrStatement(p, &scope, program, current)
 		current = current.Next
 	}
 

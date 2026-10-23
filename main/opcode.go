@@ -6,6 +6,7 @@ const (
 	OpLoadTrue
 	OpLoadFalse
 	OpLoadNull
+	OpLoadFunction
 	OpUnaryPos
 	OpUnaryNeg
 	OpUnaryNot
@@ -32,5 +33,6 @@ const (
 	OpPopJmpIfTrue
 	OpJmpIfFalseOrPop
 	OpJmpIfTrueOrPop
+	OpStoreLocal
 	OpReturn
 )

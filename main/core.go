@@ -20,8 +20,9 @@ type File struct {
 }
 
 type State struct {
-	File    []*File
-	Imports map[string]*Import
+	File      []*File
+	Imports   map[string]*Import
+	Functions []*Function
 }
 
 type Import struct {
@@ -50,6 +51,85 @@ type Parser struct {
 	errors    []string
 }
 
+type AstType int
+
+const (
+	AstIdentifier AstType = iota
+	AstNumLit
+	AstStrLit
+	AstBoolLit
+	AstNullLit
+	AstClassExpression
+	AstFunctionExpression
+	AstArray
+	AstObject
+	AstKeyValue
+	AstMemberAccess
+	AstIndexAccess
+	AstCall
+	AstPos
+	AstInc
+	AstNeg
+	AstDec
+	AstNot
+	AstBitNot
+	AstAwait
+	AstSpread
+	AstMul
+	AstDiv
+	AstMod
+	AstAdd
+	AstSub
+	AstShiftLeft
+	AstShiftRight
+	AstLess
+	AstLessEqual
+	AstGreater
+	AstGreaterEqual
+	AstEqual
+	AstNotEqual
+	AstBitAnd
+	AstBitXor
+	AstBitOr
+	AstAnd
+	AstOr
+	AstAssign
+	AstMulAssign
+	AstDivAssign
+	AstModAssign
+	AstAddAssign
+	AstSubAssign
+	AstShiftLeftAssign
+	AstShiftRightAssign
+	AstAndAssign
+	AstXorAssign
+	AstOrAssign
+	AstTernaryOperation
+	AstImport
+	AstClass
+	AstFunction
+	AstDestructuringArrayVar
+	AstDestructuringArrayLet
+	AstDestructuringArrayConst
+	AstDestructuringObjectVar
+	AstDestructuringObjectLet
+	AstDestructuringObjectConst
+	AstVar
+	AstLet
+	AstConst
+	AstTryCatch
+	AstSwitchStmt
+	AstIfStmt
+	AstForLoop
+	AstWhileLoop
+	AstContinueStmt
+	AstBreakStmt
+	AstReturnStmt
+	AstBlock
+	AstExpressionStmnt
+	AstProgram
+)
+
 type Ast struct {
 	Type  AstType
 	Value interface{}
@@ -72,6 +152,20 @@ type TryCatchTable struct {
 type Lines struct {
 	Index int32 // Opcode index
 	Line  int32
+}
+
+type Scope struct {
+	Parent    *Scope
+	Variables map[string]Symbol
+	VarCount  int32
+}
+
+type Symbol struct {
+	Name    string
+	Offset  int32
+	Const   bool
+	Capture bool
+	Pos     Position
 }
 
 type Function struct {

@@ -1379,7 +1379,7 @@ func (p *Parser) importStatement() *Ast {
 	return nil
 }
 
-func (p *Parser) variableDeclaration(keyWord string) *Ast {
+func (p *Parser) variableDeclaration(keyWord string, topLevel bool) *Ast {
 	position := p.lookahead.Pos
 	var declarationType, arrayDestructuringType, objectDestructuringType AstType
 	switch keyWord {
@@ -1467,7 +1467,7 @@ func (p *Parser) variableDeclaration(keyWord string) *Ast {
 	var val *Ast = nil
 
 	// function or class
-	if p.match("::") {
+	if topLevel && p.match("::") {
 		p.expect("::")
 		if p.match(KeyFn) {
 			exp := p.functionExpression()
@@ -1583,7 +1583,7 @@ func (p *Parser) functionExpression() *Ast {
 
 func (p *Parser) loopInitializer() *Ast {
 	if p.match(KeyVar) || p.match(KeyLet) || p.match(KeyConst) {
-		return p.variableDeclaration(p.lookahead.Value)
+		return p.variableDeclaration(p.lookahead.Value, false)
 	}
 	return p.expression(false)
 }
@@ -1771,14 +1771,14 @@ func (p *Parser) statement() *Ast {
 	if p.match(KeyImport) {
 		return p.importStatement()
 	} else if p.match(KeyVar) {
-		return p.variableDeclaration(KeyVar)
+		return p.variableDeclaration(KeyVar, true)
 	}
 	return p.blockLevelStatement()
 }
 
 func (p *Parser) blockLevelStatement() *Ast {
 	if p.match(KeyLet) || p.match(KeyConst) {
-		return p.variableDeclaration(p.lookahead.Value)
+		return p.variableDeclaration(p.lookahead.Value, false)
 	} else if p.match(KeySwitch) {
 		return p.switchStatement()
 	} else if p.match(KeyIf) {
