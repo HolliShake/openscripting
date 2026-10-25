@@ -16,6 +16,6 @@ var f::fn() {
 
 try {
     log 2 / f();
-}catch(err) {
+} catch(err) {
     log err;
 }

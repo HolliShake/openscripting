@@ -32,7 +32,7 @@ func (v OSValue) String() string {
 	case OSVInt:
 		return fmt.Sprintf("%d", int64(v.Number))
 	case OSVNum:
-		return fmt.Sprintf("%f", v.Number)
+		return strconv.FormatFloat(v.Number, 'f', -1, 64)
 	case OSVBool:
 		if v.Number != 0 {
 			return "true"

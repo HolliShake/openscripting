@@ -3,15 +3,19 @@ package main
 func (s *Scope) ExistsFunction(name string) bool {
 	currentFunctionScope := s
 
-	for currentFunctionScope != nil && (currentFunctionScope.Type != ScopeTypeFunction && currentFunctionScope.Type != ScopeTypeGlobal) {
+	for currentFunctionScope != nil {
+		if currentFunctionScope.Type == ScopeTypeFunction || currentFunctionScope.Type == ScopeTypeGlobal {
+			return currentFunctionScope.ExistsLocal(name)
+		} else {
+			// Skip non-function and non-global scopes
+			if currentFunctionScope.ExistsLocal(name) {
+				return true
+			}
+		}
 		currentFunctionScope = currentFunctionScope.Parent
 	}
 
-	if currentFunctionScope == nil {
-		return false
-	}
-
-	return currentFunctionScope.ExistsLocal(name)
+	return false
 }
 
 func (s *Scope) ExistsLocal(name string) bool {

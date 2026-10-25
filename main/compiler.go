@@ -353,19 +353,21 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 				ThrowError(fn.File, "undefined variable", ast.Pos)
 			}
 
-			isLocal := scope.ExistsLocal(name)
+			isLocal := scope.ExistsFunction(name)
 			sym, exists := scope.GetVariable(name)
 
 			if exists && !isLocal {
 				// Capture
 				offset := scope.GetVarCount()
+
 				scope.AddLocal(name, Symbol{
 					Name:    name,
 					Offset:  offset,
-					Const:   false,
-					Capture: !isLocal,
+					Const:   sym.Const,
+					Capture: true,
 					Pos:     ast.Pos,
 				})
+
 				emitInt(fn, OpLoadCap, sym.Offset)
 				emitInt(fn, OpStoreCap, offset)
 				emit(fn, sym.Offset)
@@ -449,10 +451,12 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	parmNode := ast.B.A
 	bodyNode := ast.B.B
 
-	reverse := []struct {
+	type Param struct {
 		Name   string
 		Offset int32
-	}{}
+	}
+
+	reverse := []Param{}
 
 	for parmNode != nil {
 		paramName := parmNode.Value.(string)
@@ -462,6 +466,7 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		}
 
 		offset := localScope.GetVarCount()
+
 		localScope.AddLocal(paramName, Symbol{
 			Name:    paramName,
 			Offset:  offset,
@@ -469,13 +474,12 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 			Capture: false,
 			Pos:     parmNode.Pos,
 		})
-		reverse = append(reverse, struct {
-			Name   string
-			Offset int32
-		}{
+
+		reverse = append(reverse, Param{
 			Name:   paramName,
 			Offset: offset,
 		})
+
 		parmNode = parmNode.Next
 	}
 
@@ -549,8 +553,14 @@ func visitTryCatch(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	tableIndex := len(fn.TryCatchTable)
 	fn.TryCatchTable = append(fn.TryCatchTable, TryCatchTable{CatchLocal: -1})
 	fn.TryCatchTable[tableIndex].TryStart = int32(len(fn.Bytecode))
+	tryScope := Scope{
+		Type:      ScopeTypeBlock,
+		Parent:    scope,
+		Variables: make(map[string]Symbol),
+		VarCount:  0,
+	}
 	for statement := ast.A; statement != nil; statement = statement.Next {
-		visitDeclarationOrStatement(p, scope, fn, statement)
+		visitDeclarationOrStatement(p, &tryScope, fn, statement)
 	}
 	fn.TryCatchTable[tableIndex].TryEnd = int32(len(fn.Bytecode))
 	endJump := emitJump(fn, OpJmp)
@@ -562,16 +572,25 @@ func visitTryCatch(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		Variables: make(map[string]Symbol),
 		VarCount:  1,
 	}
+
 	if ast.B != nil {
-		name := ast.B.Value.(string)
+		catchVarName := ast.B.Value.(string)
+
 		offset := catchScope.GetVarCount()
-		catchScope.AddLocal(name, Symbol{Name: name, Offset: offset, Pos: ast.B.Pos})
+
+		catchScope.AddLocal(catchVarName, Symbol{
+			Name:   catchVarName,
+			Offset: offset,
+			Pos:    ast.B.Pos,
+		})
+
 		fn.TryCatchTable[tableIndex].CatchLocal = offset
 	}
+
 	for statement := ast.C; statement != nil; statement = statement.Next {
 		visitDeclarationOrStatement(p, &catchScope, fn, statement)
 	}
-	scope.VarCount = catchScope.VarCount
+
 	fn.TryCatchTable[tableIndex].CatchEnd = int32(len(fn.Bytecode))
 	labelJump(fn, endJump)
 }
