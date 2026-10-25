@@ -12,6 +12,8 @@ type VM struct {
 	False   OSValue
 }
 
+var StackSize int32 = 1024
+
 func interpreterLoop(state *State, vm *VM) {
 	for vm.Current != nil && vm.Current.State != CoroutineStateDead {
 		runCoroutine(state, vm, vm.Current)
@@ -48,7 +50,9 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 		}
 
 		sp--
-		return stack[sp]
+		value := stack[sp]
+		stack[sp] = OSValue{}
+		return value
 	}
 
 	push := func(value OSValue) {
@@ -78,7 +82,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				b := readByte()
 
 				push(OSValue{
-					Type:   OSVInt,
+					Type:   OSVNum,
 					Number: CombineFloat(a, b),
 				})
 			}
@@ -171,18 +175,14 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				// Copy arguments in their original order before switching
 				// to the new coroutine.
 				argStart := sp - argCount
-				args := make([]OSValue, argCount)
-
-				copy(args, stack[argStart:sp])
-
-				// Remove arguments from the caller's operand stack.
+				args := stack[argStart:sp]
 				sp = argStart
 
 				// Save the caller AFTER consuming its arguments.
 				saveState()
 
 				caller := co
-				callee := NewCoroutine(caller, fn, 255)
+				callee := NewCoroutine(caller, fn, StackSize)
 
 				if callee == nil {
 					panic("failed to create coroutine")
@@ -195,6 +195,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				// Place arguments on the callee's stack.
 				copy(callee.OperandStack[:argCount], args)
 				callee.Sp = argCount
+				clear(stack[argStart : argStart+argCount])
 
 				vm.Current = callee
 				return
@@ -205,9 +206,28 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				rhs := pop()
 				lhs := pop()
 
+				if !(IsNumber(lhs) && IsNumber(rhs)) {
+					ThrowError(frame.Function.File, "invalid operation")
+				}
+
 				push(OSValue{
-					Type:   OSVInt,
+					Type:   OSVNum,
 					Number: lhs.Number * rhs.Number,
+				})
+			}
+		case OpBinDiv:
+			{
+				// Stack layout: [..., left, right]
+				rhs := pop()
+				lhs := pop()
+
+				if rhs.Number == 0 {
+					// ZeroDivide!!
+				}
+
+				push(OSValue{
+					Type:   OSVNum,
+					Number: lhs.Number / rhs.Number,
 				})
 			}
 		case OpBinAdd:
@@ -217,7 +237,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				lhs := pop()
 
 				push(OSValue{
-					Type:   OSVInt,
+					Type:   OSVNum,
 					Number: lhs.Number + rhs.Number,
 				})
 			}
@@ -228,7 +248,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				lhs := pop()
 
 				push(OSValue{
-					Type:   OSVInt,
+					Type:   OSVNum,
 					Number: lhs.Number - rhs.Number,
 				})
 			}
@@ -361,7 +381,7 @@ func Run(state *State, program *Function) {
 		False: OSValue{Type: OSVBool, Number: 0},
 	}
 
-	main := NewCoroutine(nil, program, 255)
+	main := NewCoroutine(nil, program, StackSize)
 
 	if main == nil {
 		panic("failed to create main coroutine")

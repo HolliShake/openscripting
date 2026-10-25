@@ -6,6 +6,5 @@ var fact::fn(n) {
     return n * fact(n - 1);
 };
 
-log "result";
-log fact(5);
+log "result"; log fact(5);
 

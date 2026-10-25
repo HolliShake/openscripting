@@ -73,7 +73,7 @@ func assert(astType AstType, ast *Ast) {
 }
 
 func emitLine(fn *Function, line Position) {
-	fn.Lines = append(fn.Lines, Lines{
+	fn.Lines = append(fn.Lines, Line{
 		Index: int32(len(fn.Bytecode)),
 		Line:  int32(line.Line),
 	})
@@ -561,6 +561,8 @@ func visitDeclarationOrStatement(p *Parser, scope *Scope, fn *Function, ast *Ast
 }
 
 func compileProgram(p *Parser) *Function {
+	defer releaseAstSlab()
+
 	ast := p.Parse()
 	assert(AstProgram, ast)
 

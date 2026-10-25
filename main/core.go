@@ -153,7 +153,7 @@ type TryCatchTable struct {
 	CatchEnd   int32 // Opcode index
 }
 
-type Lines struct {
+type Line struct {
 	Index int32 // Opcode index
 	Line  int32
 }
@@ -190,7 +190,7 @@ type Function struct {
 	VarArgIndex   int32 // -1 for non vararg functions
 	Bytecode      []int32
 	TryCatchTable []TryCatchTable
-	Lines         []Lines
+	Lines         []Line
 	File          *File
 }
 

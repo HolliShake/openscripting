@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"unicode/utf8"
 )
 
 func main() {
@@ -13,7 +14,12 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	content := []rune(string(data))
+	content := make([]rune, utf8.RuneCount(data))
+	for index := 0; len(data) > 0; index++ {
+		value, size := utf8.DecodeRune(data)
+		content[index] = value
+		data = data[size:]
+	}
 
 	state := State{}
 	parser := NewParser(&state, &File{

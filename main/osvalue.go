@@ -46,6 +46,25 @@ func (v OSValue) String() string {
 	}
 }
 
+func IsNumber(v OSValue) bool {
+	return v.Type == OSVInt || v.Type == OSVNum
+}
+
+func IsString(v OSValue) bool {
+	return v.Type == OSVString
+}
+
+func CoerceToNumber(v OSValue) float64 {
+	switch v.Type {
+	case OSVNull:
+		return 0
+	case OSVInt, OSVNum, OSVBool:
+		return v.Number
+	case OSVString:
+		return (string)(v.Opaque)
+	}
+}
+
 func CoerceToBool(v OSValue) bool {
 	switch v.Type {
 	case OSVNull:

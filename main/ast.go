@@ -15,6 +15,10 @@ func newAst(t AstType, pos Position) *Ast {
 	return n
 }
 
+func releaseAstSlab() {
+	astSlab = nil
+}
+
 func NewKeyValue(position Position, key, value *Ast) *Ast {
 	node := newAst(AstKeyValue, position)
 	node.A = key
