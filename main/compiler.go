@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
-	"strings"
 )
 
 // Set to true to print every folded constant.
@@ -267,8 +266,6 @@ func tryFold(fn *Function, ast *Ast) constVal {
 			} else if lhs.num > rhs.num {
 				comparison = 1
 			}
-		} else if lhs.isString() && rhs.isString() {
-			comparison = strings.Compare(lhs.str, rhs.str)
 		} else if ast.Type != AstEqual && ast.Type != AstNotEqual {
 			ThrowError(fn.File, "invalid operands for comparison", ast.Pos)
 		}
@@ -541,6 +538,44 @@ func visitReturn(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	emit(fn, OpReturn)
 }
 
+func visitTryCatch(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+	if ast.B == nil {
+		for statement := ast.A; statement != nil; statement = statement.Next {
+			visitDeclarationOrStatement(p, scope, fn, statement)
+		}
+		return
+	}
+
+	tableIndex := len(fn.TryCatchTable)
+	fn.TryCatchTable = append(fn.TryCatchTable, TryCatchTable{CatchLocal: -1})
+	fn.TryCatchTable[tableIndex].TryStart = int32(len(fn.Bytecode))
+	for statement := ast.A; statement != nil; statement = statement.Next {
+		visitDeclarationOrStatement(p, scope, fn, statement)
+	}
+	fn.TryCatchTable[tableIndex].TryEnd = int32(len(fn.Bytecode))
+	endJump := emitJump(fn, OpJmp)
+	fn.TryCatchTable[tableIndex].CatchStart = int32(len(fn.Bytecode))
+
+	catchScope := Scope{
+		Type:      ScopeTypeBlock,
+		Parent:    scope,
+		Variables: make(map[string]Symbol),
+		VarCount:  1,
+	}
+	if ast.B != nil {
+		name := ast.B.Value.(string)
+		offset := catchScope.GetVarCount()
+		catchScope.AddLocal(name, Symbol{Name: name, Offset: offset, Pos: ast.B.Pos})
+		fn.TryCatchTable[tableIndex].CatchLocal = offset
+	}
+	for statement := ast.C; statement != nil; statement = statement.Next {
+		visitDeclarationOrStatement(p, &catchScope, fn, statement)
+	}
+	scope.VarCount = catchScope.VarCount
+	fn.TryCatchTable[tableIndex].CatchEnd = int32(len(fn.Bytecode))
+	labelJump(fn, endJump)
+}
+
 func visitDeclarationOrStatement(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	emitLine(fn, ast.Pos)
 	switch ast.Type {
@@ -555,6 +590,8 @@ func visitDeclarationOrStatement(p *Parser, scope *Scope, fn *Function, ast *Ast
 		visitExpression(p, scope, fn, ast.A)
 	case AstReturnStmt:
 		visitReturn(p, scope, fn, ast)
+	case AstTryCatch:
+		visitTryCatch(p, scope, fn, ast)
 	default:
 		panic(fmt.Sprintf("visitDeclarationOrStatement:: unexpected statement type %v", ast.Type))
 	}

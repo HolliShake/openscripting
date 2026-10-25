@@ -1801,6 +1801,8 @@ func (p *Parser) blockLevelStatement() *Ast {
 		return p.ifStatement()
 	} else if p.match(KeyLoop) {
 		return p.loopStatement()
+	} else if p.match(KeyTry) {
+		return p.tryCatch()
 	} else if p.match(KeyLog) {
 		return p.logStatement()
 	} else if p.match(KeyContinue) {

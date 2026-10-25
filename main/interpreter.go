@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 	"unsafe"
 )
 
@@ -53,6 +54,34 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 		value := stack[sp]
 		stack[sp] = OSValue{}
 		return value
+	}
+
+	throwRuntimeError := func(message string) (handled bool) {
+		instruction := ip - 1
+		handlers := frame.Function.TryCatchTable
+		for index := len(handlers) - 1; index >= 0; index-- {
+			handler := handlers[index]
+			if instruction < handler.TryStart || instruction >= handler.TryEnd {
+				continue
+			}
+
+			if handler.CatchLocal >= 0 && int(handler.CatchLocal) < len(frame.Env) && frame.Env[handler.CatchLocal] != nil {
+				value := message
+				frame.Env[handler.CatchLocal].Value = OSValue{Type: OSVString, Opaque: unsafe.Pointer(&value)}
+			}
+			ip = handler.CatchStart
+			return true
+		}
+
+		line := int32(0)
+		for _, sourceLine := range frame.Function.Lines {
+			if sourceLine.Index > instruction {
+				break
+			}
+			line = sourceLine.Line
+		}
+		ThrowError(frame.Function.File, message, Position{Line: int(line), Column: 1})
+		return false
 	}
 
 	push := func(value OSValue) {
@@ -110,7 +139,9 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				})
 			}
 		case OpLoadNull:
-			push(vm.Null)
+			{
+				push(vm.Null)
+			}
 		case OpLoadFunction:
 			{
 				funcIndex := int(readByte())
@@ -202,14 +233,13 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpBinMul:
 			{
-				// Stack layout: [..., left, right]
 				rhs := pop()
 				lhs := pop()
-
 				if !(IsNumber(lhs) && IsNumber(rhs)) {
-					ThrowError(frame.Function.File, "invalid operation")
+					if throwRuntimeError("invalid operands for arithmetic operation") {
+						continue
+					}
 				}
-
 				push(OSValue{
 					Type:   OSVNum,
 					Number: lhs.Number * rhs.Number,
@@ -217,25 +247,60 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpBinDiv:
 			{
-				// Stack layout: [..., left, right]
 				rhs := pop()
 				lhs := pop()
-
-				if rhs.Number == 0 {
-					// ZeroDivide!!
+				if !(IsNumber(lhs) && IsNumber(rhs)) {
+					if throwRuntimeError("invalid operands for arithmetic operation") {
+						continue
+					}
 				}
-
+				if rhs.Number == 0 {
+					if throwRuntimeError("division by zero") {
+						continue
+					}
+				}
 				push(OSValue{
 					Type:   OSVNum,
 					Number: lhs.Number / rhs.Number,
 				})
 			}
-		case OpBinAdd:
+		case OpBinMod:
 			{
-				// Stack layout: [..., left, right]
 				rhs := pop()
 				lhs := pop()
-
+				if !(IsNumber(lhs) && IsNumber(rhs)) {
+					if throwRuntimeError("invalid operands for arithmetic operation") {
+						continue
+					}
+				}
+				if rhs.Number == 0 {
+					if throwRuntimeError("division by zero") {
+						continue
+					}
+				}
+				result := lhs.Number - float64(int64(lhs.Number/rhs.Number))*rhs.Number
+				push(OSValue{
+					Type:   OSVNum,
+					Number: result,
+				})
+			}
+		case OpBinAdd:
+			{
+				rhs := pop()
+				lhs := pop()
+				if IsString(lhs) && IsString(rhs) {
+					value := lhs.String() + rhs.String()
+					push(OSValue{
+						Type:   OSVString,
+						Opaque: unsafe.Pointer(&value),
+					})
+					continue
+				}
+				if !(IsNumber(lhs) && IsNumber(rhs)) {
+					if throwRuntimeError("invalid operands for arithmetic operation") {
+						continue
+					}
+				}
 				push(OSValue{
 					Type:   OSVNum,
 					Number: lhs.Number + rhs.Number,
@@ -243,25 +308,203 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpBinSub:
 			{
-				// Stack layout: [..., left, right]
 				rhs := pop()
 				lhs := pop()
-
+				if !(IsNumber(lhs) && IsNumber(rhs)) {
+					if throwRuntimeError("invalid operands for arithmetic operation") {
+						continue
+					}
+				}
 				push(OSValue{
 					Type:   OSVNum,
 					Number: lhs.Number - rhs.Number,
 				})
 			}
-		case OpBinLessEqual:
+		case OpBinShiftLeft:
 			{
-				// Stack layout: [..., left, right]
 				rhs := pop()
 				lhs := pop()
-				if lhs.Number <= rhs.Number {
+
+				if !(IsNumber(lhs) && IsNumber(rhs)) {
+					if throwRuntimeError("invalid operands for bitwise operation") {
+						continue
+					}
+				}
+
+				push(OSValue{
+					Type:   OSVNum,
+					Number: float64(int64(lhs.Number) << uint(int64(rhs.Number))),
+				})
+			}
+		case OpBinShiftRight:
+			{
+				rhs := pop()
+				lhs := pop()
+				if !(IsNumber(lhs) && IsNumber(rhs)) {
+					if throwRuntimeError("invalid operands for bitwise operation") {
+						continue
+					}
+				}
+				push(OSValue{
+					Type:   OSVNum,
+					Number: float64(int64(lhs.Number) >> uint(int64(rhs.Number))),
+				})
+			}
+		case OpBinLess:
+			{
+				rhs := pop()
+				lhs := pop()
+				if !(IsNumber(lhs) && IsNumber(rhs)) {
+					if throwRuntimeError("invalid operands for comparison") {
+						continue
+					}
+				}
+				result := lhs.Number < rhs.Number
+				if result {
 					push(vm.True)
 				} else {
 					push(vm.False)
 				}
+			}
+		case OpBinLessEqual:
+			{
+				rhs := pop()
+				lhs := pop()
+				if !(IsNumber(lhs) && IsNumber(rhs)) {
+					if throwRuntimeError("invalid operands for comparison") {
+						continue
+					}
+				}
+				result := lhs.Number <= rhs.Number
+				if result {
+					push(vm.True)
+				} else {
+					push(vm.False)
+				}
+			}
+		case OpBinGreater:
+			{
+				rhs := pop()
+				lhs := pop()
+				if !(IsNumber(lhs) && IsNumber(rhs)) {
+					if throwRuntimeError("invalid operands for comparison") {
+						continue
+					}
+				}
+				result := lhs.Number > rhs.Number
+				if result {
+					push(vm.True)
+				} else {
+					push(vm.False)
+				}
+			}
+		case OpBinGreaterEqual:
+			{
+				rhs := pop()
+				lhs := pop()
+				if !(IsNumber(lhs) && IsNumber(rhs)) {
+					if throwRuntimeError("invalid operands for comparison") {
+						continue
+					}
+				}
+				result := lhs.Number >= rhs.Number
+				if result {
+					push(vm.True)
+				} else {
+					push(vm.False)
+				}
+			}
+		case OpBinEqual:
+			{
+				rhs := pop()
+				lhs := pop()
+				equal := false
+				if IsNumber(lhs) && IsNumber(rhs) {
+					equal = lhs.Number == rhs.Number
+				} else if lhs.Type == rhs.Type {
+					switch lhs.Type {
+					case OSVNull:
+						equal = true
+					case OSVBool:
+						equal = lhs.Number == rhs.Number
+					case OSVString:
+						equal = lhs.String() == rhs.String()
+					default:
+						equal = lhs.Opaque == rhs.Opaque
+					}
+				}
+				if equal {
+					push(vm.True)
+				} else {
+					push(vm.False)
+				}
+			}
+		case OpBinNotEqual:
+			{
+				rhs := pop()
+				lhs := pop()
+				equal := false
+				if IsNumber(lhs) && IsNumber(rhs) {
+					equal = lhs.Number == rhs.Number
+				} else if lhs.Type == rhs.Type {
+					switch lhs.Type {
+					case OSVNull:
+						equal = true
+					case OSVBool:
+						equal = lhs.Number == rhs.Number
+					case OSVString:
+						equal = lhs.String() == rhs.String()
+					default:
+						equal = lhs.Opaque == rhs.Opaque
+					}
+				}
+				if !equal {
+					push(vm.True)
+				} else {
+					push(vm.False)
+				}
+			}
+		case OpBinBitAnd:
+			{
+				rhs := pop()
+				lhs := pop()
+				if !(IsNumber(lhs) && IsNumber(rhs)) {
+					if throwRuntimeError("invalid operands for bitwise operation") {
+						continue
+					}
+				}
+				push(OSValue{
+					Type:   OSVNum,
+					Number: float64(int64(lhs.Number) & int64(rhs.Number)),
+				})
+			}
+		case OpBinBitXor:
+			{
+				rhs := pop()
+				lhs := pop()
+				if !(IsNumber(lhs) && IsNumber(rhs)) {
+					if throwRuntimeError("invalid operands for bitwise operation") {
+						continue
+					}
+				}
+				push(OSValue{
+					Type:   OSVNum,
+					Number: float64(int64(lhs.Number) ^ int64(rhs.Number)),
+				})
+			}
+		case OpBinBitOr:
+			{
+				rhs := pop()
+				lhs := pop()
+				if !(IsNumber(lhs) && IsNumber(rhs)) {
+					if throwRuntimeError("invalid operands for bitwise operation") {
+						continue
+					}
+				}
+				push(OSValue{
+					Type:   OSVNum,
+					Number: float64(int64(lhs.Number) | int64(rhs.Number)),
+				})
 			}
 		case OpStoreCap:
 			{
@@ -293,7 +536,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 		case OpStdWrite:
 			{
 				value := pop()
-				fmt.Println("log:", value.String())
+				fmt.Printf("[%s] log: %s\n", time.Now().Format("2006-01-02 15:04:05"), value.String())
 			}
 		case OpJmp:
 			{
@@ -306,6 +549,28 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				condition := pop()
 				if !CoerceToBool(condition) {
 					ip = int32(offset)
+				}
+			}
+		case OpPopJmpIfTrue:
+			{
+				offset := int(readByte())
+				condition := pop()
+				if CoerceToBool(condition) {
+					ip = int32(offset)
+				}
+			}
+		case OpJmpIfFalseOrPop, OpJmpIfTrueOrPop:
+			{
+				offset := int(readByte())
+				if sp <= 0 {
+					panic("operand stack underflow")
+				}
+				condition := stack[sp-1]
+				isTruthy := CoerceToBool(condition)
+				if op == OpJmpIfFalseOrPop && !isTruthy || op == OpJmpIfTrueOrPop && isTruthy {
+					ip = int32(offset)
+				} else {
+					pop()
 				}
 			}
 		case OpDupTop:

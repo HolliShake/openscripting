@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"unsafe"
 )
 
@@ -61,8 +62,14 @@ func CoerceToNumber(v OSValue) float64 {
 	case OSVInt, OSVNum, OSVBool:
 		return v.Number
 	case OSVString:
-		return (string)(v.Opaque)
+		value := *(*string)(v.Opaque)
+		number, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return 0
+		}
+		return number
 	}
+	return 0
 }
 
 func CoerceToBool(v OSValue) bool {
