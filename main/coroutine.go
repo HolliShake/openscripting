@@ -11,8 +11,9 @@ func NewCoroutine(parent *Coroutine, fn *Function, stackSize int32) *Coroutine {
 	}
 
 	frame := &CallFrame{Caller: caller, Function: fn, Ip: 0, Env: make([]*Cell, fn.LocalCount)}
+	cells := make([]Cell, fn.LocalCount)
 	for i := range frame.Env {
-		frame.Env[i] = &Cell{}
+		frame.Env[i] = &cells[i]
 	}
 
 	return &Coroutine{

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"time"
 	"unsafe"
 )
@@ -35,7 +36,6 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 	stack := co.OperandStack
 	codeLen := int32(len(code))
 
-	// Read the next bytecode operand safely.
 	readByte := func() int32 {
 		if ip >= codeLen {
 			panic("unexpected end of bytecode")
@@ -67,8 +67,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 
 			if handler.CatchLocal >= 0 && int(handler.CatchLocal) < len(frame.Env) && frame.Env[handler.CatchLocal] != nil {
-				value := message
-				frame.Env[handler.CatchLocal].Value = OSValue{Type: OSVString, Opaque: unsafe.Pointer(&value)}
+				frame.Env[handler.CatchLocal].Value = NewStringValue(message)
 			}
 			clear(stack[:sp])
 			sp = 0
@@ -128,20 +127,13 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic("invalid string literal: exceeds bytecode")
 				}
 
-				bytes := make([]int32, size)
-
+				var builder strings.Builder
+				builder.Grow(int(size))
 				for i := int32(0); i < size; i++ {
-					bytes[i] = readByte()
+					builder.WriteRune(rune(readByte()))
 				}
 
-				// Keep the string representation compatible with the
-				// existing OSValue implementation.
-				value := string(bytes)
-
-				push(OSValue{
-					Type:   OSVString,
-					Opaque: unsafe.Pointer(&value),
-				})
+				push(NewStringValue(builder.String()))
 			}
 		case OpLoadNull:
 			{
@@ -313,11 +305,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				lhs := pop()
 
 				if IsString(lhs) && IsString(rhs) {
-					value := lhs.String() + rhs.String()
-					push(OSValue{
-						Type:   OSVString,
-						Opaque: unsafe.Pointer(&value),
-					})
+					push(NewStringValue(lhs.stringValue() + rhs.stringValue()))
 					continue
 				} else if IsNumber(lhs) && IsNumber(rhs) {
 					push(OSValue{
@@ -469,7 +457,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					case OSVBool:
 						equal = lhs.Number == rhs.Number
 					case OSVString:
-						equal = lhs.String() == rhs.String()
+						equal = lhs.stringValue() == rhs.stringValue()
 					default:
 						equal = lhs.Opaque == rhs.Opaque
 					}
@@ -494,7 +482,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					case OSVBool:
 						equal = lhs.Number == rhs.Number
 					case OSVString:
-						equal = lhs.String() == rhs.String()
+						equal = lhs.stringValue() == rhs.stringValue()
 					default:
 						equal = lhs.Opaque == rhs.Opaque
 					}

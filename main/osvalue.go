@@ -25,6 +25,24 @@ type OSValue struct {
 	Opaque unsafe.Pointer
 }
 
+func NewStringValue(value string) OSValue {
+	if value == "" {
+		return OSValue{Type: OSVString}
+	}
+	return OSValue{
+		Type:   OSVString,
+		Number: float64(len(value)),
+		Opaque: unsafe.Pointer(unsafe.StringData(value)),
+	}
+}
+
+func (v OSValue) stringValue() string {
+	if v.Number == 0 {
+		return ""
+	}
+	return unsafe.String((*byte)(v.Opaque), int(v.Number))
+}
+
 func (v OSValue) String() string {
 	switch v.Type {
 	case OSVNull:
@@ -39,7 +57,7 @@ func (v OSValue) String() string {
 		}
 		return "false"
 	case OSVString:
-		return *(*string)(v.Opaque)
+		return v.stringValue()
 	case OSVFunction:
 		return "<function>"
 	default:
@@ -62,8 +80,7 @@ func CoerceToNumber(v OSValue) float64 {
 	case OSVInt, OSVNum, OSVBool:
 		return v.Number
 	case OSVString:
-		value := *(*string)(v.Opaque)
-		number, err := strconv.ParseFloat(value, 64)
+		number, err := strconv.ParseFloat(v.stringValue(), 64)
 		if err != nil {
 			return 0
 		}
@@ -81,7 +98,7 @@ func CoerceToBool(v OSValue) bool {
 	case OSVBool:
 		return v.Number != 0
 	case OSVString:
-		return *(*string)(v.Opaque) != ""
+		return v.Number != 0
 	case OSVFunction:
 		return v.Opaque != nil
 	default:
