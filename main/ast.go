@@ -2,14 +2,21 @@ package main
 
 const astChunk = 256
 
-var astSlab []Ast
+var (
+	astSlab []Ast
+	astUsed int
+)
 
+// newAst hands out a zeroed *Ast from the current chunk. The chunk is a single
+// make() so the allocator is touched once per astChunk nodes. Advancing with an
+// index avoids reslicing the header on every allocation.
 func newAst(t AstType, pos Position) *Ast {
-	if len(astSlab) == 0 {
+	if astUsed >= len(astSlab) {
 		astSlab = make([]Ast, astChunk)
+		astUsed = 0
 	}
-	n := &astSlab[0]
-	astSlab = astSlab[1:]
+	n := &astSlab[astUsed]
+	astUsed++
 	n.Type = t
 	n.Pos = pos
 	return n
@@ -17,6 +24,7 @@ func newAst(t AstType, pos Position) *Ast {
 
 func releaseAstSlab() {
 	astSlab = nil
+	astUsed = 0
 }
 
 func NewKeyValue(position Position, key, value *Ast) *Ast {

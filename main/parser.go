@@ -162,8 +162,10 @@ func (p *Parser) advance() rune {
 }
 
 // emit finishes a token known to contain no line break.
+// start is always p.offset at the call site, so it is derived here.
 // This is the only place a token string is allocated.
-func (p *Parser) emit(t TokenType, start, end int, pos Position) Token {
+func (p *Parser) emit(t TokenType, end int, pos Position) Token {
+	start := p.offset
 	p.colm += end - start
 	p.offset = end
 	return Token{Type: t, Value: string(p.File.Content[start:end]), Pos: pos}
@@ -179,7 +181,10 @@ func (p *Parser) emitStatic(t TokenType, s string, pos Position) Token {
 
 /******************* Trivia ***/
 
-func (p *Parser) skipTrivia() (Token, bool) {
+// skipTrivia skips whitespace and comments. It never produced a token,
+// so it returns nothing; the previous (Token, bool) return only forced
+// a useless struct copy and a dead branch on every token.
+func (p *Parser) skipTrivia() {
 	src := p.File.Content
 	n := len(src)
 	for {
@@ -197,7 +202,7 @@ func (p *Parser) skipTrivia() (Token, bool) {
 		}
 
 		if p.offset+1 >= n || src[p.offset] != '/' {
-			return Token{}, false
+			return
 		}
 		switch src[p.offset+1] {
 		case '/':
@@ -230,7 +235,7 @@ func (p *Parser) skipTrivia() (Token, bool) {
 			p.offset += 2
 			p.colm += 2
 		default:
-			return Token{}, false
+			return
 		}
 	}
 }
@@ -350,10 +355,10 @@ loop:
 	return Token{Type: STR, Value: string(src[start:p.offset]), Pos: pos}
 }
 
-func (p *Parser) scanNumber(pos Position, start int) Token {
+func (p *Parser) scanNumber(pos Position) Token {
 	src := p.File.Content
 	n := len(src)
-	i := start
+	i := p.offset
 
 	if src[i] == '0' && i+1 < n {
 		var radix uint8
@@ -392,7 +397,7 @@ func (p *Parser) scanNumber(pos Position, start int) Token {
 			if !hasDigit {
 				ThrowError(p.File, "invalid numeric literal", pos)
 			}
-			return p.emit(NUM, start, i, pos)
+			return p.emit(NUM, i, pos)
 		}
 	}
 
@@ -418,7 +423,7 @@ func (p *Parser) scanNumber(pos Position, start int) Token {
 			i = k
 		}
 	}
-	return p.emit(NUM, start, i, pos)
+	return p.emit(NUM, i, pos)
 }
 
 func (p *Parser) scanIdent(pos Position, start int) Token {
@@ -459,7 +464,7 @@ func (p *Parser) scanIdent(pos Position, start int) Token {
 		}
 	}
 
-	tok := p.emit(IDN, start, i, pos)
+	tok := p.emit(IDN, i, pos)
 	if isKeyword(tok.Value) { // fallback, in case isKeyword knows more words
 		tok.Type = KEY
 	}
@@ -555,9 +560,7 @@ func symbolAt(src []rune, i int) string {
 /******************* Lexer entry ***/
 
 func (p *Parser) getNextToken() Token {
-	if tok, ok := p.skipTrivia(); ok {
-		return tok
-	}
+	p.skipTrivia()
 	src := p.File.Content
 	pos := Position{Line: p.line, Column: p.colm}
 	i := p.offset
@@ -572,7 +575,7 @@ func (p *Parser) getNextToken() Token {
 		case cls&clsIDStart != 0:
 			return p.scanIdent(pos, i)
 		case cls&clsDigit != 0:
-			return p.scanNumber(pos, i)
+			return p.scanNumber(pos)
 		case ch == '"' || ch == '\'':
 			return p.scanString(pos)
 		case cls&clsSymbol != 0:
@@ -585,7 +588,7 @@ func (p *Parser) getNextToken() Token {
 		return p.scanIdent(pos, i)
 	}
 	if unicode.IsDigit(ch) {
-		return p.scanNumber(pos, i)
+		return p.scanNumber(pos)
 	}
 	p.advance()
 	ThrowError(p.File, "unexpected character "+strconv.QuoteRune(ch), pos)
