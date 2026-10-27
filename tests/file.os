@@ -54,7 +54,7 @@ var obj = {
 
 log obj;
 
-var { A: Ey, C, BB: B } = obj;
+var { A: Ey, C, B: B } = obj;
 
 log Ey;
 log B;
