@@ -594,10 +594,6 @@ func (p *Parser) getNextToken() Token {
 
 /******************* Parser helpers ***/
 
-func (p *Parser) next() {
-	p.lookahead = p.getNextToken()
-}
-
 func (p *Parser) match(token string) bool {
 	return (p.lookahead.Type == IDN ||
 		p.lookahead.Type == KEY ||
@@ -610,7 +606,7 @@ func (p *Parser) matchType(token TokenType) bool {
 
 func (p *Parser) expect(token string) {
 	if p.match(token) {
-		p.next()
+		p.lookahead = p.getNextToken()
 		return
 	}
 	ThrowExpectedTokenError(p.File, token, p.lookahead.Value, p.lookahead.Pos)
@@ -618,7 +614,7 @@ func (p *Parser) expect(token string) {
 
 func (p *Parser) expectType(token TokenType) {
 	if p.matchType(token) {
-		p.next()
+		p.lookahead = p.getNextToken()
 		return
 	}
 	ThrowExpectedTokenError(p.File, token.String(), p.lookahead.Value, p.lookahead.Pos)
@@ -632,7 +628,7 @@ func (p *Parser) identifier(required bool) *Ast {
 		return nil
 	}
 	ast := NewTerminalAst(AstIdentifier, p.lookahead.Pos, p.lookahead.Value)
-	p.next()
+	p.lookahead = p.getNextToken()
 	return ast
 }
 
@@ -680,19 +676,19 @@ func (p *Parser) terminal() *Ast {
 			ThrowError(p.File, "invalid number format", p.lookahead.Pos)
 		}
 		ast := NewTerminalAst(AstNumLit, p.lookahead.Pos, v)
-		p.next()
+		p.expectType(NUM)
 		return ast
 	case STR:
 		return p.stringLit()
 	case KEY:
 		if p.lookahead.Value == KeyTrue || p.lookahead.Value == KeyFalse {
 			ast := NewTerminalAst(AstBoolLit, p.lookahead.Pos, p.lookahead.Value == KeyTrue)
-			p.next()
+			p.expectType(KEY)
 			return ast
 		}
 		if p.lookahead.Value == KeyNull {
 			ast := NewTerminalAst(AstNullLit, p.lookahead.Pos, nil)
-			p.next()
+			p.expectType(KEY)
 			return ast
 		}
 	}
@@ -701,17 +697,17 @@ func (p *Parser) terminal() *Ast {
 
 func (p *Parser) group() *Ast {
 	if p.match("(") {
-		p.next()
+		p.expect("(")
 		expr := p.expression(true)
 		p.expect(")")
 		return expr
 	} else if p.match("[") {
-		p.next()
+		p.expect("[")
 		expr := p.listOfExpression(false, true)
 		p.expect("]")
 		return NewArray(p.lookahead.Pos, expr)
 	} else if p.match("{") {
-		p.next()
+		p.expect("{")
 		expr := p.listOfKeyValues(false, true) // parse object properties
 		p.expect("}")
 		return NewObject(p.lookahead.Pos, expr)
@@ -743,7 +739,7 @@ func (p *Parser) switchExpression() *Ast {
 	hasDefault := false
 
 	for caseTail != nil && p.match(",") {
-		p.next()
+		p.expect(",")
 
 		if p.match(KeyDefault) {
 			if hasDefault {
@@ -751,7 +747,7 @@ func (p *Parser) switchExpression() *Ast {
 			}
 
 			hasDefault = true
-			p.next()
+			p.expect(KeyDefault)
 			p.expect("=>")
 			defaultBlock := p.expression(true)
 			defaultNode := NewKeyValue(
@@ -789,16 +785,16 @@ func (p *Parser) memberOrCall() *Ast {
 
 	for {
 		if p.match("->") {
-			p.next()
+			p.expect("->")
 			prop := p.identifier(true)
 			obj = NewMemberAccess(obj.Pos, obj, prop)
 		} else if p.match("[") {
-			p.next()
+			p.expect("[")
 			index := p.expression(true)
 			p.expect("]")
 			obj = NewIndexAccess(obj.Pos, obj, index)
 		} else if p.match("(") {
-			p.next()
+			p.expect("(")
 			args := p.listOfExpression(false, false)
 			p.expect(")")
 			obj = NewCall(obj.Pos, obj, args)
@@ -922,7 +918,13 @@ func (p *Parser) postfix() *Ast {
 
 	for p.match("++") || p.match("--") {
 		opt := p.lookahead.Value
-		p.next()
+		switch opt {
+		case "++":
+			p.expect("++")
+		case "--":
+			p.expect("--")
+		}
+
 		lhs = NewPostfixOperation(postfixOperator(opt), lhs.Pos, lhs)
 	}
 
@@ -932,7 +934,18 @@ func (p *Parser) postfix() *Ast {
 func (p *Parser) unary() *Ast {
 	if p.match("+") || p.match("-") || p.match("!") || p.match("~") || p.match(KeyAwait) {
 		opt := p.lookahead.Value
-		p.next()
+		switch opt {
+		case "+":
+			p.expect("+")
+		case "-":
+			p.expect("-")
+		case "!":
+			p.expect("!")
+		case "~":
+			p.expect("~")
+		case KeyAwait:
+			p.expect(KeyAwait)
+		}
 
 		operand := p.unary()
 		if operand == nil {
@@ -952,12 +965,20 @@ func (p *Parser) multiplicative() *Ast {
 
 	for p.match("*") || p.match("/") || p.match("%") {
 		opt := p.lookahead.Value
-		p.next()
+		switch opt {
+		case "*":
+			p.expect("*")
+		case "/":
+			p.expect("/")
+		case "%":
+			p.expect("%")
+		}
 
 		rhs := p.unary()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
+
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -972,12 +993,18 @@ func (p *Parser) additive() *Ast {
 
 	for p.match("+") || p.match("-") {
 		opt := p.lookahead.Value
-		p.next()
+		switch opt {
+		case "+":
+			p.expect("+")
+		case "-":
+			p.expect("-")
+		}
 
 		rhs := p.multiplicative()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
+
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -992,12 +1019,18 @@ func (p *Parser) shift() *Ast {
 
 	for p.match("<<") || p.match(">>") {
 		opt := p.lookahead.Value
-		p.next()
+		switch opt {
+		case "<<":
+			p.expect("<<")
+		case ">>":
+			p.expect(">>")
+		}
 
 		rhs := p.additive()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
+
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1012,12 +1045,22 @@ func (p *Parser) relational() *Ast {
 
 	for p.match("<") || p.match("<=") || p.match(">") || p.match(">=") {
 		opt := p.lookahead.Value
-		p.next()
+		switch opt {
+		case "<":
+			p.expect("<")
+		case "<=":
+			p.expect("<=")
+		case ">":
+			p.expect(">")
+		case ">=":
+			p.expect(">=")
+		}
 
 		rhs := p.shift()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
+
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1032,12 +1075,18 @@ func (p *Parser) equality() *Ast {
 
 	for p.match("==") || p.match("!=") {
 		opt := p.lookahead.Value
-		p.next()
+		switch opt {
+		case "==":
+			p.expect("==")
+		case "!=":
+			p.expect("!=")
+		}
 
 		rhs := p.relational()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
+
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1052,12 +1101,13 @@ func (p *Parser) bitwiseAnd() *Ast {
 
 	for p.match("&") {
 		opt := p.lookahead.Value
-		p.next()
+		p.expect("&")
 
 		rhs := p.equality()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
+
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1072,12 +1122,13 @@ func (p *Parser) bitwiseXor() *Ast {
 
 	for p.match("^") {
 		opt := p.lookahead.Value
-		p.next()
+		p.expect("^")
 
 		rhs := p.bitwiseAnd()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
+
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1092,12 +1143,13 @@ func (p *Parser) bitwiseOr() *Ast {
 
 	for p.match("|") {
 		opt := p.lookahead.Value
-		p.next()
+		p.expect("|")
 
 		rhs := p.bitwiseXor()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
+
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1112,12 +1164,13 @@ func (p *Parser) logicalAnd() *Ast {
 
 	for p.match("&&") {
 		opt := p.lookahead.Value
-		p.next()
+		p.expect("&&")
 
 		rhs := p.bitwiseOr()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
+
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1132,12 +1185,13 @@ func (p *Parser) logicalOr() *Ast {
 
 	for p.match("||") {
 		opt := p.lookahead.Value
-		p.next()
+		p.expect("||")
 
 		rhs := p.logicalAnd()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
+
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1152,12 +1206,13 @@ func (p *Parser) assignment() *Ast {
 
 	if p.match("=") {
 		opt := p.lookahead.Value
-		p.next()
+		p.expect("=")
 
 		rhs := p.assignment()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
+
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1172,12 +1227,20 @@ func (p *Parser) mulAssign() *Ast {
 
 	for p.match("*=") || p.match("/=") || p.match("%=") {
 		opt := p.lookahead.Value
-		p.next()
+		switch opt {
+		case "*=":
+			p.expect("*=")
+		case "/=":
+			p.expect("/=")
+		case "%=":
+			p.expect("%=")
+		}
 
 		rhs := p.mulAssign()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
+
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1192,12 +1255,18 @@ func (p *Parser) addAssign() *Ast {
 
 	for p.match("+=") || p.match("-=") {
 		opt := p.lookahead.Value
-		p.next()
+		switch opt {
+		case "+=":
+			p.expect("+=")
+		case "-=":
+			p.expect("-=")
+		}
 
 		rhs := p.addAssign()
 		if rhs == nil {
 			ThrowError(p.File, "missing right-hand operand", p.lookahead.Pos)
 		}
+
 		lhs = NewBinaryOperation(binOperator(opt), lhs.Pos, lhs, rhs)
 	}
 
@@ -1454,7 +1523,7 @@ func (p *Parser) variableDeclaration(keyWord string, topLevel bool) *Ast {
 	p.expect(keyWord) // var | let | const
 
 	if p.match("[") { // array destructuring
-		p.next()
+		p.expect("[")
 		head := p.identifier(true)
 		tail := head
 		for p.match(",") {
@@ -1471,7 +1540,7 @@ func (p *Parser) variableDeclaration(keyWord string, topLevel bool) *Ast {
 		p.expect(";")
 		return NewDestructuringArrayDeclaration(arrayDestructuringType, position, head, v)
 	} else if p.match("{") { // object destructuring
-		p.next()
+		p.expect("{")
 		head := p.objectPattern()
 		p.expect("}")
 		p.expect("=")

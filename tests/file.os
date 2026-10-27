@@ -53,3 +53,5 @@ var obj = {
 
 log obj;
 
+
+var { A: 2 } = obj;
