@@ -38,17 +38,6 @@ func (obj *OSObject) Set(key string, value OSValue) {
 	obj.Values[key] = value
 }
 
-func NewStringValue(value string) OSValue {
-	if value == "" {
-		return OSValue{Type: OSVString}
-	}
-	return OSValue{
-		Type:   OSVString,
-		Number: float64(len(value)),
-		Opaque: unsafe.Pointer(unsafe.StringData(value)),
-	}
-}
-
 func IsNumber(v OSValue) bool {
 	return v.Type == OSVInt || v.Type == OSVNum
 }

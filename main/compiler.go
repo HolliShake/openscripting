@@ -101,16 +101,24 @@ func emitFloat(fn *Function, value float64) {
 }
 
 func emitString(fn *Function, value string) {
-	// One growth up front: rune count <= byte length.
-	fn.Bytecode = slices.Grow(fn.Bytecode, len(value)+2)
-	fn.Bytecode = append(fn.Bytecode, OpLoadStr, 0)
-	lengthIndex := len(fn.Bytecode) - 1
-	runeCount := int32(0)
-	for _, char := range value {
-		fn.Bytecode = append(fn.Bytecode, int32(char))
-		runeCount++
+	emit(fn, OpLoadStr)
+	emitBytes(fn, []rune(value))
+}
+
+func emitBytes(fn *Function, value []int32) {
+	fn.Bytecode = slices.Grow(fn.Bytecode, len(value)+1)
+	fn.Bytecode = append(fn.Bytecode, int32(len(value)))
+	fn.Bytecode = append(fn.Bytecode, value...)
+}
+
+func objectKey(ast *Ast) string {
+	value := ast.Value.(string)
+	if ast.Type == AstStrLit && len(value) >= 2 {
+		if unquoted, err := strconv.Unquote(value); err == nil {
+			return unquoted
+		}
 	}
-	fn.Bytecode[lengthIndex] = runeCount
+	return value
 }
 
 func emitBool(fn *Function, value bool) {
@@ -435,8 +443,8 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 					continue
 				}
 
-				if head.A.Type == AstIdentifier {
-					emitString(fn, head.A.Value.(string))
+				if head.A.Type == AstIdentifier || head.A.Type == AstStrLit {
+					emitString(fn, objectKey(head.A))
 				} else {
 					visitExpression(p, scope, fn, head.A)
 				}
@@ -547,7 +555,7 @@ func visitVarDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	}
 }
 
-func visitVarDestructDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+func visitVarArrayDestructDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	isGlobal := scope.Type == ScopeTypeGlobal
 	switch {
 	case ast.Type == AstVar && !isGlobal:
@@ -574,6 +582,10 @@ func visitVarDestructDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast
 	for head != nil {
 		name := head.Value.(string)
 
+		if scope.ExistsLocal(name) {
+			ThrowError(fn.File, "variable is already defined in scope", head.Pos)
+		}
+
 		offset := scope.GetVarCount()
 		scope.AddLocal(name, Symbol{
 			Name:    name,
@@ -586,6 +598,56 @@ func visitVarDestructDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast
 		emitInt(fn, OpStoreLocal, offset)
 		head = head.Next
 	}
+}
+
+func visitVarObjectDestructDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+	isGlobal := scope.Type == ScopeTypeGlobal
+	switch {
+	case ast.Type == AstVar && !isGlobal:
+		ThrowError(fn.File, "var declarations are not allowed in non-global scope", ast.Pos)
+	case ast.Type == AstLet && isGlobal:
+		ThrowError(fn.File, "let declarations are not allowed in global scope", ast.Pos)
+	}
+
+	constant := ast.Type == AstConst
+
+	visitExpression(p, scope, fn, ast.B)
+
+	head := ast.A
+	for head != nil {
+		name := "[INVALID]"
+
+		emit(fn, OpDupTop)
+
+		switch head.Type {
+		case AstIdentifier:
+			name = head.Value.(string)
+			emit(fn, OpGetAttr)
+			emitBytes(fn, []rune(head.Value.(string)))
+		case AstKeyValue:
+			name = head.B.Value.(string)
+			emit(fn, OpGetAttr)
+			emitBytes(fn, []rune(objectKey(head.A)))
+		}
+
+		if scope.ExistsLocal(name) {
+			ThrowError(fn.File, "variable is already defined in scope", head.Pos)
+		}
+
+		offset := scope.GetVarCount()
+		scope.AddLocal(name, Symbol{
+			Name:    name,
+			Offset:  offset,
+			Const:   constant,
+			Capture: false,
+			Pos:     head.Pos,
+		})
+
+		emitInt(fn, OpStoreLocal, offset)
+		head = head.Next
+	}
+
+	emit(fn, OpPopTop)
 }
 
 func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
@@ -752,16 +814,23 @@ func visitDeclarationOrStatement(p *Parser, scope *Scope, fn *Function, ast *Ast
 	case AstVar, AstLet, AstConst:
 		visitVarDeclaration(p, scope, fn, ast)
 	case AstDestructuringArrayVar, AstDestructuringArrayLet, AstDestructuringArrayConst:
-		visitVarDestructDeclaration(p, scope, fn, ast)
+		visitVarArrayDestructDeclaration(p, scope, fn, ast)
+	case AstDestructuringObjectVar, AstDestructuringObjectLet, AstDestructuringObjectConst:
+		visitVarObjectDestructDeclaration(p, scope, fn, ast)
 	case AstFunction:
 		visitFunctionDeclaration(p, scope, fn, ast)
 	case AstIfStmt:
 		visitIfStatement(p, scope, fn, ast)
 	case AstLogStmt:
-		visitExpression(p, scope, fn, ast.A)
-		emit(fn, OpStdWrite)
+		{
+			visitExpression(p, scope, fn, ast.A)
+			emit(fn, OpStdWrite)
+		}
 	case AstExpressionStmnt:
-		visitExpression(p, scope, fn, ast.A)
+		{
+			visitExpression(p, scope, fn, ast.A)
+			emit(fn, OpPopTop)
+		}
 	case AstReturnStmt:
 		visitReturn(p, scope, fn, ast)
 	case AstTryCatch:

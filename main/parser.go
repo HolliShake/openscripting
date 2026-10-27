@@ -1281,7 +1281,12 @@ func (p *Parser) shiftAssign() *Ast {
 
 	for p.match("<<=") || p.match(">>=") {
 		opt := p.lookahead.Value
-		p.next()
+		switch opt {
+		case "<<=":
+			p.expect("<<=")
+		case ">>=":
+			p.expect(">>=")
+		}
 
 		rhs := p.shiftAssign()
 		if rhs == nil {
@@ -1301,7 +1306,7 @@ func (p *Parser) andAssign() *Ast {
 
 	for p.match("&=") {
 		opt := p.lookahead.Value
-		p.next()
+		p.expect("&=")
 
 		rhs := p.andAssign()
 		if rhs == nil {
@@ -1321,7 +1326,7 @@ func (p *Parser) xorAssign() *Ast {
 
 	for p.match("^=") {
 		opt := p.lookahead.Value
-		p.next()
+		p.expect("^=")
 
 		rhs := p.xorAssign()
 		if rhs == nil {
@@ -1341,7 +1346,7 @@ func (p *Parser) orAssign() *Ast {
 
 	for p.match("|=") {
 		opt := p.lookahead.Value
-		p.next()
+		p.expect("|=")
 
 		rhs := p.orAssign()
 		if rhs == nil {
@@ -1363,7 +1368,7 @@ func (p *Parser) ternaryOperation() *Ast {
 		return condition
 	}
 
-	p.next()
+	p.expect("?")
 	thenExpr := p.expression(true)
 	p.expect(":")
 	elseExpr := p.expression(true)
@@ -1373,7 +1378,7 @@ func (p *Parser) ternaryOperation() *Ast {
 
 func (p *Parser) spreadOrExpression(required bool, spread bool) *Ast {
 	if spread && p.match("...") {
-		p.next()
+		p.expect("...")
 		return NewSpread(p.lookahead.Pos, p.expression(true))
 	}
 	return p.expression(required)
@@ -1384,7 +1389,7 @@ func (p *Parser) listOfExpression(required bool, spread bool) *Ast {
 	tail := head
 
 	for tail != nil && p.match(",") {
-		p.next()
+		p.expect(",")
 		tail.Next = p.spreadOrExpression(false, spread) // expression or spread
 		if tail.Next == nil {
 			ThrowError(p.File, "missing expression after comma", p.lookahead.Pos)
@@ -1407,7 +1412,7 @@ func (p *Parser) key(required bool) *Ast {
 
 func (p *Parser) keyValue(required bool, spread bool) *Ast {
 	if spread && p.match("...") {
-		p.next()
+		p.expect("...")
 		return NewSpread(p.lookahead.Pos, p.expression(true))
 	}
 
@@ -1425,7 +1430,7 @@ func (p *Parser) listOfKeyValues(required bool, spread bool) *Ast {
 	tail := head
 
 	for tail != nil && p.match(",") {
-		p.next()
+		p.expect(",")
 		tail.Next = p.keyValue(false, spread)
 		if tail.Next == nil {
 			ThrowError(p.File, "missing key-value after comma", p.lookahead.Pos)
@@ -1444,8 +1449,8 @@ func (p *Parser) objectPattern() *Ast {
 	var v *Ast
 
 	if p.match(":") {
-		p.next()
-		v = p.expression(true)
+		p.expect(":")
+		v = p.identifier(true)
 	}
 
 	head := k
@@ -1457,14 +1462,14 @@ func (p *Parser) objectPattern() *Ast {
 	}
 
 	for tail != nil && p.match(",") {
-		p.next()
+		p.expect(",")
 
 		k = p.identifier(false)
 		v = nil
 
 		if p.match(":") {
-			p.next()
-			v = p.expression(true)
+			p.expect(":")
+			v = p.identifier(true)
 		}
 
 		if k != nil && v != nil {
@@ -1487,7 +1492,7 @@ func (p *Parser) importStatement() *Ast {
 		p.expect(";")
 		return NewImport(pos, module, nil)
 	} else if p.match("{") {
-		p.next()
+		p.expect("{")
 		head := p.objectPattern()
 		p.expect("}")
 		p.expect(KeyFrom)
@@ -1527,7 +1532,7 @@ func (p *Parser) variableDeclaration(keyWord string, topLevel bool) *Ast {
 		head := p.identifier(true)
 		tail := head
 		for p.match(",") {
-			p.next()
+			p.expect(",")
 			tail.Next = p.identifier(false)
 			if tail.Next == nil {
 				ThrowError(p.File, "missing identifier after comma", p.lookahead.Pos)
@@ -1555,7 +1560,7 @@ func (p *Parser) variableDeclaration(keyWord string, topLevel bool) *Ast {
 
 	// function or class
 	if topLevel && p.match("::") {
-		p.next()
+		p.expect("::")
 		if p.match(KeyFn) {
 			exp := p.functionExpression()
 			fun := NewFunctionDeclaration(key.Pos, key, exp)
@@ -1572,7 +1577,7 @@ func (p *Parser) variableDeclaration(keyWord string, topLevel bool) *Ast {
 	}
 
 	if p.match("=") {
-		p.next()
+		p.expect("=")
 		val = p.expression(true)
 	}
 
@@ -1580,7 +1585,7 @@ func (p *Parser) variableDeclaration(keyWord string, topLevel bool) *Ast {
 	tail := head
 
 	for tail != nil && p.match(",") {
-		p.next()
+		p.expect(",")
 
 		key = p.identifier(false)
 		if key == nil {
@@ -1589,7 +1594,7 @@ func (p *Parser) variableDeclaration(keyWord string, topLevel bool) *Ast {
 
 		val = nil
 		if p.match("=") {
-			p.next()
+			p.expect("=")
 			val = p.expression(true)
 		}
 
@@ -1608,7 +1613,7 @@ func (p *Parser) classExpression() *Ast {
 
 	var base *Ast
 	if p.match("(") {
-		p.next()
+		p.expect("(")
 		base = p.identifier(true)
 		p.expect(")")
 	}
@@ -1622,7 +1627,7 @@ func (p *Parser) classExpression() *Ast {
 	tail := head
 
 	for tail != nil && p.match(",") {
-		p.next()
+		p.expect(",")
 		k = p.identifier(true)
 		p.expect(":")
 		v = p.expression(true)
@@ -1642,7 +1647,7 @@ func (p *Parser) functionExpression() *Ast {
 	parameterHead := p.identifier(false)
 	parameterTail := parameterHead
 	for parameterTail != nil && p.match(",") {
-		p.next()
+		p.expect(",")
 		ident := p.identifier(false)
 		if ident == nil {
 			ThrowError(p.File, "missing identifier after comma", p.lookahead.Pos)
@@ -1653,7 +1658,7 @@ func (p *Parser) functionExpression() *Ast {
 	p.expect(")")
 
 	if p.match(KeyAsync) {
-		p.next()
+		p.expect(KeyAsync)
 	}
 
 	p.expect("{")
@@ -1696,7 +1701,7 @@ func (p *Parser) tryCatch() *Ast {
 
 	var catchParam, catchBlock *Ast
 	if p.match(KeyCatch) {
-		p.next()
+		p.expect(KeyCatch)
 		p.expect("(")
 		catchParam = p.identifier(true)
 		p.expect(")")
@@ -1719,7 +1724,7 @@ func (p *Parser) switchStatement() *Ast {
 	var caseHead, caseTail *Ast
 
 	for p.match(KeyCase) {
-		p.next()
+		p.expect(KeyCase)
 		caseExpr := p.listOfExpression(true, false)
 		p.expect(":")
 		caseBlock := p.listOfBlockStatement()
@@ -1734,7 +1739,7 @@ func (p *Parser) switchStatement() *Ast {
 	}
 
 	if p.match(KeyDefault) {
-		p.next()
+		p.expect(KeyDefault)
 		p.expect(":")
 		defaultBlock := p.listOfBlockStatement()
 		defaultNode := NewKeyValue(
@@ -1763,7 +1768,7 @@ func (p *Parser) ifStatement() *Ast {
 	thenBlock := p.blockLevelStatement()
 	var elseBlock *Ast
 	if p.match(KeyElse) {
-		p.next()
+		p.expect(KeyElse)
 		elseBlock = p.blockLevelStatement()
 	}
 	return NewIfStatement(pos, condition, thenBlock, elseBlock)
@@ -1781,7 +1786,7 @@ func (p *Parser) loopStatement() *Ast {
 		p.expect(";")
 		mutt = p.expression(false)
 	} else if p.match(";") {
-		p.next()
+		p.expect(";")
 		cond = p.expression(false)
 		p.expect(";")
 		mutt = p.expression(false)
@@ -1845,7 +1850,7 @@ func (p *Parser) expressionStatement() *Ast {
 	if node != nil {
 		p.expect(";")
 		for p.match(";") {
-			p.next()
+			p.expect(";")
 		}
 		return NewExpressionStatement(p.lookahead.Pos, node)
 	}
@@ -1893,6 +1898,6 @@ func (p *Parser) program() *Ast {
 }
 
 func (p *Parser) Parse() *Ast {
-	p.next()
+	p.lookahead = p.getNextToken()
 	return p.program()
 }

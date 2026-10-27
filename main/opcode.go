@@ -10,6 +10,7 @@ const (
 	OpMakeArray
 	OpExtendObject
 	OpMakeObject
+	OpGetAttr
 	OpLoadFunction
 	OpLoadCap
 	OpLoadVar
@@ -37,6 +38,7 @@ const (
 	OpBinAnd
 	OpBinOr
 	OpDupTop
+	OpPopTop
 	OpJmp
 	OpPopJmpIfFalse
 	OpPopJmpIfTrue

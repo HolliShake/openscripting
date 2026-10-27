@@ -47,11 +47,15 @@ log [...[15, 16]];
 
 
 var obj = {
-     A : "65",
-    "b": "66"
+    A: "65",
+    "B": "66",
+    ...{ C: 67}
 };
 
 log obj;
 
+var { A: Ey, C, BB: B } = obj;
 
-var { A: 2 } = obj;
+log Ey;
+log B;
+log C;

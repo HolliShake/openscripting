@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"strings"
-	"time"
 	"unsafe"
 )
 
@@ -46,6 +46,22 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 		return value
 	}
 
+	readString := func() string {
+		size := int32(readByte())
+
+		if ip+size > bsize {
+			panic("invalid string literal: exceeds bytecode")
+		}
+
+		var builder strings.Builder
+		builder.Grow(int(size))
+		for range size {
+			builder.WriteRune(rune(readByte()))
+		}
+
+		return builder.String()
+	}
+
 	pop := func() OSValue {
 		if sp <= 0 {
 			panic("operand stack underflow")
@@ -55,6 +71,13 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 		value := stack[sp]
 		stack[sp] = OSValue{}
 		return value
+	}
+
+	peek := func() OSValue {
+		if sp <= 0 {
+			panic("operand stack underflow")
+		}
+		return stack[sp-1]
 	}
 
 	throwRuntimeError := func(message string) (handled bool) {
@@ -67,7 +90,11 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 
 			if handler.CatchLocal >= 0 && int(handler.CatchLocal) < len(frame.Env) && frame.Env[handler.CatchLocal] != nil {
-				frame.Env[handler.CatchLocal].Value = NewStringValue(message)
+				frame.Env[handler.CatchLocal].Value = OSValue{
+					Type:   OSVString,
+					Number: float64(len(message)),
+					Opaque: unsafe.Pointer(unsafe.StringData(message)),
+				}
 			}
 			clear(stack[:sp])
 			sp = 0
@@ -120,20 +147,13 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpLoadStr:
 			{
-				// TODO: Fix, slow iteration for string literal decoding
-				size := int32(readByte())
+				value := readString()
 
-				if ip+size > bsize {
-					panic("invalid string literal: exceeds bytecode")
-				}
-
-				var builder strings.Builder
-				builder.Grow(int(size))
-				for range size {
-					builder.WriteRune(rune(readByte()))
-				}
-
-				push(NewStringValue(builder.String()))
+				push(OSValue{
+					Type:   OSVString,
+					Number: float64(len(value)),
+					Opaque: unsafe.Pointer(unsafe.StringData(value)),
+				})
 			}
 		case OpLoadTrue:
 			{
@@ -237,6 +257,25 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					Type:   OSVObject,
 					Opaque: unsafe.Pointer(obj),
 				})
+			}
+		case OpGetAttr:
+			{
+				top := pop()
+				attr := readString()
+
+				if top.Type != OSVObject || top.Opaque == nil {
+					if throwRuntimeError("attempted to get attribute of a non-object value " + top.String()) {
+						continue
+					}
+				}
+
+				obj := (*OSObject)(top.Opaque)
+
+				if value, exists := obj.Values[attr]; exists {
+					push(value)
+				} else {
+					push(vm.Null)
+				}
 			}
 		case OpLoadFunction:
 			{
@@ -404,7 +443,12 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				lhs := pop()
 
 				if IsString(lhs) && IsString(rhs) {
-					push(NewStringValue(lhs.StringValue() + rhs.StringValue()))
+					value := lhs.StringValue() + rhs.StringValue()
+					push(OSValue{
+						Type:   OSVString,
+						Number: float64(len(value)),
+						Opaque: unsafe.Pointer(unsafe.StringData(value)),
+					})
 					continue
 				} else if IsNumber(lhs) && IsNumber(rhs) {
 					push(OSValue{
@@ -666,11 +710,15 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 
 				frame.Env[localIndex].Value = pop()
 			}
+		case OpPopTop:
+			{
+				pop()
+			}
 
 		case OpStdWrite:
 			{
 				value := pop()
-				fmt.Printf("[%s] log: %s\n", time.Now().Format("2006-01-02 15:04:05"), value.String())
+				log.Println(value.String())
 			}
 		case OpJmp:
 			{
@@ -702,7 +750,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic("operand stack underflow")
 				}
 
-				expval := stack[sp-1]
+				expval := peek()
 				truthy := CoerceToBool(expval)
 
 				if op == OpJmpIfFalseOrPop && !truthy || op == OpJmpIfTrueOrPop && truthy {
@@ -713,7 +761,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpDupTop:
 			{
-				push(stack[sp-1])
+				push(peek())
 			}
 		case OpReturn:
 			{
