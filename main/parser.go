@@ -674,23 +674,19 @@ func (p *Parser) terminal() *Ast {
 	case IDN:
 		return p.identifier(true)
 	case NUM:
-		v, err := strconv.ParseFloat(p.lookahead.Value, 64)
-		if err != nil {
-			ThrowError(p.File, "invalid number format", p.lookahead.Pos)
-		}
-		ast := NewTerminalAst(AstNumLit, p.lookahead.Pos, v)
+		ast := NewTerminalAst(AstNumLit, p.lookahead.Pos, p.lookahead.Value)
 		p.expectType(NUM)
 		return ast
 	case STR:
 		return p.stringLit()
 	case KEY:
 		if p.lookahead.Value == KeyTrue || p.lookahead.Value == KeyFalse {
-			ast := NewTerminalAst(AstBoolLit, p.lookahead.Pos, p.lookahead.Value == KeyTrue)
+			ast := NewTerminalAst(AstBoolLit, p.lookahead.Pos, p.lookahead.Value)
 			p.expectType(KEY)
 			return ast
 		}
 		if p.lookahead.Value == KeyNull {
-			ast := NewTerminalAst(AstNullLit, p.lookahead.Pos, nil)
+			ast := NewTerminalAst(AstNullLit, p.lookahead.Pos, "")
 			p.expectType(KEY)
 			return ast
 		}
@@ -755,7 +751,7 @@ func (p *Parser) switchExpression() *Ast {
 			defaultBlock := p.expression(true)
 			defaultNode := NewKeyValue(
 				p.lookahead.Pos,
-				NewTerminalAst(AstNullLit, p.lookahead.Pos, nil),
+				NewTerminalAst(AstNullLit, p.lookahead.Pos, ""),
 				defaultBlock,
 			)
 			caseTail.Next = defaultNode
@@ -1747,7 +1743,7 @@ func (p *Parser) switchStatement() *Ast {
 		defaultBlock := p.listOfBlockStatement()
 		defaultNode := NewKeyValue(
 			p.lookahead.Pos,
-			NewTerminalAst(AstNullLit, p.lookahead.Pos, nil),
+			NewTerminalAst(AstNullLit, p.lookahead.Pos, ""),
 			defaultBlock,
 		)
 		if caseHead == nil {

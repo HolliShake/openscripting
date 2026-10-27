@@ -105,14 +105,21 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			return ""
 		}
 
-		// One exact-ish allocation, no builder, no copy on String().
-		buf := make([]byte, 0, size)
-		for _, r := range bcode[ip : ip+size] {
-			buf = utf8.AppendRune(buf, rune(r))
+		// The bytecode length is a rune count, so size the backing bytes from
+		// the encoded runes to avoid append growth for multibyte text.
+		runes := bcode[ip : ip+size]
+		byteSize := 0
+		for _, value := range runes {
+			byteSize += utf8.RuneLen(rune(value))
+		}
+		buf := make([]byte, byteSize)
+		byteOffset := 0
+		for _, value := range runes {
+			byteOffset += utf8.EncodeRune(buf[byteOffset:], rune(value))
 		}
 		ip += size
 
-		s := unsafe.String(unsafe.SliceData(buf), len(buf))
+		s := unsafe.String(unsafe.SliceData(buf), byteSize)
 		vm.strs[key] = s
 		return s
 	}

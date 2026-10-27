@@ -190,7 +190,7 @@ func emitBytes(fn *Function, value []int32) {
 }
 
 func objectKey(ast *Ast) string {
-	value := ast.Value.(string)
+	value := ast.Value
 	if ast.Type == AstStrLit && len(value) >= 2 {
 		if unquoted, err := strconv.Unquote(value); err == nil {
 			return unquoted
@@ -266,18 +266,15 @@ func binaryOpcode(astType AstType) int32 {
 func tryFold(fn *Function, ast *Ast) constVal {
 	switch ast.Type {
 	case AstNumLit:
-		if value, ok := ast.Value.(float64); ok {
-			return numConst(value)
-		}
-		value, err := strconv.ParseFloat(ast.Value.(string), 64)
+		value, err := strconv.ParseFloat(ast.Value, 64)
 		if err != nil {
-			panic("invalid number literal")
+			ThrowError(fn.File, "invalid number format", ast.Pos)
 		}
 		return numConst(value)
 	case AstStrLit:
-		return strConst(ast.Value.(string))
+		return strConst(ast.Value)
 	case AstBoolLit:
-		return boolConst(ast.Value.(bool))
+		return boolConst(ast.Value == KeyTrue)
 
 	case AstPos, AstNeg, AstNot, AstBitNot:
 		v := tryFold(fn, ast.A)
@@ -444,7 +441,7 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 
 	switch ast.Type {
 	case AstIdentifier:
-		name := ast.Value.(string)
+		name := ast.Value
 		if !scope.Exists(name) {
 			ThrowError(fn.File, "undefined variable", ast.Pos)
 		}
@@ -614,7 +611,7 @@ func visitVarDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 			emit(fn, OpLoadNull)
 		}
 
-		declareLocal(fn, scope, varNode.Value.(string), constant, varNode.Pos)
+		declareLocal(fn, scope, varNode.Value, constant, varNode.Pos)
 	}
 }
 
@@ -632,7 +629,7 @@ func visitVarArrayDestructDeclaration(p *Parser, scope *Scope, fn *Function, ast
 	emitInt(fn, OpDestructArray, size)
 
 	for head := ast.A; head != nil; head = head.Next {
-		declareLocal(fn, scope, head.Value.(string), constant, head.Pos)
+		declareLocal(fn, scope, head.Value, constant, head.Pos)
 	}
 }
 
@@ -649,11 +646,11 @@ func visitVarObjectDestructDeclaration(p *Parser, scope *Scope, fn *Function, as
 
 		switch head.Type {
 		case AstIdentifier:
-			name = head.Value.(string)
+			name = head.Value
 			emit(fn, OpGetAttr)
 			emitRunes(fn, name)
 		case AstKeyValue:
-			name = head.B.Value.(string)
+			name = head.B.Value
 			emit(fn, OpGetAttr)
 			emitRunes(fn, objectKey(head.A))
 		}
@@ -669,7 +666,7 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	parmNode := ast.B.A
 	bodyNode := ast.B.B
 
-	function := newFunction(fn.File, nameNode.Value.(string))
+	function := newFunction(fn.File, nameNode.Value)
 	funcOffset := p.state.SaveFunction(function)
 
 	localScope := acquireScope(scope)
@@ -680,7 +677,7 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	reverse := paramBuf[:0]
 
 	for ; parmNode != nil; parmNode = parmNode.Next {
-		paramName := parmNode.Value.(string)
+		paramName := parmNode.Value
 
 		if localScope.ExistsLocal(paramName) {
 			ThrowError(fn.File, "variable is already defined in scope", parmNode.Pos)
@@ -716,7 +713,7 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		emit(function, OpReturn)
 	}
 
-	status, exists := scope.GetVariable(nameNode.Value.(string))
+	status, exists := scope.GetVariable(nameNode.Value)
 	if !exists {
 		ThrowError(fn.File, "function does not exists", ast.Pos)
 	}
@@ -838,7 +835,7 @@ func visitTryCatch(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	catchScope.Type = ScopeTypeBlock
 	catchScope.VarCount = 1
 
-	catchVarName := ast.B.Value.(string)
+	catchVarName := ast.B.Value
 	offset := catchScope.GetVarCount()
 
 	catchScope.AddLocal(catchVarName, Symbol{
@@ -909,7 +906,7 @@ func compileProgram(p *Parser) *Function {
 	for current := ast.A; current != nil; current = current.Next {
 		if current.Type == AstFunction {
 			nameNode := current.A
-			funcName := nameNode.Value.(string)
+			funcName := nameNode.Value
 
 			if scope.ExistsLocal(funcName) {
 				ThrowError(p.File, "variable is already defined in scope", nameNode.Pos)

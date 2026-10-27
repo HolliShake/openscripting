@@ -34,7 +34,7 @@ func NewKeyValue(position Position, key, value *Ast) *Ast {
 	return node
 }
 
-func NewTerminalAst(ast AstType, position Position, value interface{}) *Ast {
+func NewTerminalAst(ast AstType, position Position, value string) *Ast {
 	node := newAst(ast, position)
 	node.Value = value
 	return node

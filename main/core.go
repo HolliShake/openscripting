@@ -136,7 +136,7 @@ const (
 
 type Ast struct {
 	Type  AstType
-	Value interface{}
+	Value string
 	Pos   Position
 	A     *Ast
 	B     *Ast
