@@ -725,6 +725,11 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				offset := int(readByte())
 				ip = int32(offset)
 			}
+		case OpAbsJmp:
+			{
+				offset := int(readByte())
+				ip = int32(offset)
+			}
 		case OpPopJmpIfFalse:
 			{
 				offset := int(readByte())
@@ -771,6 +776,10 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					returnValue = pop()
 				} else {
 					returnValue = vm.Null
+				}
+
+				if sp != 0 {
+					panic(fmt.Sprintf("stack not empty on return (stack pointer: %d)", sp))
 				}
 
 				// Save the completed coroutine's final state.

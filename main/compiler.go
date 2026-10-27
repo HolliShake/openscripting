@@ -730,8 +730,8 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 
 func visitIfStatement(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	condNode := ast.A
-	thenNode := ast.B.A
-	elseNode := ast.B.B
+	thenNode := ast.B
+	elseNode := ast.C
 
 	visitExpression(p, scope, fn, condNode)
 
@@ -744,6 +744,64 @@ func visitIfStatement(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		visitDeclarationOrStatement(p, scope, fn, elseNode)
 	}
 	labelJump(fn, endIf)
+}
+
+func visitWhileStatement(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+	condNode := ast.A
+	bodyNode := ast.B
+
+	loopStart := int32(len(fn.Bytecode))
+
+	loopScope := Scope{
+		Type:       ScopeTypeLoop,
+		Parent:     scope,
+		Variables:  make(map[string]Symbol),
+		VarCount:   0,
+		LoopStart:  loopStart,
+		BreakStart: []int32{},
+	}
+
+	visitExpression(p, scope, fn, condNode)
+	jmpIfFalsePos := emitJump(fn, OpPopJmpIfFalse)
+
+	visitDeclarationOrStatement(p, &loopScope, fn, bodyNode)
+	emitInt(fn, OpAbsJmp, loopStart)
+
+	labelJump(fn, jmpIfFalsePos)
+
+	// Break
+	for _, jmpSlot := range loopScope.BreakStart {
+		labelJump(fn, jmpSlot)
+	}
+}
+
+func visitBlock(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+	blockScope := Scope{
+		Type:      ScopeTypeBlock,
+		Parent:    scope,
+		Variables: make(map[string]Symbol),
+		VarCount:  0,
+	}
+	for statement := ast.A; statement != nil; statement = statement.Next {
+		visitDeclarationOrStatement(p, &blockScope, fn, statement)
+	}
+}
+
+func visitBreak(_ *Parser, scope *Scope, fn *Function, ast *Ast) {
+	loopScope := scope.GetNearest(ScopeTypeLoop)
+	if loopScope == nil {
+		ThrowError(fn.File, "break statement not within a loop", ast.Pos)
+	}
+	jmpSlot := emitJump(fn, OpJmp)
+	loopScope.BreakStart = append(loopScope.BreakStart, jmpSlot)
+}
+
+func visitContinue(_ *Parser, scope *Scope, fn *Function, ast *Ast) {
+	loopScope := scope.GetNearest(ScopeTypeLoop)
+	if loopScope == nil {
+		ThrowError(fn.File, "continue statement not within a loop", ast.Pos)
+	}
+	emitInt(fn, OpAbsJmp, loopScope.LoopStart)
 }
 
 func visitReturn(p *Parser, scope *Scope, fn *Function, ast *Ast) {
@@ -821,6 +879,10 @@ func visitDeclarationOrStatement(p *Parser, scope *Scope, fn *Function, ast *Ast
 		visitFunctionDeclaration(p, scope, fn, ast)
 	case AstIfStmt:
 		visitIfStatement(p, scope, fn, ast)
+	case AstWhileLoop:
+		visitWhileStatement(p, scope, fn, ast)
+	case AstBlock:
+		visitBlock(p, scope, fn, ast)
 	case AstLogStmt:
 		{
 			visitExpression(p, scope, fn, ast.A)
@@ -831,6 +893,10 @@ func visitDeclarationOrStatement(p *Parser, scope *Scope, fn *Function, ast *Ast
 			visitExpression(p, scope, fn, ast.A)
 			emit(fn, OpPopTop)
 		}
+	case AstBreakStmt:
+		visitBreak(p, scope, fn, ast)
+	case AstContinueStmt:
+		visitContinue(p, scope, fn, ast)
 	case AstReturnStmt:
 		visitReturn(p, scope, fn, ast)
 	case AstTryCatch:

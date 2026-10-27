@@ -58,3 +58,14 @@ func (s *Scope) GetVariable(name string) (sym Symbol, exists bool) {
 func (s *Scope) GetVarCount() int32 {
 	return s.VarCount
 }
+
+func (s *Scope) GetNearest(scopeType ScopeType) *Scope {
+	currentScope := s
+	for currentScope != nil {
+		if currentScope.Type == scopeType {
+			return currentScope
+		}
+		currentScope = currentScope.Parent
+	}
+	return nil
+}

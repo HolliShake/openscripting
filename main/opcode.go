@@ -40,6 +40,7 @@ const (
 	OpDupTop
 	OpPopTop
 	OpJmp
+	OpAbsJmp
 	OpPopJmpIfFalse
 	OpPopJmpIfTrue
 	OpJmpIfFalseOrPop
