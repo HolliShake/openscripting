@@ -387,24 +387,28 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		{
 			head := ast.A
 			size := 0
+
 			for head != nil {
 				visitExpression(p, scope, fn, head)
 				head = head.Next
 				size++
 			}
+
 			emitInt(fn, OpMakeArray, int32(size))
 		}
 	case AstCall:
 		{
-			paramNode := ast.B
-			paramCount := int32(0)
-			for paramNode != nil {
-				visitExpression(p, scope, fn, paramNode)
-				paramCount++
-				paramNode = paramNode.Next
+			argsNode := ast.B
+			argCount := int32(0)
+
+			for argsNode != nil {
+				visitExpression(p, scope, fn, argsNode)
+				argCount++
+				argsNode = argsNode.Next
 			}
+
 			visitExpression(p, scope, fn, ast.A)
-			emitInt(fn, OpCall, paramCount)
+			emitInt(fn, OpCall, argCount)
 		}
 	case AstPos, AstNeg, AstNot, AstBitNot:
 		{

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"unsafe"
 )
 
@@ -36,48 +37,6 @@ func NewStringValue(value string) OSValue {
 	}
 }
 
-func (v OSValue) stringValue() string {
-	if v.Number == 0 {
-		return ""
-	}
-	return unsafe.String((*byte)(v.Opaque), int(v.Number))
-}
-
-func (v OSValue) String() string {
-	switch v.Type {
-	case OSVNull:
-		return "null"
-	case OSVInt:
-		return fmt.Sprintf("%d", int64(v.Number))
-	case OSVNum:
-		return strconv.FormatFloat(v.Number, 'f', -1, 64)
-	case OSVBool:
-		if v.Number != 0 {
-			return "true"
-		}
-		return "false"
-	case OSVString:
-		return v.stringValue()
-	case OSVArray:
-		{
-			elements := *(*[]OSValue)(v.Opaque)
-			str := "["
-			for i, elem := range elements {
-				if i > 0 {
-					str += ", "
-				}
-				str += elem.String()
-			}
-			str += "]"
-			return str
-		}
-	case OSVFunction:
-		return "<function>"
-	default:
-		return "<unknown>"
-	}
-}
-
 func IsNumber(v OSValue) bool {
 	return v.Type == OSVInt || v.Type == OSVNum
 }
@@ -93,7 +52,7 @@ func CoerceToNumber(v OSValue) float64 {
 	case OSVInt, OSVNum, OSVBool:
 		return v.Number
 	case OSVString:
-		number, err := strconv.ParseFloat(v.stringValue(), 64)
+		number, err := strconv.ParseFloat(v.StringValue(), 64)
 		if err != nil {
 			return 0
 		}
@@ -112,7 +71,7 @@ func IsEqual(a, b OSValue) bool {
 	case OSVInt, OSVNum, OSVBool:
 		return a.Number == b.Number
 	case OSVString:
-		return a.stringValue() == b.stringValue()
+		return a.StringValue() == b.StringValue()
 	case OSVFunction:
 		return a.Opaque == b.Opaque
 	default:
@@ -134,5 +93,63 @@ func CoerceToBool(v OSValue) bool {
 		return v.Opaque != nil
 	default:
 		return false
+	}
+}
+
+func (v OSValue) StringValue() string {
+	if v.Number == 0 {
+		return ""
+	}
+	return unsafe.String((*byte)(v.Opaque), int(v.Number))
+}
+
+func (v OSValue) String() string {
+	var builder strings.Builder
+	v.writeString(&builder, make(map[unsafe.Pointer]bool))
+	return builder.String()
+}
+
+func (v OSValue) writeString(builder *strings.Builder, active map[unsafe.Pointer]bool) {
+	switch v.Type {
+	case OSVNull:
+		fmt.Fprint(builder, "null")
+	case OSVInt:
+		fmt.Fprintf(builder, "%d", int64(v.Number))
+	case OSVNum:
+		fmt.Fprint(builder, strconv.FormatFloat(v.Number, 'f', -1, 64))
+	case OSVBool:
+		{
+			if v.Number != 0 {
+				builder.WriteString("true")
+			} else {
+				builder.WriteString("false")
+			}
+		}
+	case OSVString:
+		fmt.Fprint(builder, v.StringValue())
+	case OSVArray:
+		{
+			if active[v.Opaque] {
+				builder.WriteString("[self]")
+				return
+			}
+
+			active[v.Opaque] = true
+			defer delete(active, v.Opaque)
+
+			elements := *(*[]OSValue)(v.Opaque)
+			builder.WriteByte('[')
+			for index, element := range elements {
+				if index > 0 {
+					builder.WriteString(", ")
+				}
+				element.writeString(builder, active)
+			}
+			builder.WriteByte(']')
+		}
+	case OSVFunction:
+		fmt.Fprint(builder, "<function>")
+	default:
+		fmt.Fprint(builder, "<unknown>")
 	}
 }

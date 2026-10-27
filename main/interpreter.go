@@ -156,6 +156,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 
 				elements := make([]OSValue, size)
+
 				for i := size - 1; i >= 0; i-- {
 					elements[i] = pop()
 				}
@@ -331,7 +332,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				lhs := pop()
 
 				if IsString(lhs) && IsString(rhs) {
-					push(NewStringValue(lhs.stringValue() + rhs.stringValue()))
+					push(NewStringValue(lhs.StringValue() + rhs.StringValue()))
 					continue
 				} else if IsNumber(lhs) && IsNumber(rhs) {
 					push(OSValue{

@@ -28,6 +28,9 @@ var ff = false, gg = ff;
 
 log ff || true;
 
+var arr = [1, 2, 3];
 
+log arr;
 
-log [1,2,3,4,5];
+var [a, b, c] = [1, 2, 3];
+
