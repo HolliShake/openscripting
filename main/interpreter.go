@@ -147,6 +147,27 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			{
 				push(vm.Null)
 			}
+		case OpExtendArray:
+			{
+				src := pop()
+				dst := pop()
+
+				if dst.Type != OSVArray || dst.Opaque == nil {
+					panic("invalid destination array for OpExtendArray")
+				}
+
+				if src.Type != OSVArray || src.Opaque == nil {
+					panic("invalid source array for OpExtendArray")
+				}
+
+				dstElements := *(*[]OSValue)(dst.Opaque)
+				srcElements := *(*[]OSValue)(src.Opaque)
+
+				dstElements = append(dstElements, srcElements...)
+
+				dst.Opaque = unsafe.Pointer(&dstElements)
+				push(dst)
+			}
 		case OpMakeArray:
 			{
 				size := readByte()
@@ -539,6 +560,34 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					Type:   OSVNum,
 					Number: float64(int64(lhs.Number) | int64(rhs.Number)),
 				})
+			}
+		case OpDestructArray:
+			{
+				size := int(readByte())
+				aobj := pop()
+
+				if aobj.Type != OSVArray {
+					if throwRuntimeError("expected array for destructuring") {
+						continue
+					}
+				}
+
+				if aobj.Opaque == nil {
+					if throwRuntimeError("expected array for destructuring") {
+						continue
+					}
+				}
+
+				elements := *(*[]OSValue)(aobj.Opaque)
+				if len(elements) < size {
+					if throwRuntimeError("array size mismatch for destructuring") {
+						continue
+					}
+				}
+
+				for i := size - 1; i >= 0; i-- {
+					push(elements[i])
+				}
 			}
 		case OpStoreCap:
 			{

@@ -387,14 +387,31 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		{
 			head := ast.A
 			size := 0
+			extn := false
 
 			for head != nil {
+				if head.Type == AstSpread {
+					emitInt(fn, OpMakeArray, int32(size))
+
+					size = 0
+					extn = true
+
+					visitExpression(p, scope, fn, head.A)
+					emit(fn, OpExtendArray)
+
+					head = head.Next
+					continue
+				}
+
 				visitExpression(p, scope, fn, head)
 				head = head.Next
 				size++
 			}
 
 			emitInt(fn, OpMakeArray, int32(size))
+			if extn {
+				emit(fn, OpExtendArray)
+			}
 		}
 	case AstCall:
 		{
@@ -453,6 +470,16 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 }
 
 func visitVarDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+	isGlobal := scope.Type == ScopeTypeGlobal
+	switch {
+	case ast.Type == AstVar && !isGlobal:
+		ThrowError(fn.File, "var declarations are not allowed in non-global scope", ast.Pos)
+	case ast.Type == AstLet && isGlobal:
+		ThrowError(fn.File, "let declarations are not allowed in global scope", ast.Pos)
+	}
+
+	constant := ast.Type == AstConst
+
 	head := ast.A
 
 	for head != nil {
@@ -473,9 +500,50 @@ func visitVarDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		scope.AddLocal(varNode.Value.(string), Symbol{
 			Name:    varNode.Value.(string),
 			Offset:  offset,
-			Const:   false,
+			Const:   constant,
 			Capture: false,
 			Pos:     varNode.Pos,
+		})
+
+		emitInt(fn, OpStoreLocal, offset)
+		head = head.Next
+	}
+}
+
+func visitVarDestructDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+	isGlobal := scope.Type == ScopeTypeGlobal
+	switch {
+	case ast.Type == AstVar && !isGlobal:
+		ThrowError(fn.File, "var declarations are not allowed in non-global scope", ast.Pos)
+	case ast.Type == AstLet && isGlobal:
+		ThrowError(fn.File, "let declarations are not allowed in global scope", ast.Pos)
+	}
+
+	constant := ast.Type == AstConst
+
+	visitExpression(p, scope, fn, ast.B)
+
+	head := ast.A
+	size := 0
+
+	for head != nil {
+		size++
+		head = head.Next
+	}
+
+	emitInt(fn, OpDestructArray, int32(size))
+
+	head = ast.A
+	for head != nil {
+		name := head.Value.(string)
+
+		offset := scope.GetVarCount()
+		scope.AddLocal(name, Symbol{
+			Name:    name,
+			Offset:  offset,
+			Const:   constant,
+			Capture: false,
+			Pos:     head.Pos,
 		})
 
 		emitInt(fn, OpStoreLocal, offset)
@@ -644,8 +712,10 @@ func visitTryCatch(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 func visitDeclarationOrStatement(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	emitLine(fn, ast.Pos)
 	switch ast.Type {
-	case AstVar:
+	case AstVar, AstLet, AstConst:
 		visitVarDeclaration(p, scope, fn, ast)
+	case AstDestructuringArrayVar, AstDestructuringArrayLet, AstDestructuringArrayConst:
+		visitVarDestructDeclaration(p, scope, fn, ast)
 	case AstFunction:
 		visitFunctionDeclaration(p, scope, fn, ast)
 	case AstIfStmt:

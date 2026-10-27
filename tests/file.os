@@ -32,5 +32,12 @@ var arr = [1, 2, 3];
 
 log arr;
 
-var [a, b, c] = [1, 2, 3];
+const arrayValue =  [1, 2, 3, ...[4,5,6], 7, 8, 9];
+
+var [a, b, c] = arrayValue;
+
+log a;
+log b;
+log c;
+log arrayValue;
 

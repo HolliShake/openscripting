@@ -6,6 +6,7 @@ const (
 	OpLoadTrue
 	OpLoadFalse
 	OpLoadNull
+	OpExtendArray
 	OpMakeArray
 	OpLoadFunction
 	OpLoadCap
@@ -39,6 +40,7 @@ const (
 	OpPopJmpIfTrue
 	OpJmpIfFalseOrPop
 	OpJmpIfTrueOrPop
+	OpDestructArray
 	OpStoreCap
 	OpStoreLocal
 	OpStdWrite
