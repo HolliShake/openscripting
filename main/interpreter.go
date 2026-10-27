@@ -187,6 +187,58 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					Opaque: unsafe.Pointer(&elements),
 				})
 			}
+		case OpExtendObject:
+			{
+				src := pop()
+				dst := pop()
+
+				if dst.Type != OSVObject || dst.Opaque == nil {
+					panic("invalid destination object for OpExtendObject")
+				}
+
+				if src.Type != OSVObject || src.Opaque == nil {
+					panic("invalid source object for OpExtendObject")
+				}
+
+				dstObj := *(*map[string]OSValue)(dst.Opaque)
+				srcObj := *(*map[string]OSValue)(src.Opaque)
+
+				for k, v := range srcObj {
+					dstObj[k] = v
+				}
+
+				dst.Opaque = unsafe.Pointer(&dstObj)
+				push(dst)
+			}
+		case OpMakeObject:
+			{
+				size := readByte()
+
+				if sp < size {
+					panic("operand stack underflow for object creation")
+				}
+
+				keys := make([]OSValue, size)
+				values := make([]OSValue, size)
+
+				for i := size - 1; i >= 0; i-- {
+					values[i] = pop()
+					keys[i] = pop()
+				}
+
+				obj := make(map[string]OSValue)
+				for i := 0; i < int(size); i++ {
+					if keys[i].Type != OSVString {
+						panic("object keys must be strings")
+					}
+					obj[keys[i].String()] = values[i]
+				}
+
+				push(OSValue{
+					Type:   OSVObject,
+					Opaque: unsafe.Pointer(&obj),
+				})
+			}
 		case OpLoadFunction:
 			{
 				funcIndex := int(readByte())

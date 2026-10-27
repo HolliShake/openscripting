@@ -8,6 +8,8 @@ const (
 	OpLoadNull
 	OpExtendArray
 	OpMakeArray
+	OpExtendObject
+	OpMakeObject
 	OpLoadFunction
 	OpLoadCap
 	OpLoadVar

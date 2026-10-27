@@ -51,3 +51,5 @@ var obj = {
     "b": "66"
 };
 
+log obj;
+

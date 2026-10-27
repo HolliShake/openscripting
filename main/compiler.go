@@ -414,6 +414,42 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 				emit(fn, OpExtendArray)
 			}
 		}
+	case AstObject:
+		{
+			emitInt(fn, OpMakeObject, 0)
+			head := ast.A
+			size := 0
+
+			for head != nil {
+				if head.Type == AstSpread {
+					if size > 0 {
+						emitInt(fn, OpMakeObject, int32(size))
+						emit(fn, OpExtendObject)
+						size = 0
+					}
+
+					visitExpression(p, scope, fn, head.A)
+					emit(fn, OpExtendObject)
+
+					head = head.Next
+					continue
+				}
+
+				if head.A.Type == AstIdentifier {
+					emitString(fn, head.A.Value.(string))
+				} else {
+					visitExpression(p, scope, fn, head.A)
+				}
+				visitExpression(p, scope, fn, head.B)
+				head = head.Next
+				size++
+			}
+
+			if size > 0 {
+				emitInt(fn, OpMakeObject, int32(size))
+				emit(fn, OpExtendObject)
+			}
+		}
 	case AstCall:
 		{
 			argsNode := ast.B

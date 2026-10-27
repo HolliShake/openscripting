@@ -147,6 +147,30 @@ func (v OSValue) writeString(builder *strings.Builder, active map[unsafe.Pointer
 			}
 			builder.WriteByte(']')
 		}
+	case OSVObject:
+		{
+			if active[v.Opaque] {
+				builder.WriteString("{self}")
+				return
+			}
+
+			active[v.Opaque] = true
+			defer delete(active, v.Opaque)
+
+			obj := *(*map[string]OSValue)(v.Opaque)
+			builder.WriteByte('{')
+			first := true
+			for k, val := range obj {
+				if !first {
+					builder.WriteString(", ")
+				}
+				first = false
+				fmt.Fprint(builder, k)
+				builder.WriteString(": ")
+				val.writeString(builder, active)
+			}
+			builder.WriteByte('}')
+		}
 	case OSVFunction:
 		fmt.Fprint(builder, "<function>")
 	default:
