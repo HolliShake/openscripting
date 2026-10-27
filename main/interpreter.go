@@ -200,14 +200,13 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic("invalid source object for OpExtendObject")
 				}
 
-				dstObj := *(*map[string]OSValue)(dst.Opaque)
-				srcObj := *(*map[string]OSValue)(src.Opaque)
+				dstObj := (*OSObject)(dst.Opaque)
+				srcObj := (*OSObject)(src.Opaque)
 
-				for k, v := range srcObj {
-					dstObj[k] = v
+				for _, key := range srcObj.Keys {
+					dstObj.Set(key, srcObj.Values[key])
 				}
 
-				dst.Opaque = unsafe.Pointer(&dstObj)
 				push(dst)
 			}
 		case OpMakeObject:
@@ -226,17 +225,17 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					keys[i] = pop()
 				}
 
-				obj := make(map[string]OSValue)
+				obj := &OSObject{Values: make(map[string]OSValue, size)}
 				for i := 0; i < int(size); i++ {
 					if keys[i].Type != OSVString {
 						panic("object keys must be strings")
 					}
-					obj[keys[i].String()] = values[i]
+					obj.Set(keys[i].StringValue(), values[i])
 				}
 
 				push(OSValue{
 					Type:   OSVObject,
-					Opaque: unsafe.Pointer(&obj),
+					Opaque: unsafe.Pointer(obj),
 				})
 			}
 		case OpLoadFunction:

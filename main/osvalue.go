@@ -26,6 +26,18 @@ type OSValue struct {
 	Opaque unsafe.Pointer
 }
 
+type OSObject struct {
+	Keys   []string
+	Values map[string]OSValue
+}
+
+func (obj *OSObject) Set(key string, value OSValue) {
+	if _, exists := obj.Values[key]; !exists {
+		obj.Keys = append(obj.Keys, key)
+	}
+	obj.Values[key] = value
+}
+
 func NewStringValue(value string) OSValue {
 	if value == "" {
 		return OSValue{Type: OSVString}
@@ -157,17 +169,15 @@ func (v OSValue) writeString(builder *strings.Builder, active map[unsafe.Pointer
 			active[v.Opaque] = true
 			defer delete(active, v.Opaque)
 
-			obj := *(*map[string]OSValue)(v.Opaque)
+			obj := (*OSObject)(v.Opaque)
 			builder.WriteByte('{')
-			first := true
-			for k, val := range obj {
-				if !first {
+			for index, key := range obj.Keys {
+				if index > 0 {
 					builder.WriteString(", ")
 				}
-				first = false
-				fmt.Fprint(builder, k)
+				fmt.Fprint(builder, key)
 				builder.WriteString(": ")
-				val.writeString(builder, active)
+				obj.Values[key].writeString(builder, active)
 			}
 			builder.WriteByte('}')
 		}
