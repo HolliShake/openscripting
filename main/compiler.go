@@ -385,16 +385,17 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		emit(fn, OpLoadNull)
 	case AstArray:
 		{
+			emitInt(fn, OpMakeArray, 0)
 			head := ast.A
 			size := 0
-			extn := false
 
 			for head != nil {
 				if head.Type == AstSpread {
-					emitInt(fn, OpMakeArray, int32(size))
-
-					size = 0
-					extn = true
+					if size > 0 {
+						emitInt(fn, OpMakeArray, int32(size))
+						emit(fn, OpExtendArray)
+						size = 0
+					}
 
 					visitExpression(p, scope, fn, head.A)
 					emit(fn, OpExtendArray)
@@ -408,8 +409,8 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 				size++
 			}
 
-			emitInt(fn, OpMakeArray, int32(size))
-			if extn {
+			if size > 0 {
+				emitInt(fn, OpMakeArray, int32(size))
 				emit(fn, OpExtendArray)
 			}
 		}
