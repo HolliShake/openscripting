@@ -31,6 +31,10 @@ type OSObject struct {
 	Values map[string]OSValue
 }
 
+type OSArray struct {
+	Elements []OSValue
+}
+
 func (obj *OSObject) Set(key string, value OSValue) {
 	if _, exists := obj.Values[key]; !exists {
 		obj.Keys = append(obj.Keys, key)
@@ -138,7 +142,7 @@ func (v OSValue) writeString(builder *strings.Builder, active map[unsafe.Pointer
 			active[v.Opaque] = true
 			defer delete(active, v.Opaque)
 
-			elements := *(*[]OSValue)(v.Opaque)
+			elements := (*OSArray)(v.Opaque).Elements
 			builder.WriteByte('[')
 			for index, element := range elements {
 				if index > 0 {

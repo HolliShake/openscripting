@@ -60,7 +60,3 @@ log Ey;
 log B;
 log C;
 
-loop (3 > 2) {
-   log "Yes!";
-   continue;
-}

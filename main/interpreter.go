@@ -4,17 +4,58 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"unicode/utf8"
 	"unsafe"
 )
+
+// strKey identifies one string literal in the bytecode: the function it lives
+// in plus the position of its length word.
+type strKey struct {
+	fn *Function
+	ip int32
+}
 
 type VM struct {
 	Current *Coroutine
 	Null    OSValue
 	True    OSValue
 	False   OSValue
+
+	// strs caches decoded string literals. Previously every OpLoadStr /
+	// OpGetAttr executed in a loop built a brand new string on the heap.
+	// Strings are immutable, so sharing is safe. The cache lives and dies
+	// with the VM, so it can never outlive a run.
+	strs map[strKey]string
 }
 
 var StackSize int32 = 1024
+
+/******************* Cold-path helpers ***/
+
+// These are kept out of line so that boxing their arguments for fmt does not
+// make locals of the hot interpreter loop escape (the old "funcIndex escapes
+// to heap", "sp escapes to heap", "ip - 1 escapes to heap" lines), and so the
+// *strings.Builder inside OSValue.String is not "moved to heap" in
+// runCoroutine's frame.
+
+//go:noinline
+func panicInt(format string, a int) { panic(fmt.Sprintf(format, a)) }
+
+//go:noinline
+func panicInt2(format string, a, b int) { panic(fmt.Sprintf(format, a, b)) }
+
+//go:noinline
+func valueString(v OSValue) string { return v.String() }
+
+// writeLog avoids boxing the string into a []any for log.Println.
+//
+//go:noinline
+func writeLog(s string) {
+	if strings.HasSuffix(s, "\n") { // log.Println would have emitted a blank line too
+		s += "\n"
+	}
+	_ = log.Output(3, s)
+}
 
 func interpreterLoop(state *State, vm *VM) {
 	for vm.Current != nil && vm.Current.State != CoroutineStateDead {
@@ -47,19 +88,33 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 	}
 
 	readString := func() string {
-		size := int32(readByte())
+		key := strKey{frame.Function, ip}
+		size := readByte()
 
-		if ip+size > bsize {
+		if size < 0 || ip+size > bsize {
 			panic("invalid string literal: exceeds bytecode")
 		}
 
-		var builder strings.Builder
-		builder.Grow(int(size))
-		for range size {
-			builder.WriteRune(rune(readByte()))
+		if s, ok := vm.strs[key]; ok {
+			ip += size
+			return s
 		}
 
-		return builder.String()
+		if size == 0 {
+			vm.strs[key] = ""
+			return ""
+		}
+
+		// One exact-ish allocation, no builder, no copy on String().
+		buf := make([]byte, 0, size)
+		for _, r := range bcode[ip : ip+size] {
+			buf = utf8.AppendRune(buf, rune(r))
+		}
+		ip += size
+
+		s := unsafe.String(unsafe.SliceData(buf), len(buf))
+		vm.strs[key] = s
+		return s
 	}
 
 	pop := func() OSValue {
@@ -180,31 +235,29 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic("invalid source array for OpExtendArray")
 				}
 
-				dstElements := *(*[]OSValue)(dst.Opaque)
-				srcElements := *(*[]OSValue)(src.Opaque)
-
-				dstElements = append(dstElements, srcElements...)
-
-				dst.Opaque = unsafe.Pointer(&dstElements)
+				dstArray := (*OSArray)(dst.Opaque)
+				srcArray := (*OSArray)(src.Opaque)
+				dstArray.Elements = append(dstArray.Elements, srcArray.Elements...)
 				push(dst)
 			}
 		case OpMakeArray:
 			{
 				size := readByte()
 
-				if sp < size {
+				if size < 0 || sp < size {
 					panic("operand stack underflow for array creation")
 				}
 
-				elements := make([]OSValue, size)
-
-				for i := size - 1; i >= 0; i-- {
-					elements[i] = pop()
-				}
+				// Take the elements straight off the operand stack: one
+				// copy instead of `size` pop() calls.
+				array := &OSArray{Elements: make([]OSValue, size)}
+				copy(array.Elements, stack[sp-size:sp])
+				clear(stack[sp-size : sp])
+				sp -= size
 
 				push(OSValue{
 					Type:   OSVArray,
-					Opaque: unsafe.Pointer(&elements),
+					Opaque: unsafe.Pointer(array),
 				})
 			}
 		case OpExtendObject:
@@ -233,25 +286,23 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			{
 				size := readByte()
 
-				if sp < size {
+				if size < 0 || sp < 2*size {
 					panic("operand stack underflow for object creation")
 				}
 
-				keys := make([]OSValue, size)
-				values := make([]OSValue, size)
-
-				for i := size - 1; i >= 0; i-- {
-					values[i] = pop()
-					keys[i] = pop()
-				}
-
+				// Stack layout: [k0, v0, k1, v1, ...]. Read it in place; the
+				// two temporary key/value slices are gone.
+				base := sp - 2*size
 				obj := &OSObject{Values: make(map[string]OSValue, size)}
-				for i := 0; i < int(size); i++ {
-					if keys[i].Type != OSVString {
+				for i := int32(0); i < size; i++ {
+					key := stack[base+2*i]
+					if key.Type != OSVString {
 						panic("object keys must be strings")
 					}
-					obj.Set(keys[i].StringValue(), values[i])
+					obj.Set(key.StringValue(), stack[base+2*i+1])
 				}
+				clear(stack[base:sp])
+				sp = base
 
 				push(OSValue{
 					Type:   OSVObject,
@@ -264,7 +315,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				attr := readString()
 
 				if top.Type != OSVObject || top.Opaque == nil {
-					if throwRuntimeError("attempted to get attribute of a non-object value " + top.String()) {
+					if throwRuntimeError("attempted to get attribute of a non-object value " + valueString(top)) {
 						continue
 					}
 				}
@@ -282,13 +333,13 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				funcIndex := int(readByte())
 
 				if funcIndex >= len(state.Functions) {
-					panic(fmt.Sprintf("invalid function index: %d", funcIndex))
+					panicInt("invalid function index: %d", funcIndex)
 				}
 
 				fn := state.Functions[funcIndex]
 
 				if fn == nil {
-					panic(fmt.Sprintf("function at index %d is nil", funcIndex))
+					panicInt("function at index %d is nil", funcIndex)
 				}
 
 				push(OSValue{
@@ -306,7 +357,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 
 				if parentCoro == nil || capIndex >= len(parentCoro.Frame.Env) || parentCoro.Frame.Env[capIndex] == nil {
-					panic(fmt.Sprintf("invalid captured variable index: %d", capIndex))
+					panicInt("invalid captured variable index: %d", capIndex)
 				}
 
 				push(parentCoro.Frame.Env[capIndex].Value)
@@ -316,7 +367,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				varIndex := int(readByte())
 
 				if varIndex >= len(frame.Env) || frame.Env[varIndex] == nil {
-					panic(fmt.Sprintf("invalid local variable index: %d of %d", varIndex, len(frame.Env)))
+					panicInt2("invalid local variable index: %d of %d", varIndex, len(frame.Env))
 				}
 
 				push(frame.Env[varIndex].Value)
@@ -330,7 +381,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				fnValue := pop()
 
 				if fnValue.Type != OSVFunction || fnValue.Opaque == nil {
-					if throwRuntimeError("attempted to call a non-function value " + fnValue.String()) {
+					if throwRuntimeError("attempted to call a non-function value " + valueString(fnValue)) {
 						continue
 					}
 				}
@@ -521,9 +572,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					}
 				}
 
-				result := lhs.Number < rhs.Number
-
-				if result {
+				if lhs.Number < rhs.Number {
 					push(vm.True)
 				} else {
 					push(vm.False)
@@ -540,9 +589,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					}
 				}
 
-				result := lhs.Number <= rhs.Number
-
-				if result {
+				if lhs.Number <= rhs.Number {
 					push(vm.True)
 				} else {
 					push(vm.False)
@@ -559,9 +606,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					}
 				}
 
-				result := lhs.Number > rhs.Number
-
-				if result {
+				if lhs.Number > rhs.Number {
 					push(vm.True)
 				} else {
 					push(vm.False)
@@ -578,9 +623,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					}
 				}
 
-				result := lhs.Number >= rhs.Number
-
-				if result {
+				if lhs.Number >= rhs.Number {
 					push(vm.True)
 				} else {
 					push(vm.False)
@@ -673,7 +716,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					}
 				}
 
-				elements := *(*[]OSValue)(aobj.Opaque)
+				elements := (*OSArray)(aobj.Opaque).Elements
 				if len(elements) < size {
 					if throwRuntimeError("array size mismatch for destructuring") {
 						continue
@@ -691,12 +734,12 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 
 				parentCoro := co.Parent
 				if parentCoro == nil || srcIndex >= len(parentCoro.Frame.Env) {
-					panic(fmt.Sprintf("invalid captured variable index: %d", srcIndex))
+					panicInt("invalid captured variable index: %d", srcIndex)
 				}
 
 				cell := parentCoro.Frame.Env[srcIndex]
 				if capIndex >= len(frame.Env) {
-					panic(fmt.Sprintf("invalid local capture index: %d", capIndex))
+					panicInt("invalid local capture index: %d", capIndex)
 				}
 				frame.Env[capIndex] = cell
 			}
@@ -705,7 +748,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				localIndex := int(readByte())
 
 				if localIndex >= len(frame.Env) || frame.Env[localIndex] == nil {
-					panic(fmt.Sprintf("invalid local variable index: %d (frame.Env length: %d)", localIndex, len(frame.Env)))
+					panicInt2("invalid local variable index: %d (frame.Env length: %d)", localIndex, len(frame.Env))
 				}
 
 				frame.Env[localIndex].Value = pop()
@@ -718,7 +761,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 		case OpStdWrite:
 			{
 				value := pop()
-				log.Println(value.String())
+				writeLog(valueString(value))
 			}
 		case OpJmp:
 			{
@@ -779,7 +822,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 
 				if sp != 0 {
-					panic(fmt.Sprintf("stack not empty on return (stack pointer: %d)", sp))
+					panicInt("stack not empty on return (stack pointer: %d)", int(sp))
 				}
 
 				// Save the completed coroutine's final state.
@@ -806,10 +849,16 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				caller.OperandStack[caller.Sp] = returnValue
 				caller.Sp++
 
+				// The finished coroutine is garbage from here on. Drop its
+				// big operand stack and cells right away so they are not
+				// kept alive by anything that still points at `co`.
+				co.OperandStack = nil
+				co.Parent = nil
+
 				return
 			}
 		default:
-			panic(fmt.Sprintf("unknown opcode %v at offset %d", op, ip-1))
+			panicInt2("unknown opcode %v at offset %d", int(op), int(ip-1))
 		}
 	}
 
@@ -839,6 +888,7 @@ func Run(state *State, program *Function) {
 		Null:  OSValue{Type: OSVNull},
 		True:  OSValue{Type: OSVBool, Number: 1},
 		False: OSValue{Type: OSVBool, Number: 0},
+		strs:  make(map[strKey]string, 16),
 	}
 
 	main := NewCoroutine(nil, program, StackSize)

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"sync"
+	"unicode/utf8"
 )
 
 // Set to true to print every folded constant.
@@ -22,10 +24,11 @@ const (
 
 // constVal is returned by value, so folding never allocates
 // (except for string concatenation, which has to).
+// Fields are ordered so kind+b share one word: 32 bytes instead of 48.
 type constVal struct {
-	kind constKind
 	num  float64
 	str  string
+	kind constKind
 	b    bool
 }
 
@@ -55,6 +58,35 @@ func constEqual(a, b constVal) bool {
 	return false
 }
 
+/******************* Scope pooling ***/
+
+// Scopes used to be stack literals whose address was passed down a recursive
+// visitor (and stored in child.Parent), so every one of them was "moved to
+// heap" together with a fresh map. They are now recycled through a pool, so
+// the steady-state cost is zero allocations per block / loop / function.
+var scopePool sync.Pool
+
+// acquireScope returns a clean scope. The caller sets Type (and any other
+// fields) afterwards. VarCount starts at 0.
+func acquireScope(parent *Scope) *Scope {
+	s, _ := scopePool.Get().(*Scope)
+	if s == nil {
+		s = &Scope{Variables: make(map[string]Symbol)}
+	}
+	vars, breaks := s.Variables, s.BreakStart[:0]
+	clear(vars)
+	*s = Scope{Parent: parent, Variables: vars, BreakStart: breaks}
+	return s
+}
+
+// releaseScope drops every reference the scope holds (symbols, parent) so a
+// pooled scope never keeps compile-time data alive.
+func releaseScope(s *Scope) {
+	clear(s.Variables)
+	s.Parent = nil
+	scopePool.Put(s)
+}
+
 /******************* Emit helpers ***/
 
 const initialBytecodeCap = 256
@@ -65,17 +97,52 @@ func newFunction(file *File, name string) *Function {
 	return fn
 }
 
+// shrink returns a slice whose capacity equals its length, so the over-sized
+// backing array can be garbage collected. (`s[:len(s)]` does not do that.)
+func shrink[T any](s []T) []T {
+	if len(s) == cap(s) {
+		return s
+	}
+	out := make([]T, len(s))
+	copy(out, s)
+	return out
+}
+
+// finalizeFunction releases the slack left over from append growth.
+func finalizeFunction(fn *Function) {
+	fn.Bytecode = shrink(fn.Bytecode)
+	fn.Lines = shrink(fn.Lines)
+	fn.TryCatchTable = shrink(fn.TryCatchTable)
+}
+
 func assert(astType AstType, ast *Ast) {
 	if ast.Type != astType {
 		panic("assertion failed")
 	}
 }
 
+// unexpected is kept out of line so the fmt boxing of its arguments does not
+// make variables in the hot visitor functions escape.
+//
+//go:noinline
+func unexpected(where string, t AstType) {
+	panic(fmt.Sprintf("%s: unexpected type %v", where, t))
+}
+
 func emitLine(fn *Function, line Position) {
-	fn.Lines = append(fn.Lines, Line{
-		Index: int32(len(fn.Bytecode)),
-		Line:  int32(line.Line),
-	})
+	idx := int32(len(fn.Bytecode))
+	ln := int32(line.Line)
+	if n := len(fn.Lines); n > 0 {
+		last := &fn.Lines[n-1]
+		if last.Index == idx { // previous node emitted no code
+			last.Line = ln
+			return
+		}
+		if last.Line == ln { // same line, entry is redundant
+			return
+		}
+	}
+	fn.Lines = append(fn.Lines, Line{Index: idx, Line: ln})
 }
 
 func emitJump(fn *Function, op int32) int32 {
@@ -100,9 +167,20 @@ func emitFloat(fn *Function, value float64) {
 	fn.Bytecode = append(fn.Bytecode, OpLoadNum, whole, decimal)
 }
 
+// emitRunes writes the length-prefixed rune sequence of s directly into the
+// bytecode, without the temporary []rune that []rune(s) used to allocate.
+func emitRunes(fn *Function, s string) {
+	n := utf8.RuneCountInString(s)
+	fn.Bytecode = slices.Grow(fn.Bytecode, n+1)
+	fn.Bytecode = append(fn.Bytecode, int32(n))
+	for _, r := range s {
+		fn.Bytecode = append(fn.Bytecode, int32(r))
+	}
+}
+
 func emitString(fn *Function, value string) {
 	emit(fn, OpLoadStr)
-	emitBytes(fn, []rune(value))
+	emitRunes(fn, value)
 }
 
 func emitBytes(fn *Function, value []int32) {
@@ -231,8 +309,11 @@ func tryFold(fn *Function, ast *Ast) constVal {
 
 	case AstMul, AstDiv, AstMod, AstAdd, AstSub:
 		lhs := tryFold(fn, ast.A)
+		if !lhs.folded() { // don't walk the right subtree for nothing
+			return noConst
+		}
 		rhs := tryFold(fn, ast.B)
-		if !lhs.folded() || !rhs.folded() {
+		if !rhs.folded() {
 			return noConst
 		}
 		if ast.Type == AstAdd && lhs.isString() && rhs.isString() {
@@ -263,8 +344,11 @@ func tryFold(fn *Function, ast *Ast) constVal {
 
 	case AstLess, AstLessEqual, AstGreater, AstGreaterEqual, AstEqual, AstNotEqual:
 		lhs := tryFold(fn, ast.A)
+		if !lhs.folded() {
+			return noConst
+		}
 		rhs := tryFold(fn, ast.B)
-		if !lhs.folded() || !rhs.folded() {
+		if !rhs.folded() {
 			return noConst
 		}
 		comparison := 0
@@ -294,8 +378,11 @@ func tryFold(fn *Function, ast *Ast) constVal {
 
 	case AstBitAnd, AstBitXor, AstBitOr, AstShiftLeft, AstShiftRight:
 		lhs := tryFold(fn, ast.A)
+		if !lhs.folded() {
+			return noConst
+		}
 		rhs := tryFold(fn, ast.B)
-		if !lhs.folded() || !rhs.folded() {
+		if !rhs.folded() {
 			return noConst
 		}
 		if !lhs.isNumber() || !rhs.isNumber() {
@@ -345,6 +432,8 @@ func tryFold(fn *Function, ast *Ast) constVal {
 /******************* Visitors ***/
 
 func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+	// Literals and operators on literals are folded here. Literal node types
+	// (number / string / bool) therefore never reach the switch below.
 	if c := tryFold(fn, ast); c.folded() {
 		if debugFold {
 			fmt.Printf("result: %+v\n", c)
@@ -355,166 +444,135 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 
 	switch ast.Type {
 	case AstIdentifier:
-		{
-			name := ast.Value.(string)
-			if !scope.Exists(name) {
-				ThrowError(fn.File, "undefined variable", ast.Pos)
-			}
-
-			isLocal := scope.ExistsFunction(name)
-			sym, exists := scope.GetVariable(name)
-
-			if exists && !isLocal {
-				// Capture
-				offset := scope.GetVarCount()
-
-				scope.AddLocal(name, Symbol{
-					Name:    name,
-					Offset:  offset,
-					Const:   sym.Const,
-					Capture: true,
-					Pos:     ast.Pos,
-				})
-
-				emitInt(fn, OpLoadCap, sym.Offset)
-				emitInt(fn, OpStoreCap, offset)
-				emit(fn, sym.Offset)
-			} else {
-				emitInt(fn, OpLoadVar, sym.Offset)
-			}
+		name := ast.Value.(string)
+		if !scope.Exists(name) {
+			ThrowError(fn.File, "undefined variable", ast.Pos)
 		}
-	case AstNumLit:
-		emitFloat(fn, ast.Value.(float64))
-	case AstStrLit:
-		emitString(fn, ast.Value.(string))
-	case AstBoolLit:
-		emitBool(fn, ast.Value.(bool))
+
+		isLocal := scope.ExistsFunction(name)
+		sym, exists := scope.GetVariable(name)
+
+		if exists && !isLocal {
+			// Capture
+			offset := scope.GetVarCount()
+
+			scope.AddLocal(name, Symbol{
+				Name:    name,
+				Offset:  offset,
+				Const:   sym.Const,
+				Capture: true,
+				Pos:     ast.Pos,
+			})
+
+			emitInt(fn, OpLoadCap, sym.Offset)
+			emitInt(fn, OpStoreCap, offset)
+			emit(fn, sym.Offset)
+		} else {
+			emitInt(fn, OpLoadVar, sym.Offset)
+		}
 	case AstNullLit:
 		emit(fn, OpLoadNull)
 	case AstArray:
-		{
-			emitInt(fn, OpMakeArray, 0)
-			head := ast.A
-			size := 0
+		emitInt(fn, OpMakeArray, 0)
+		size := int32(0)
 
-			for head != nil {
-				if head.Type == AstSpread {
-					if size > 0 {
-						emitInt(fn, OpMakeArray, int32(size))
-						emit(fn, OpExtendArray)
-						size = 0
-					}
-
-					visitExpression(p, scope, fn, head.A)
+		for head := ast.A; head != nil; head = head.Next {
+			if head.Type == AstSpread {
+				if size > 0 {
+					emitInt(fn, OpMakeArray, size)
 					emit(fn, OpExtendArray)
-
-					head = head.Next
-					continue
+					size = 0
 				}
 
-				visitExpression(p, scope, fn, head)
-				head = head.Next
-				size++
+				visitExpression(p, scope, fn, head.A)
+				emit(fn, OpExtendArray)
+				continue
 			}
 
-			if size > 0 {
-				emitInt(fn, OpMakeArray, int32(size))
-				emit(fn, OpExtendArray)
-			}
+			visitExpression(p, scope, fn, head)
+			size++
+		}
+
+		if size > 0 {
+			emitInt(fn, OpMakeArray, size)
+			emit(fn, OpExtendArray)
 		}
 	case AstObject:
-		{
-			emitInt(fn, OpMakeObject, 0)
-			head := ast.A
-			size := 0
+		emitInt(fn, OpMakeObject, 0)
+		size := int32(0)
 
-			for head != nil {
-				if head.Type == AstSpread {
-					if size > 0 {
-						emitInt(fn, OpMakeObject, int32(size))
-						emit(fn, OpExtendObject)
-						size = 0
-					}
-
-					visitExpression(p, scope, fn, head.A)
+		for head := ast.A; head != nil; head = head.Next {
+			if head.Type == AstSpread {
+				if size > 0 {
+					emitInt(fn, OpMakeObject, size)
 					emit(fn, OpExtendObject)
-
-					head = head.Next
-					continue
+					size = 0
 				}
 
-				if head.A.Type == AstIdentifier || head.A.Type == AstStrLit {
-					emitString(fn, objectKey(head.A))
-				} else {
-					visitExpression(p, scope, fn, head.A)
-				}
-				visitExpression(p, scope, fn, head.B)
-				head = head.Next
-				size++
-			}
-
-			if size > 0 {
-				emitInt(fn, OpMakeObject, int32(size))
+				visitExpression(p, scope, fn, head.A)
 				emit(fn, OpExtendObject)
+				continue
 			}
+
+			if head.A.Type == AstIdentifier || head.A.Type == AstStrLit {
+				emitString(fn, objectKey(head.A))
+			} else {
+				visitExpression(p, scope, fn, head.A)
+			}
+			visitExpression(p, scope, fn, head.B)
+			size++
+		}
+
+		if size > 0 {
+			emitInt(fn, OpMakeObject, size)
+			emit(fn, OpExtendObject)
 		}
 	case AstCall:
-		{
-			argsNode := ast.B
-			argCount := int32(0)
-
-			for argsNode != nil {
-				visitExpression(p, scope, fn, argsNode)
-				argCount++
-				argsNode = argsNode.Next
-			}
-
-			visitExpression(p, scope, fn, ast.A)
-			emitInt(fn, OpCall, argCount)
+		argCount := int32(0)
+		for arg := ast.B; arg != nil; arg = arg.Next {
+			visitExpression(p, scope, fn, arg)
+			argCount++
 		}
+
+		visitExpression(p, scope, fn, ast.A)
+		emitInt(fn, OpCall, argCount)
 	case AstPos, AstNeg, AstNot, AstBitNot:
-		{
-			visitExpression(p, scope, fn, ast.A)
-			switch ast.Type {
-			case AstPos:
-				emit(fn, OpUnaryPos)
-			case AstNeg:
-				emit(fn, OpUnaryNeg)
-			case AstNot:
-				emit(fn, OpUnaryNot)
-			case AstBitNot:
-				emit(fn, OpUnaryBitNot)
-			}
+		visitExpression(p, scope, fn, ast.A)
+		switch ast.Type {
+		case AstPos:
+			emit(fn, OpUnaryPos)
+		case AstNeg:
+			emit(fn, OpUnaryNeg)
+		case AstNot:
+			emit(fn, OpUnaryNot)
+		case AstBitNot:
+			emit(fn, OpUnaryBitNot)
 		}
 	case AstMul, AstDiv, AstMod, AstAdd, AstSub,
 		AstShiftLeft, AstShiftRight,
 		AstLess, AstLessEqual, AstGreater, AstGreaterEqual,
 		AstEqual, AstNotEqual,
 		AstBitAnd, AstBitXor, AstBitOr:
-		{
-
-			visitExpression(p, scope, fn, ast.A)
-			visitExpression(p, scope, fn, ast.B)
-			emit(fn, binaryOpcode(ast.Type))
-		}
+		visitExpression(p, scope, fn, ast.A)
+		visitExpression(p, scope, fn, ast.B)
+		emit(fn, binaryOpcode(ast.Type))
 	case AstAnd, AstOr:
-		{
-			visitExpression(p, scope, fn, ast.A)
-			var jumpPos int32
-			if ast.Type == AstAnd {
-				jumpPos = emitJump(fn, OpJmpIfFalseOrPop)
-			} else {
-				jumpPos = emitJump(fn, OpJmpIfTrueOrPop)
-			}
-			visitExpression(p, scope, fn, ast.B)
-			labelJump(fn, jumpPos)
+		visitExpression(p, scope, fn, ast.A)
+		var jumpPos int32
+		if ast.Type == AstAnd {
+			jumpPos = emitJump(fn, OpJmpIfFalseOrPop)
+		} else {
+			jumpPos = emitJump(fn, OpJmpIfTrueOrPop)
 		}
+		visitExpression(p, scope, fn, ast.B)
+		labelJump(fn, jumpPos)
 	default:
-		panic(fmt.Sprintf("visitExpression:: unexpected expression type %v", ast.Type))
+		unexpected("visitExpression", ast.Type)
 	}
 }
 
-func visitVarDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+// checkDeclKind validates var/let placement. Shared by all declaration visitors.
+func checkDeclKind(fn *Function, scope *Scope, ast *Ast) {
 	isGlobal := scope.Type == ScopeTypeGlobal
 	switch {
 	case ast.Type == AstVar && !isGlobal:
@@ -522,12 +580,31 @@ func visitVarDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	case ast.Type == AstLet && isGlobal:
 		ThrowError(fn.File, "let declarations are not allowed in global scope", ast.Pos)
 	}
+}
 
+// declareLocal registers a new local and emits the store for it.
+func declareLocal(fn *Function, scope *Scope, name string, constant bool, pos Position) {
+	if scope.ExistsLocal(name) {
+		ThrowError(fn.File, "variable is already defined in scope", pos)
+	}
+
+	offset := scope.GetVarCount()
+	scope.AddLocal(name, Symbol{
+		Name:    name,
+		Offset:  offset,
+		Const:   constant,
+		Capture: false,
+		Pos:     pos,
+	})
+
+	emitInt(fn, OpStoreLocal, offset)
+}
+
+func visitVarDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+	checkDeclKind(fn, scope, ast)
 	constant := ast.Type == AstConst
 
-	head := ast.A
-
-	for head != nil {
+	for head := ast.A; head != nil; head = head.Next {
 		varNode := head.A
 		valNode := head.B
 
@@ -537,84 +614,35 @@ func visitVarDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 			emit(fn, OpLoadNull)
 		}
 
-		if scope.ExistsLocal(varNode.Value.(string)) {
-			ThrowError(fn.File, "variable is already defined in scope", varNode.Pos)
-		}
-
-		offset := scope.GetVarCount()
-		scope.AddLocal(varNode.Value.(string), Symbol{
-			Name:    varNode.Value.(string),
-			Offset:  offset,
-			Const:   constant,
-			Capture: false,
-			Pos:     varNode.Pos,
-		})
-
-		emitInt(fn, OpStoreLocal, offset)
-		head = head.Next
+		declareLocal(fn, scope, varNode.Value.(string), constant, varNode.Pos)
 	}
 }
 
 func visitVarArrayDestructDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
-	isGlobal := scope.Type == ScopeTypeGlobal
-	switch {
-	case ast.Type == AstVar && !isGlobal:
-		ThrowError(fn.File, "var declarations are not allowed in non-global scope", ast.Pos)
-	case ast.Type == AstLet && isGlobal:
-		ThrowError(fn.File, "let declarations are not allowed in global scope", ast.Pos)
-	}
-
+	checkDeclKind(fn, scope, ast)
 	constant := ast.Type == AstConst
 
 	visitExpression(p, scope, fn, ast.B)
 
-	head := ast.A
-	size := 0
-
-	for head != nil {
+	size := int32(0)
+	for head := ast.A; head != nil; head = head.Next {
 		size++
-		head = head.Next
 	}
 
-	emitInt(fn, OpDestructArray, int32(size))
+	emitInt(fn, OpDestructArray, size)
 
-	head = ast.A
-	for head != nil {
-		name := head.Value.(string)
-
-		if scope.ExistsLocal(name) {
-			ThrowError(fn.File, "variable is already defined in scope", head.Pos)
-		}
-
-		offset := scope.GetVarCount()
-		scope.AddLocal(name, Symbol{
-			Name:    name,
-			Offset:  offset,
-			Const:   constant,
-			Capture: false,
-			Pos:     head.Pos,
-		})
-
-		emitInt(fn, OpStoreLocal, offset)
-		head = head.Next
+	for head := ast.A; head != nil; head = head.Next {
+		declareLocal(fn, scope, head.Value.(string), constant, head.Pos)
 	}
 }
 
 func visitVarObjectDestructDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
-	isGlobal := scope.Type == ScopeTypeGlobal
-	switch {
-	case ast.Type == AstVar && !isGlobal:
-		ThrowError(fn.File, "var declarations are not allowed in non-global scope", ast.Pos)
-	case ast.Type == AstLet && isGlobal:
-		ThrowError(fn.File, "let declarations are not allowed in global scope", ast.Pos)
-	}
-
+	checkDeclKind(fn, scope, ast)
 	constant := ast.Type == AstConst
 
 	visitExpression(p, scope, fn, ast.B)
 
-	head := ast.A
-	for head != nil {
+	for head := ast.A; head != nil; head = head.Next {
 		name := "[INVALID]"
 
 		emit(fn, OpDupTop)
@@ -623,55 +651,35 @@ func visitVarObjectDestructDeclaration(p *Parser, scope *Scope, fn *Function, as
 		case AstIdentifier:
 			name = head.Value.(string)
 			emit(fn, OpGetAttr)
-			emitBytes(fn, []rune(head.Value.(string)))
+			emitRunes(fn, name)
 		case AstKeyValue:
 			name = head.B.Value.(string)
 			emit(fn, OpGetAttr)
-			emitBytes(fn, []rune(objectKey(head.A)))
+			emitRunes(fn, objectKey(head.A))
 		}
 
-		if scope.ExistsLocal(name) {
-			ThrowError(fn.File, "variable is already defined in scope", head.Pos)
-		}
-
-		offset := scope.GetVarCount()
-		scope.AddLocal(name, Symbol{
-			Name:    name,
-			Offset:  offset,
-			Const:   constant,
-			Capture: false,
-			Pos:     head.Pos,
-		})
-
-		emitInt(fn, OpStoreLocal, offset)
-		head = head.Next
+		declareLocal(fn, scope, name, constant, head.Pos)
 	}
 
 	emit(fn, OpPopTop)
 }
 
 func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
-	function := newFunction(fn.File, ast.A.Value.(string))
-	funcOffset := p.state.SaveFunction(function)
-	localScope := Scope{
-		Type:      ScopeTypeFunction,
-		Parent:    scope,
-		Variables: make(map[string]Symbol),
-		VarCount:  0,
-	}
-
 	nameNode := ast.A
 	parmNode := ast.B.A
 	bodyNode := ast.B.B
 
-	type Param struct {
-		Name   string
-		Offset int32
-	}
+	function := newFunction(fn.File, nameNode.Value.(string))
+	funcOffset := p.state.SaveFunction(function)
 
-	reverse := []Param{}
+	localScope := acquireScope(scope)
+	localScope.Type = ScopeTypeFunction
 
-	for parmNode != nil {
+	// Fixed stack buffer: no heap allocation unless there are > 8 parameters.
+	var paramBuf [8]int32
+	reverse := paramBuf[:0]
+
+	for ; parmNode != nil; parmNode = parmNode.Next {
 		paramName := parmNode.Value.(string)
 
 		if localScope.ExistsLocal(paramName) {
@@ -688,26 +696,19 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 			Pos:     parmNode.Pos,
 		})
 
-		reverse = append(reverse, Param{
-			Name:   paramName,
-			Offset: offset,
-		})
-
-		parmNode = parmNode.Next
+		reverse = append(reverse, offset)
 	}
 
 	for i := len(reverse) - 1; i >= 0; i-- {
-		// fmt.Printf("INDEX: %d %s\n", reverse[i].Offset, reverse[i].Name)
-		emitInt(function, OpStoreLocal, reverse[i].Offset)
+		emitInt(function, OpStoreLocal, reverse[i])
 	}
 
 	visibleReturn := false
-	for bodyNode != nil {
+	for ; bodyNode != nil; bodyNode = bodyNode.Next {
 		if bodyNode.Type == AstReturnStmt {
 			visibleReturn = true
 		}
-		visitDeclarationOrStatement(p, &localScope, function, bodyNode)
-		bodyNode = bodyNode.Next
+		visitDeclarationOrStatement(p, localScope, function, bodyNode)
 	}
 
 	if !visibleReturn {
@@ -720,9 +721,9 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		ThrowError(fn.File, "function does not exists", ast.Pos)
 	}
 
-	// Resize the bytecode slice to fit the actual code length
 	function.LocalCount = localScope.VarCount
-	function.Bytecode = function.Bytecode[:len(function.Bytecode)]
+	finalizeFunction(function) // actually drop the unused capacity
+	releaseScope(localScope)
 
 	emitInt(fn, OpLoadFunction, funcOffset)
 	emitInt(fn, OpStoreLocal, status.Offset)
@@ -752,19 +753,14 @@ func visitWhileStatement(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 
 	loopStart := int32(len(fn.Bytecode))
 
-	loopScope := Scope{
-		Type:       ScopeTypeLoop,
-		Parent:     scope,
-		Variables:  make(map[string]Symbol),
-		VarCount:   0,
-		LoopStart:  loopStart,
-		BreakStart: []int32{},
-	}
+	loopScope := acquireScope(scope)
+	loopScope.Type = ScopeTypeLoop
+	loopScope.LoopStart = loopStart
 
 	visitExpression(p, scope, fn, condNode)
 	jmpIfFalsePos := emitJump(fn, OpPopJmpIfFalse)
 
-	visitDeclarationOrStatement(p, &loopScope, fn, bodyNode)
+	visitDeclarationOrStatement(p, loopScope, fn, bodyNode)
 	emitInt(fn, OpAbsJmp, loopStart)
 
 	labelJump(fn, jmpIfFalsePos)
@@ -773,18 +769,19 @@ func visitWhileStatement(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	for _, jmpSlot := range loopScope.BreakStart {
 		labelJump(fn, jmpSlot)
 	}
+
+	releaseScope(loopScope)
 }
 
 func visitBlock(p *Parser, scope *Scope, fn *Function, ast *Ast) {
-	blockScope := Scope{
-		Type:      ScopeTypeBlock,
-		Parent:    scope,
-		Variables: make(map[string]Symbol),
-		VarCount:  0,
-	}
+	blockScope := acquireScope(scope)
+	blockScope.Type = ScopeTypeBlock
+
 	for statement := ast.A; statement != nil; statement = statement.Next {
-		visitDeclarationOrStatement(p, &blockScope, fn, statement)
+		visitDeclarationOrStatement(p, blockScope, fn, statement)
 	}
+
+	releaseScope(blockScope)
 }
 
 func visitBreak(_ *Parser, scope *Scope, fn *Function, ast *Ast) {
@@ -821,46 +818,41 @@ func visitTryCatch(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		return
 	}
 
+	// Index (not pointer) into the table: nested try/catch may grow the slice.
 	tableIndex := len(fn.TryCatchTable)
 	fn.TryCatchTable = append(fn.TryCatchTable, TryCatchTable{CatchLocal: -1})
 	fn.TryCatchTable[tableIndex].TryStart = int32(len(fn.Bytecode))
-	tryScope := Scope{
-		Type:      ScopeTypeBlock,
-		Parent:    scope,
-		Variables: make(map[string]Symbol),
-		VarCount:  0,
-	}
+
+	tryScope := acquireScope(scope)
+	tryScope.Type = ScopeTypeBlock
 	for statement := ast.A; statement != nil; statement = statement.Next {
-		visitDeclarationOrStatement(p, &tryScope, fn, statement)
+		visitDeclarationOrStatement(p, tryScope, fn, statement)
 	}
+	releaseScope(tryScope)
+
 	fn.TryCatchTable[tableIndex].TryEnd = int32(len(fn.Bytecode))
 	endJump := emitJump(fn, OpJmp)
 	fn.TryCatchTable[tableIndex].CatchStart = int32(len(fn.Bytecode))
 
-	catchScope := Scope{
-		Type:      ScopeTypeBlock,
-		Parent:    scope,
-		Variables: make(map[string]Symbol),
-		VarCount:  1,
-	}
+	catchScope := acquireScope(scope)
+	catchScope.Type = ScopeTypeBlock
+	catchScope.VarCount = 1
 
-	if ast.B != nil {
-		catchVarName := ast.B.Value.(string)
+	catchVarName := ast.B.Value.(string)
+	offset := catchScope.GetVarCount()
 
-		offset := catchScope.GetVarCount()
+	catchScope.AddLocal(catchVarName, Symbol{
+		Name:   catchVarName,
+		Offset: offset,
+		Pos:    ast.B.Pos,
+	})
 
-		catchScope.AddLocal(catchVarName, Symbol{
-			Name:   catchVarName,
-			Offset: offset,
-			Pos:    ast.B.Pos,
-		})
-
-		fn.TryCatchTable[tableIndex].CatchLocal = offset
-	}
+	fn.TryCatchTable[tableIndex].CatchLocal = offset
 
 	for statement := ast.C; statement != nil; statement = statement.Next {
-		visitDeclarationOrStatement(p, &catchScope, fn, statement)
+		visitDeclarationOrStatement(p, catchScope, fn, statement)
 	}
+	releaseScope(catchScope)
 
 	fn.TryCatchTable[tableIndex].CatchEnd = int32(len(fn.Bytecode))
 	labelJump(fn, endJump)
@@ -884,15 +876,11 @@ func visitDeclarationOrStatement(p *Parser, scope *Scope, fn *Function, ast *Ast
 	case AstBlock:
 		visitBlock(p, scope, fn, ast)
 	case AstLogStmt:
-		{
-			visitExpression(p, scope, fn, ast.A)
-			emit(fn, OpStdWrite)
-		}
+		visitExpression(p, scope, fn, ast.A)
+		emit(fn, OpStdWrite)
 	case AstExpressionStmnt:
-		{
-			visitExpression(p, scope, fn, ast.A)
-			emit(fn, OpPopTop)
-		}
+		visitExpression(p, scope, fn, ast.A)
+		emit(fn, OpPopTop)
 	case AstBreakStmt:
 		visitBreak(p, scope, fn, ast)
 	case AstContinueStmt:
@@ -902,7 +890,7 @@ func visitDeclarationOrStatement(p *Parser, scope *Scope, fn *Function, ast *Ast
 	case AstTryCatch:
 		visitTryCatch(p, scope, fn, ast)
 	default:
-		panic(fmt.Sprintf("visitDeclarationOrStatement:: unexpected statement type %v", ast.Type))
+		unexpected("visitDeclarationOrStatement", ast.Type)
 	}
 }
 
@@ -913,12 +901,9 @@ func compileProgram(p *Parser) *Function {
 	assert(AstProgram, ast)
 
 	program := newFunction(p.File, "$main")
-	scope := Scope{
-		Type:      ScopeTypeGlobal,
-		Parent:    nil,
-		Variables: make(map[string]Symbol),
-		VarCount:  0,
-	}
+
+	scope := acquireScope(nil)
+	scope.Type = ScopeTypeGlobal
 
 	// forward function declarations
 	for current := ast.A; current != nil; current = current.Next {
@@ -941,15 +926,15 @@ func compileProgram(p *Parser) *Function {
 	}
 
 	for current := ast.A; current != nil; current = current.Next {
-		visitDeclarationOrStatement(p, &scope, program, current)
+		visitDeclarationOrStatement(p, scope, program, current)
 	}
 
 	emit(program, OpLoadNull)
 	emit(program, OpReturn)
 
-	// Resize the bytecode slice to fit the actual code length
 	program.LocalCount = scope.VarCount
-	program.Bytecode = program.Bytecode[:len(program.Bytecode)]
+	finalizeFunction(program)
+	releaseScope(scope)
 
 	return program
 }
