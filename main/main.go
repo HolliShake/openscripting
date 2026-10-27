@@ -21,11 +21,13 @@ func main() {
 		data = data[size:]
 	}
 
-	state := State{}
-	parser := NewParser(&state, &File{
+	state := &programState
+	parser := NewParser(state, &File{
 		Name:    file,
 		Content: content,
 	})
 	program := Compile(parser)
-	Run(&state, program)
+	Run(state, program)
 }
+
+var programState State

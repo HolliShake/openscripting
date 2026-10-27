@@ -219,7 +219,7 @@ const (
 type Coroutine struct {
 	Parent       *Coroutine
 	State        CoroutineState
-	Frame        *CallFrame
+	Frame        CallFrame
 	Sp           int32 // Stack pointer
 	OperandStack []OSValue
 	Transfer     OSValue

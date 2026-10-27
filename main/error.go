@@ -149,10 +149,14 @@ func digitCount(n int) int {
 	return d
 }
 
+// errScratch is static because passing w.buf to os.Stderr.Write forces a local errWriter onto the heap.
+var errScratch errWriter
+
 // formatError writes "[file:line:col]: <parts...>\n" followed by the source snippet.
 // parts is not retained, so the variadic slice stays on the caller's stack.
 func formatError(file *File, position Position, parts ...string) {
-	var w errWriter
+	w := &errScratch
+	w.n = 0
 	w.header(file, position)
 	for _, part := range parts {
 		w.str(part)

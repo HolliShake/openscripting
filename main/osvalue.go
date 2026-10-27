@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 	"unsafe"
@@ -109,6 +108,28 @@ func (v OSValue) StringValue() string {
 }
 
 func (v OSValue) String() string {
+	// Scalars never need a builder or the cycle-detection map.
+	switch v.Type {
+	case OSVNull:
+		return "null"
+	case OSVInt:
+		return strconv.FormatInt(int64(v.Number), 10)
+	case OSVNum:
+		return strconv.FormatFloat(v.Number, 'f', -1, 64)
+	case OSVBool:
+		if v.Number != 0 {
+			return "true"
+		}
+		return "false"
+	case OSVString:
+		return v.StringValue()
+	case OSVFunction:
+		return "<function>"
+	case OSVArray, OSVObject:
+	default:
+		return "<unknown>"
+	}
+
 	var builder strings.Builder
 	v.writeString(&builder, make(map[unsafe.Pointer]bool))
 	return builder.String()
@@ -117,11 +138,13 @@ func (v OSValue) String() string {
 func (v OSValue) writeString(builder *strings.Builder, active map[unsafe.Pointer]bool) {
 	switch v.Type {
 	case OSVNull:
-		fmt.Fprint(builder, "null")
+		builder.WriteString("null")
 	case OSVInt:
-		fmt.Fprintf(builder, "%d", int64(v.Number))
+		var tmp [24]byte
+		builder.Write(strconv.AppendInt(tmp[:0], int64(v.Number), 10))
 	case OSVNum:
-		fmt.Fprint(builder, strconv.FormatFloat(v.Number, 'f', -1, 64))
+		var tmp [32]byte
+		builder.Write(strconv.AppendFloat(tmp[:0], v.Number, 'f', -1, 64))
 	case OSVBool:
 		{
 			if v.Number != 0 {
@@ -131,7 +154,7 @@ func (v OSValue) writeString(builder *strings.Builder, active map[unsafe.Pointer
 			}
 		}
 	case OSVString:
-		fmt.Fprint(builder, v.StringValue())
+		builder.WriteString(v.StringValue())
 	case OSVArray:
 		{
 			if active[v.Opaque] {
@@ -140,7 +163,6 @@ func (v OSValue) writeString(builder *strings.Builder, active map[unsafe.Pointer
 			}
 
 			active[v.Opaque] = true
-			defer delete(active, v.Opaque)
 
 			elements := (*OSArray)(v.Opaque).Elements
 			builder.WriteByte('[')
@@ -151,6 +173,8 @@ func (v OSValue) writeString(builder *strings.Builder, active map[unsafe.Pointer
 				element.writeString(builder, active)
 			}
 			builder.WriteByte(']')
+
+			delete(active, v.Opaque)
 		}
 	case OSVObject:
 		{
@@ -160,7 +184,6 @@ func (v OSValue) writeString(builder *strings.Builder, active map[unsafe.Pointer
 			}
 
 			active[v.Opaque] = true
-			defer delete(active, v.Opaque)
 
 			obj := (*OSObject)(v.Opaque)
 			builder.WriteByte('{')
@@ -168,15 +191,17 @@ func (v OSValue) writeString(builder *strings.Builder, active map[unsafe.Pointer
 				if index > 0 {
 					builder.WriteString(", ")
 				}
-				fmt.Fprint(builder, key)
+				builder.WriteString(key)
 				builder.WriteString(": ")
 				obj.Values[key].writeString(builder, active)
 			}
 			builder.WriteByte('}')
+
+			delete(active, v.Opaque)
 		}
 	case OSVFunction:
-		fmt.Fprint(builder, "<function>")
+		builder.WriteString("<function>")
 	default:
-		fmt.Fprint(builder, "<unknown>")
+		builder.WriteString("<unknown>")
 	}
 }

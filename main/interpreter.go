@@ -64,11 +64,11 @@ func interpreterLoop(state *State, vm *VM) {
 }
 
 func runCoroutine(state *State, vm *VM, co *Coroutine) {
-	if co == nil || co.Frame == nil || co.Frame.Function == nil {
+	if co == nil || co.Frame.Function == nil {
 		panic("invalid coroutine or call frame")
 	}
 
-	frame := co.Frame
+	frame := &co.Frame
 	bcode := frame.Function.Bytecode
 
 	ip := frame.Ip
@@ -177,7 +177,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 
 	push := func(value OSValue) {
 		if sp >= int32(len(stack)) {
-			panic("operand stack overflow")
+			stack = growStack(co)
 		}
 
 		stack[sp] = value
@@ -187,7 +187,6 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 	// Save the exact execution position and stack pointer.
 	saveState := func() {
 		frame.Ip = ip
-		co.Frame = frame
 		co.Sp = sp
 	}
 
@@ -417,7 +416,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				saveState()
 
 				caller := co
-				callee := NewCoroutine(caller, fn, StackSize)
+				callee := NewCoroutine(caller, fn, initialStack(argCount))
 
 				if callee == nil {
 					panic("failed to create coroutine")
@@ -842,6 +841,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				if caller == nil {
 					// The root coroutine has finished.
 					vm.Current = nil
+					co.release()
 					return
 				}
 
@@ -849,18 +849,19 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				// its operand stack.
 				vm.Current = caller
 
-				if caller.Sp < 0 || caller.Sp >= int32(len(caller.OperandStack)) {
+				if caller.Sp < 0 {
 					panic("invalid caller stack pointer on return")
+				}
+				if caller.Sp >= int32(len(caller.OperandStack)) {
+					growStack(caller)
 				}
 
 				caller.OperandStack[caller.Sp] = returnValue
 				caller.Sp++
 
-				// The finished coroutine is garbage from here on. Drop its
-				// big operand stack and cells right away so they are not
-				// kept alive by anything that still points at `co`.
-				co.OperandStack = nil
-				co.Parent = nil
+				// Nothing references the finished coroutine any more; drop its
+				// stack, cells and links so they can be collected.
+				co.release()
 
 				return
 			}
@@ -875,11 +876,9 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 	// Treat reaching the end of bytecode as coroutine completion.
 	co.State = CoroutineStateDead
 
-	if co.Parent == nil {
-		vm.Current = nil
-	} else {
-		vm.Current = co.Parent
-	}
+	parent := co.Parent
+	co.release()
+	vm.Current = parent
 }
 
 func Run(state *State, program *Function) {
@@ -898,7 +897,7 @@ func Run(state *State, program *Function) {
 		strs:  make(map[strKey]string, 16),
 	}
 
-	main := NewCoroutine(nil, program, StackSize)
+	main := NewCoroutine(nil, program, initialStack(0))
 
 	if main == nil {
 		panic("failed to create main coroutine")
