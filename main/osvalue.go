@@ -58,6 +58,19 @@ func (v OSValue) String() string {
 		return "false"
 	case OSVString:
 		return v.stringValue()
+	case OSVArray:
+		{
+			elements := *(*[]OSValue)(v.Opaque)
+			str := "["
+			for i, elem := range elements {
+				if i > 0 {
+					str += ", "
+				}
+				str += elem.String()
+			}
+			str += "]"
+			return str
+		}
 	case OSVFunction:
 		return "<function>"
 	default:
@@ -87,6 +100,24 @@ func CoerceToNumber(v OSValue) float64 {
 		return number
 	}
 	return 0
+}
+
+func IsEqual(a, b OSValue) bool {
+	if a.Type != b.Type {
+		return false
+	}
+	switch a.Type {
+	case OSVNull:
+		return true
+	case OSVInt, OSVNum, OSVBool:
+		return a.Number == b.Number
+	case OSVString:
+		return a.stringValue() == b.stringValue()
+	case OSVFunction:
+		return a.Opaque == b.Opaque
+	default:
+		return false
+	}
 }
 
 func CoerceToBool(v OSValue) bool {

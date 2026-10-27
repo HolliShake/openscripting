@@ -383,6 +383,17 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		emitBool(fn, ast.Value.(bool))
 	case AstNullLit:
 		emit(fn, OpLoadNull)
+	case AstArray:
+		{
+			head := ast.A
+			size := 0
+			for head != nil {
+				visitExpression(p, scope, fn, head)
+				head = head.Next
+				size++
+			}
+			emitInt(fn, OpMakeArray, int32(size))
+		}
 	case AstCall:
 		{
 			paramNode := ast.B
@@ -433,7 +444,38 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 			labelJump(fn, jumpPos)
 		}
 	default:
-		panic(fmt.Sprintf("visitExpression:: unexpected statement type %v", ast.Type))
+		panic(fmt.Sprintf("visitExpression:: unexpected expression type %v", ast.Type))
+	}
+}
+
+func visitVarDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+	head := ast.A
+
+	for head != nil {
+		varNode := head.A
+		valNode := head.B
+
+		if valNode != nil {
+			visitExpression(p, scope, fn, valNode)
+		} else {
+			emit(fn, OpLoadNull)
+		}
+
+		if scope.ExistsLocal(varNode.Value.(string)) {
+			ThrowError(fn.File, "variable is already defined in scope", varNode.Pos)
+		}
+
+		offset := scope.GetVarCount()
+		scope.AddLocal(varNode.Value.(string), Symbol{
+			Name:    varNode.Value.(string),
+			Offset:  offset,
+			Const:   false,
+			Capture: false,
+			Pos:     varNode.Pos,
+		})
+
+		emitInt(fn, OpStoreLocal, offset)
+		head = head.Next
 	}
 }
 
@@ -598,6 +640,8 @@ func visitTryCatch(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 func visitDeclarationOrStatement(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	emitLine(fn, ast.Pos)
 	switch ast.Type {
+	case AstVar:
+		visitVarDeclaration(p, scope, fn, ast)
 	case AstFunction:
 		visitFunctionDeclaration(p, scope, fn, ast)
 	case AstIfStmt:
@@ -635,6 +679,11 @@ func compileProgram(p *Parser) *Function {
 		if current.Type == AstFunction {
 			nameNode := current.A
 			funcName := nameNode.Value.(string)
+
+			if scope.ExistsLocal(funcName) {
+				ThrowError(p.File, "variable is already defined in scope", nameNode.Pos)
+			}
+
 			scope.AddLocal(funcName, Symbol{
 				Name:    funcName,
 				Offset:  scope.GetVarCount(),

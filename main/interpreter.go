@@ -28,20 +28,20 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 	}
 
 	frame := co.Frame
-	code := frame.Function.Bytecode
+	bcode := frame.Function.Bytecode
 
 	ip := frame.Ip
-	currentInstruction := ip
 	sp := co.Sp
 	stack := co.OperandStack
-	codeLen := int32(len(code))
+	bsize := int32(len(bcode))
+	currentInstruction := ip
 
 	readByte := func() int32 {
-		if ip >= codeLen {
+		if ip >= bsize {
 			panic("unexpected end of bytecode")
 		}
 
-		value := code[ip]
+		value := bcode[ip]
 		ip++
 		return value
 	}
@@ -102,9 +102,9 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 		co.Sp = sp
 	}
 
-	for ip < codeLen {
+	for ip < bsize {
 		currentInstruction = ip
-		op := code[ip]
+		op := bcode[ip]
 		ip++
 
 		switch op {
@@ -123,21 +123,47 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				// TODO: Fix, slow iteration for string literal decoding
 				size := int32(readByte())
 
-				if ip+size > codeLen {
+				if ip+size > bsize {
 					panic("invalid string literal: exceeds bytecode")
 				}
 
 				var builder strings.Builder
 				builder.Grow(int(size))
-				for i := int32(0); i < size; i++ {
+				for range size {
 					builder.WriteRune(rune(readByte()))
 				}
 
 				push(NewStringValue(builder.String()))
 			}
+		case OpLoadTrue:
+			{
+				push(vm.True)
+			}
+		case OpLoadFalse:
+			{
+				push(vm.False)
+			}
 		case OpLoadNull:
 			{
 				push(vm.Null)
+			}
+		case OpMakeArray:
+			{
+				size := readByte()
+
+				if sp < size {
+					panic("operand stack underflow for array creation")
+				}
+
+				elements := make([]OSValue, size)
+				for i := size - 1; i >= 0; i-- {
+					elements[i] = pop()
+				}
+
+				push(OSValue{
+					Type:   OSVArray,
+					Opaque: unsafe.Pointer(&elements),
+				})
 			}
 		case OpLoadFunction:
 			{
@@ -447,22 +473,8 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			{
 				rhs := pop()
 				lhs := pop()
-				equal := false
-				if IsNumber(lhs) && IsNumber(rhs) {
-					equal = lhs.Number == rhs.Number
-				} else if lhs.Type == rhs.Type {
-					switch lhs.Type {
-					case OSVNull:
-						equal = true
-					case OSVBool:
-						equal = lhs.Number == rhs.Number
-					case OSVString:
-						equal = lhs.stringValue() == rhs.stringValue()
-					default:
-						equal = lhs.Opaque == rhs.Opaque
-					}
-				}
-				if equal {
+
+				if IsEqual(lhs, rhs) {
 					push(vm.True)
 				} else {
 					push(vm.False)
@@ -472,22 +484,8 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			{
 				rhs := pop()
 				lhs := pop()
-				equal := false
-				if IsNumber(lhs) && IsNumber(rhs) {
-					equal = lhs.Number == rhs.Number
-				} else if lhs.Type == rhs.Type {
-					switch lhs.Type {
-					case OSVNull:
-						equal = true
-					case OSVBool:
-						equal = lhs.Number == rhs.Number
-					case OSVString:
-						equal = lhs.stringValue() == rhs.stringValue()
-					default:
-						equal = lhs.Opaque == rhs.Opaque
-					}
-				}
-				if !equal {
+
+				if !IsEqual(lhs, rhs) {
 					push(vm.True)
 				} else {
 					push(vm.False)
@@ -529,11 +527,13 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			{
 				rhs := pop()
 				lhs := pop()
+
 				if !(IsNumber(lhs) && IsNumber(rhs)) {
 					if throwRuntimeError("invalid operands for bitwise operation") {
 						continue
 					}
 				}
+
 				push(OSValue{
 					Type:   OSVNum,
 					Number: float64(int64(lhs.Number) | int64(rhs.Number)),
@@ -592,6 +592,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					ip = int32(offset)
 				}
 			}
+
 		case OpJmpIfFalseOrPop, OpJmpIfTrueOrPop:
 			{
 				offset := int(readByte())

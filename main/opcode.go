@@ -6,6 +6,7 @@ const (
 	OpLoadTrue
 	OpLoadFalse
 	OpLoadNull
+	OpMakeArray
 	OpLoadFunction
 	OpLoadCap
 	OpLoadVar
