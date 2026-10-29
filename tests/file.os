@@ -60,3 +60,23 @@ log Ey;
 log B;
 log C;
 
+
+var add::fn(a, b) {
+    return a + b;
+};
+
+var varArg::fn(a...) {
+    log a;
+};
+
+
+varArg(1,2,3,4);
+
+var varArgWithFixed::fn(prefix, values...) {
+    log prefix;
+    log values;
+};
+
+varArgWithFixed("fixed", 2, 3);
+varArgWithFixed("fixed");
+varArg();

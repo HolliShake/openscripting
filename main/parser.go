@@ -1644,6 +1644,12 @@ func (p *Parser) functionExpression() *Ast {
 
 	p.expect("(")
 	parameterHead := p.identifier(false)
+
+	if p.match("...") {
+		p.expect("...")
+		parameterHead = NewSpread(parameterHead.Pos, parameterHead)
+	}
+
 	parameterTail := parameterHead
 	for parameterTail != nil && p.match(",") {
 		p.expect(",")
@@ -1651,20 +1657,27 @@ func (p *Parser) functionExpression() *Ast {
 		if ident == nil {
 			ThrowError(p.File, "missing identifier after comma", p.lookahead.Pos)
 		}
+		if p.match("...") {
+			p.expect("...")
+			ident = NewSpread(ident.Pos, ident)
+		}
 		parameterTail.Next = ident
 		parameterTail = parameterTail.Next
 	}
 	p.expect(")")
 
+	astType := AstFunctionExpression
+
 	if p.match(KeyAsync) {
 		p.expect(KeyAsync)
+		astType = AstAsyncFunctionExpression
 	}
 
 	p.expect("{")
 	block := p.listOfBlockStatement()
 	p.expect("}")
 
-	return NewFunctionExpression(pos, parameterHead, block)
+	return NewFunctionExpression(astType, pos, parameterHead, block)
 }
 
 /******************* Statements ***/

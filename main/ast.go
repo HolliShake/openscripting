@@ -113,8 +113,8 @@ func NewClassExpression(position Position, base *Ast, attributeHead *Ast) *Ast {
 	return node
 }
 
-func NewFunctionExpression(position Position, parameterHead *Ast, body *Ast) *Ast {
-	node := newAst(AstFunctionExpression, position)
+func NewFunctionExpression(astType AstType, position Position, parameterHead *Ast, body *Ast) *Ast {
+	node := newAst(astType, position)
 	node.A = parameterHead
 	node.B = body
 	return node

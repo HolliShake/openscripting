@@ -64,6 +64,7 @@ const (
 	AstNullLit
 	AstClassExpression
 	AstFunctionExpression
+	AstAsyncFunctionExpression
 	AstArray
 	AstObject
 	AstKeyValue

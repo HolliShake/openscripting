@@ -676,7 +676,14 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	var paramBuf [8]int32
 	reverse := paramBuf[:0]
 
+	vaIndex := -1
 	for ; parmNode != nil; parmNode = parmNode.Next {
+
+		if parmNode.Type == AstSpread {
+			parmNode = parmNode.A
+			vaIndex = len(reverse)
+		}
+
 		paramName := parmNode.Value
 
 		if localScope.ExistsLocal(paramName) {
@@ -695,6 +702,9 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 
 		reverse = append(reverse, offset)
 	}
+
+	function.VarArgIndex = int32(vaIndex)
+	function.ParamCount = int32(len(reverse))
 
 	for i := len(reverse) - 1; i >= 0; i-- {
 		emitInt(function, OpStoreLocal, reverse[i])

@@ -109,14 +109,18 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 		// the encoded runes to avoid append growth for multibyte text.
 		runes := bcode[ip : ip+size]
 		byteSize := 0
+
 		for _, value := range runes {
 			byteSize += utf8.RuneLen(rune(value))
 		}
+
 		buf := make([]byte, byteSize)
 		byteOffset := 0
+
 		for _, value := range runes {
 			byteOffset += utf8.EncodeRune(buf[byteOffset:], rune(value))
 		}
+
 		ip += size
 
 		s := unsafe.String(unsafe.SliceData(buf), byteSize)
@@ -406,6 +410,16 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					}
 				}
 
+				vaIndex := fn.VarArgIndex
+
+				if (vaIndex == -1 && argCount != fn.ParamCount) || (vaIndex != -1 && argCount < vaIndex) {
+					message := fmt.Sprintf("function expects %d arguments, got %d", fn.ParamCount, argCount)
+					if throwRuntimeError(message) {
+						continue
+					}
+					panic(message)
+				}
+
 				// Copy arguments in their original order before switching
 				// to the new coroutine.
 				argStart := sp - argCount
@@ -426,9 +440,25 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic("callee operand stack is too small for arguments")
 				}
 
-				// Place arguments on the callee's stack.
-				copy(callee.OperandStack[:argCount], args)
-				callee.Sp = argCount
+				// A variadic parameter occupies one local and receives the
+				// remaining arguments as an array.
+				calleeArgCount := argCount
+
+				if vaIndex >= 0 {
+					variadicArgs := make([]OSValue, argCount-vaIndex)
+					copy(variadicArgs, args[vaIndex:])
+
+					copy(callee.OperandStack[:vaIndex], args[:vaIndex])
+					callee.OperandStack[vaIndex] = OSValue{
+						Type:   OSVArray,
+						Opaque: unsafe.Pointer(&OSArray{Elements: variadicArgs}),
+					}
+					calleeArgCount = vaIndex + 1
+				} else {
+					copy(callee.OperandStack[:argCount], args)
+				}
+
+				callee.Sp = calleeArgCount
 				clear(stack[argStart : argStart+argCount])
 
 				vm.Current = callee
