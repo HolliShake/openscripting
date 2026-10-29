@@ -50,4 +50,5 @@ const (
 	OpStoreLocal
 	OpStdWrite
 	OpReturn
+	OpAwait
 )

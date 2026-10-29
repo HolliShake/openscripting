@@ -612,6 +612,14 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 			visitExpression(p, scope, fn, ast.A)
 			emitInt(fn, OpCall, argCount)
 		}
+	case AstAwait:
+		{
+			if !fn.Async {
+				ThrowError(fn.File, "await is only allowed inside async functions", ast.Pos)
+			}
+			visitExpression(p, scope, fn, ast.A)
+			emit(fn, OpAwait)
+		}
 	case AstPos, AstNeg, AstNot, AstBitNot:
 		{
 			visitExpression(p, scope, fn, ast.A)

@@ -219,11 +219,13 @@ const (
 
 type Coroutine struct {
 	Parent       *Coroutine
+	Caller       *Coroutine
 	State        CoroutineState
 	Frame        CallFrame
-	Sp           int32 // Stack pointer
+	Sp           int32
 	OperandStack []OSValue
 	Transfer     OSValue
+	AsyncResult  *OSPromise
 }
 
 func (s TokenType) String() string {

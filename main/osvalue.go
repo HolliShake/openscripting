@@ -17,6 +17,7 @@ const (
 	OSVArray
 	OSVObject
 	OSVFunction
+	OSVPromise
 )
 
 type OSValue struct {
@@ -34,7 +35,11 @@ type OSArray struct {
 	Elements []OSValue
 }
 
-type OSPromise struct{}
+type OSPromise struct {
+	Value     OSValue
+	Resolved  bool
+	Coroutine *Coroutine
+}
 
 func (obj *OSObject) Set(key string, value OSValue) {
 	if _, exists := obj.Values[key]; !exists {
@@ -80,6 +85,8 @@ func IsEqual(a, b OSValue) bool {
 		return a.StringValue() == b.StringValue()
 	case OSVFunction:
 		return a.Opaque == b.Opaque
+	case OSVPromise:
+		return a.Opaque == b.Opaque
 	default:
 		return false
 	}
@@ -95,7 +102,7 @@ func CoerceToBool(v OSValue) bool {
 		return v.Number != 0
 	case OSVString:
 		return v.Number != 0
-	case OSVFunction:
+	case OSVFunction, OSVPromise:
 		return v.Opaque != nil
 	default:
 		return false
@@ -127,6 +134,8 @@ func (v OSValue) String() string {
 		return v.StringValue()
 	case OSVFunction:
 		return "<function>"
+	case OSVPromise:
+		return "<promise>"
 	case OSVArray, OSVObject:
 	default:
 		return "<unknown>"
@@ -203,6 +212,8 @@ func (v OSValue) writeString(builder *strings.Builder, active map[unsafe.Pointer
 		}
 	case OSVFunction:
 		builder.WriteString("<function>")
+	case OSVPromise:
+		builder.WriteString("<promise>")
 	default:
 		builder.WriteString("<unknown>")
 	}

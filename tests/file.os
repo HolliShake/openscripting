@@ -82,8 +82,22 @@ varArgWithFixed("fixed");
 varArg();
 
 
-var fun = fn() {
-    log "From expression!!!";
+var fun = fn() async {
+    log "async body";
+    return 40 + 2;
 };
 
-fun();
+var pending = fun();
+log "before await";
+
+var nestedAsync = fn() async {
+    return await fun();
+};
+nestedAsync();
+
+var asyncChecks = fn() async {
+    log await pending;
+    log await pending;
+};
+
+asyncChecks();

@@ -20,6 +20,7 @@ func NewCoroutine(parent *Coroutine, fn *Function, stackSize int32) *Coroutine {
 	// The frame lives inside the coroutine so one allocation serves both.
 	co := &Coroutine{
 		Parent:       parent,
+		Caller:       parent,
 		State:        CoroutineStateSuspended,
 		OperandStack: make([]OSValue, stackSize),
 	}
@@ -36,6 +37,20 @@ func NewCoroutine(parent *Coroutine, fn *Function, stackSize int32) *Coroutine {
 	}
 
 	return co
+}
+
+func snapshotLexicalChain(parent *Coroutine) *Coroutine {
+	if parent == nil {
+		return nil
+	}
+
+	return &Coroutine{
+		Parent: snapshotLexicalChain(parent.Parent),
+		Frame: CallFrame{
+			Function: parent.Frame.Function,
+			Env:      parent.Frame.Env,
+		},
+	}
 }
 
 // growStack doubles co's operand stack (bounded by StackSize) and returns it.
@@ -57,5 +72,7 @@ func growStack(co *Coroutine) []OSValue {
 func (co *Coroutine) release() {
 	co.OperandStack = nil
 	co.Parent = nil
+	co.Caller = nil
+	co.AsyncResult = nil
 	co.Frame = CallFrame{}
 }

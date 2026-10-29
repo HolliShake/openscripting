@@ -17,6 +17,7 @@ type strKey struct {
 
 type VM struct {
 	Current *Coroutine
+	Pending []*Coroutine
 	Null    OSValue
 	True    OSValue
 	False   OSValue
@@ -58,8 +59,26 @@ func writeLog(s string) {
 }
 
 func interpreterLoop(state *State, vm *VM) {
-	for vm.Current != nil && vm.Current.State != CoroutineStateDead {
-		runCoroutine(state, vm, vm.Current)
+	for {
+		if vm.Current != nil && vm.Current.State != CoroutineStateDead {
+			runCoroutine(state, vm, vm.Current)
+			continue
+		}
+
+		vm.Current = nil
+		for len(vm.Pending) > 0 {
+			next := vm.Pending[0]
+			vm.Pending[0] = nil
+			vm.Pending = vm.Pending[1:]
+			if next != nil && next.State != CoroutineStateDead && next.Frame.Function != nil {
+				vm.Current = next
+				break
+			}
+		}
+
+		if vm.Current == nil {
+			return
+		}
 	}
 }
 
@@ -459,6 +478,17 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				callee.Sp = calleeArgCount
 				clear(stack[argStart : argStart+argCount])
 
+				if fn.Async {
+					promise := &OSPromise{Coroutine: callee}
+					callee.Parent = snapshotLexicalChain(caller)
+					callee.Caller = nil
+					callee.AsyncResult = promise
+					vm.Pending = append(vm.Pending, callee)
+					push(OSValue{Type: OSVPromise, Opaque: unsafe.Pointer(promise)})
+					saveState()
+					continue
+				}
+
 				vm.Current = callee
 				return
 			}
@@ -845,6 +875,36 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			{
 				push(peek())
 			}
+		case OpAwait:
+			{
+				value := pop()
+				if value.Type == OSVPromise {
+					if value.Opaque == nil {
+						if throwRuntimeError("attempted to await an invalid promise") {
+							continue
+						}
+					}
+
+					promise := (*OSPromise)(value.Opaque)
+					if promise.Resolved {
+						push(promise.Value)
+						continue
+					}
+					if promise.Coroutine == nil {
+						if throwRuntimeError("attempted to await an unresolved promise") {
+							continue
+						}
+					}
+
+					awaited := promise.Coroutine
+					awaited.Caller = co
+					awaited.Frame.Caller = frame
+					saveState()
+					vm.Current = awaited
+					return
+				}
+				push(value)
+			}
 		case OpReturn:
 			{
 				var returnValue OSValue
@@ -863,8 +923,13 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				saveState()
 
 				co.State = CoroutineStateDead
+				if promise := co.AsyncResult; promise != nil {
+					promise.Value = returnValue
+					promise.Resolved = true
+					promise.Coroutine = nil
+				}
 
-				caller := co.Parent
+				caller := co.Caller
 
 				if caller == nil {
 					// The root coroutine has finished.
@@ -903,8 +968,24 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 
 	// Treat reaching the end of bytecode as coroutine completion.
 	co.State = CoroutineStateDead
+	returnValue := vm.Null
+	if promise := co.AsyncResult; promise != nil {
+		promise.Value = returnValue
+		promise.Resolved = true
+		promise.Coroutine = nil
+	}
 
-	parent := co.Parent
+	parent := co.Caller
+	if parent == nil {
+		co.release()
+		vm.Current = nil
+		return
+	}
+	if parent.Sp >= int32(len(parent.OperandStack)) {
+		growStack(parent)
+	}
+	parent.OperandStack[parent.Sp] = returnValue
+	parent.Sp++
 	co.release()
 	vm.Current = parent
 }
