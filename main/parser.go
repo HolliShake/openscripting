@@ -5,8 +5,6 @@ import (
 	"unicode"
 )
 
-/******************* Character classes (package-level tables, no struct changes) ***/
-
 const (
 	clsIDStart uint8 = 1 << iota
 	clsIDCont
@@ -29,53 +27,17 @@ var (
 	otherIDContinue = unicode.Properties["Other_ID_Continue"]
 )
 
-func init() {
-	for c := 'a'; c <= 'z'; c++ {
-		class[c] |= clsIDStart | clsIDCont
-		class[c-'a'+'A'] |= clsIDStart | clsIDCont
-	}
-	class['_'] |= clsIDStart | clsIDCont
-	for c := '0'; c <= '9'; c++ {
-		class[c] |= clsIDCont | clsDigit
-	}
-	for i := 0; i < len(symbolChars); i++ {
-		c := symbolChars[i]
-		class[c] |= clsSymbol
-		singleSym[c] = symbolChars[i : i+1] // substring of a constant: no allocation
-	}
-	for _, c := range "'\"\\\n\r" {
-		class[c] |= clsStop
-	}
-	for i := range hexVal {
-		hexVal[i] = 0xFF
-	}
-	for c := '0'; c <= '9'; c++ {
-		hexVal[c] = uint8(c - '0')
-	}
-	for c := 'a'; c <= 'f'; c++ {
-		hexVal[c] = uint8(c-'a') + 10
-		hexVal[c-'a'+'A'] = uint8(c-'a') + 10
-	}
-
-	// Only words that isKeyword accepts are added, so behavior can never diverge.
-	keywords = make(map[string]string, 32)
-	for _, k := range [...]string{
-		KeyTrue, KeyFalse, KeyNull, KeyClass, KeyFn, KeySwitch, KeyAwait, KeyAsync,
-		KeyImport, KeyFrom, KeyVar, KeyLet, KeyConst, KeyTry, KeyCatch, KeyCase,
-		KeyDefault, KeyIf, KeyElse, KeyLoop, KeyContinue, KeyBreak, KeyReturn,
-	} {
-		if len(k) <= maxKeywordLen && isKeyword(k) {
-			keywords[k] = k
-		}
-	}
+type Parser struct {
+	state     *State
+	File      *File
+	line      int
+	colm      int
+	offset    int
+	lookahead Token
+	errors    []string
 }
 
-func isDigit(r rune) bool {
-	if r < 128 {
-		return class[r]&clsDigit != 0
-	}
-	return unicode.IsDigit(r)
-}
+/******************* Character classes (package-level tables, no struct changes) ***/
 
 func (p *Parser) isIdentifierStart(ch rune) bool {
 	if ch < 128 {
@@ -90,33 +52,6 @@ func (p *Parser) isIdentifierContinue(ch rune) bool {
 	}
 	return p.isIdentifierStart(ch) || unicode.IsDigit(ch) || unicode.IsMark(ch) ||
 		unicode.Is(unicode.Pc, ch) || unicode.Is(otherIDContinue, ch)
-}
-
-func isLineBreak(ch rune) bool {
-	switch ch {
-	case '\n', '\r', '\u0085', '\u2028', '\u2029':
-		return true
-	}
-	return false
-}
-
-func isSymbol(ch rune) bool {
-	return ch < 128 && class[ch]&clsSymbol != 0
-}
-
-func hexValue(ch rune) (uint32, bool) {
-	if ch < 128 {
-		if v := hexVal[ch]; v != 0xFF {
-			return uint32(v), true
-		}
-	}
-	return 0, false
-}
-
-/******************* Cursor ***/
-
-func NewParser(state *State, file *File) *Parser {
-	return &Parser{state: state, File: file}
 }
 
 func (p *Parser) pushError(err string) {
@@ -471,94 +406,6 @@ func (p *Parser) scanIdent(pos Position, start int) Token {
 	return tok
 }
 
-// symbolAt returns the operator starting at src[i] as a static string.
-// The result is never allocated. Longest-match rules are identical to the old symbolLen.
-func symbolAt(src []rune, i int) string {
-	c := src[i]
-	var d, e rune
-	if i+1 < len(src) {
-		d = src[i+1]
-	}
-	if i+2 < len(src) {
-		e = src[i+2]
-	}
-	switch c {
-	case '=':
-		if d == '=' {
-			return "=="
-		}
-		if d == '>' {
-			return "=>"
-		}
-	case '!':
-		if d == '=' {
-			return "!="
-		}
-	case '*':
-		if d == '=' {
-			return "*="
-		}
-	case '/':
-		if d == '=' {
-			return "/="
-		}
-	case '%':
-		if d == '=' {
-			return "%="
-		}
-	case '<':
-		if d == '=' {
-			return "<="
-		}
-		if d == '<' {
-			return "<<"
-		}
-	case '>':
-		if d == '=' {
-			return ">="
-		}
-		if d == '>' {
-			return ">>"
-		}
-	case '&':
-		if d == '&' {
-			return "&&"
-		}
-	case '|':
-		if d == '|' {
-			return "||"
-		}
-	case '+':
-		if d == '+' {
-			return "++"
-		}
-		if d == '=' {
-			return "+="
-		}
-	case '-':
-		if d == '-' {
-			return "--"
-		}
-		if d == '=' {
-			return "-="
-		}
-		if d == '>' {
-			return "->"
-		}
-	case ':':
-		if d == ':' {
-			return "::"
-		}
-	case '.':
-		if d == '.' && e == '.' {
-			return "..."
-		}
-	}
-	return singleSym[c]
-}
-
-/******************* Lexer entry ***/
-
 func (p *Parser) getNextToken() Token {
 	p.skipTrivia()
 	src := p.File.Content
@@ -801,100 +648,6 @@ func (p *Parser) memberOrCall() *Ast {
 			return obj
 		}
 	}
-}
-
-func postfixOperator(opt string) AstType {
-	switch opt {
-	case "++":
-		return AstInc
-	case "--":
-		return AstDec
-	}
-	panic("invalid postfix operator")
-}
-
-func unaryOperator(opt string) AstType {
-	switch opt {
-	case "+":
-		return AstPos
-	case "++":
-		return AstInc
-	case "-":
-		return AstNeg
-	case "--":
-		return AstDec
-	case "!":
-		return AstNot
-	case "~":
-		return AstBitNot
-	case KeyAwait:
-		return AstAwait
-	}
-	panic("invalid unary operator")
-}
-
-func binOperator(opt string) AstType {
-	switch opt {
-	case "*":
-		return AstMul
-	case "/":
-		return AstDiv
-	case "%":
-		return AstMod
-	case "+":
-		return AstAdd
-	case "-":
-		return AstSub
-	case "<<":
-		return AstShiftLeft
-	case ">>":
-		return AstShiftRight
-	case "<":
-		return AstLess
-	case "<=":
-		return AstLessEqual
-	case ">":
-		return AstGreater
-	case ">=":
-		return AstGreaterEqual
-	case "==":
-		return AstEqual
-	case "!=":
-		return AstNotEqual
-	case "&":
-		return AstBitAnd
-	case "^":
-		return AstBitXor
-	case "|":
-		return AstBitOr
-	case "&&":
-		return AstAnd
-	case "||":
-		return AstOr
-	case "=":
-		return AstAssign
-	case "*=":
-		return AstMulAssign
-	case "/=":
-		return AstDivAssign
-	case "%=":
-		return AstModAssign
-	case "+=":
-		return AstAddAssign
-	case "-=":
-		return AstSubAssign
-	case "<<=":
-		return AstShiftLeftAssign
-	case ">>=":
-		return AstShiftRightAssign
-	case "&=":
-		return AstAndAssign
-	case "^=":
-		return AstXorAssign
-	case "|=":
-		return AstOrAssign
-	}
-	panic("invalid operator")
 }
 
 func (p *Parser) expression(required bool) *Ast {
@@ -1920,4 +1673,260 @@ func (p *Parser) program() *Ast {
 func (p *Parser) Parse() *Ast {
 	p.lookahead = p.getNextToken()
 	return p.program()
+}
+func init() {
+	for c := 'a'; c <= 'z'; c++ {
+		class[c] |= clsIDStart | clsIDCont
+		class[c-'a'+'A'] |= clsIDStart | clsIDCont
+	}
+	class['_'] |= clsIDStart | clsIDCont
+	for c := '0'; c <= '9'; c++ {
+		class[c] |= clsIDCont | clsDigit
+	}
+	for i := 0; i < len(symbolChars); i++ {
+		c := symbolChars[i]
+		class[c] |= clsSymbol
+		singleSym[c] = symbolChars[i : i+1] // substring of a constant: no allocation
+	}
+	for _, c := range "'\"\\\n\r" {
+		class[c] |= clsStop
+	}
+	for i := range hexVal {
+		hexVal[i] = 0xFF
+	}
+	for c := '0'; c <= '9'; c++ {
+		hexVal[c] = uint8(c - '0')
+	}
+	for c := 'a'; c <= 'f'; c++ {
+		hexVal[c] = uint8(c-'a') + 10
+		hexVal[c-'a'+'A'] = uint8(c-'a') + 10
+	}
+
+	// Only words that isKeyword accepts are added, so behavior can never diverge.
+	keywords = make(map[string]string, 32)
+	for _, k := range [...]string{
+		KeyTrue, KeyFalse, KeyNull, KeyClass, KeyFn, KeySwitch, KeyAwait, KeyAsync,
+		KeyImport, KeyFrom, KeyVar, KeyLet, KeyConst, KeyTry, KeyCatch, KeyCase,
+		KeyDefault, KeyIf, KeyElse, KeyLoop, KeyContinue, KeyBreak, KeyReturn,
+	} {
+		if len(k) <= maxKeywordLen && isKeyword(k) {
+			keywords[k] = k
+		}
+	}
+}
+
+func isDigit(r rune) bool {
+	if r < 128 {
+		return class[r]&clsDigit != 0
+	}
+	return unicode.IsDigit(r)
+}
+
+func isLineBreak(ch rune) bool {
+	switch ch {
+	case '\n', '\r', '\u0085', '\u2028', '\u2029':
+		return true
+	}
+	return false
+}
+
+func isSymbol(ch rune) bool {
+	return ch < 128 && class[ch]&clsSymbol != 0
+}
+
+func hexValue(ch rune) (uint32, bool) {
+	if ch < 128 {
+		if v := hexVal[ch]; v != 0xFF {
+			return uint32(v), true
+		}
+	}
+	return 0, false
+}
+
+/******************* Cursor ***/
+
+func NewParser(state *State, file *File) *Parser {
+	return &Parser{state: state, File: file}
+}
+
+// symbolAt returns the operator starting at src[i] as a static string.
+// The result is never allocated. Longest-match rules are identical to the old symbolLen.
+func symbolAt(src []rune, i int) string {
+	c := src[i]
+	var d, e rune
+	if i+1 < len(src) {
+		d = src[i+1]
+	}
+	if i+2 < len(src) {
+		e = src[i+2]
+	}
+	switch c {
+	case '=':
+		if d == '=' {
+			return "=="
+		}
+		if d == '>' {
+			return "=>"
+		}
+	case '!':
+		if d == '=' {
+			return "!="
+		}
+	case '*':
+		if d == '=' {
+			return "*="
+		}
+	case '/':
+		if d == '=' {
+			return "/="
+		}
+	case '%':
+		if d == '=' {
+			return "%="
+		}
+	case '<':
+		if d == '=' {
+			return "<="
+		}
+		if d == '<' {
+			return "<<"
+		}
+	case '>':
+		if d == '=' {
+			return ">="
+		}
+		if d == '>' {
+			return ">>"
+		}
+	case '&':
+		if d == '&' {
+			return "&&"
+		}
+	case '|':
+		if d == '|' {
+			return "||"
+		}
+	case '+':
+		if d == '+' {
+			return "++"
+		}
+		if d == '=' {
+			return "+="
+		}
+	case '-':
+		if d == '-' {
+			return "--"
+		}
+		if d == '=' {
+			return "-="
+		}
+		if d == '>' {
+			return "->"
+		}
+	case ':':
+		if d == ':' {
+			return "::"
+		}
+	case '.':
+		if d == '.' && e == '.' {
+			return "..."
+		}
+	}
+	return singleSym[c]
+}
+
+/******************* Lexer entry ***/
+
+func postfixOperator(opt string) AstType {
+	switch opt {
+	case "++":
+		return AstInc
+	case "--":
+		return AstDec
+	}
+	panic("invalid postfix operator")
+}
+
+func unaryOperator(opt string) AstType {
+	switch opt {
+	case "+":
+		return AstPos
+	case "++":
+		return AstInc
+	case "-":
+		return AstNeg
+	case "--":
+		return AstDec
+	case "!":
+		return AstNot
+	case "~":
+		return AstBitNot
+	case KeyAwait:
+		return AstAwait
+	}
+	panic("invalid unary operator")
+}
+
+func binOperator(opt string) AstType {
+	switch opt {
+	case "*":
+		return AstMul
+	case "/":
+		return AstDiv
+	case "%":
+		return AstMod
+	case "+":
+		return AstAdd
+	case "-":
+		return AstSub
+	case "<<":
+		return AstShiftLeft
+	case ">>":
+		return AstShiftRight
+	case "<":
+		return AstLess
+	case "<=":
+		return AstLessEqual
+	case ">":
+		return AstGreater
+	case ">=":
+		return AstGreaterEqual
+	case "==":
+		return AstEqual
+	case "!=":
+		return AstNotEqual
+	case "&":
+		return AstBitAnd
+	case "^":
+		return AstBitXor
+	case "|":
+		return AstBitOr
+	case "&&":
+		return AstAnd
+	case "||":
+		return AstOr
+	case "=":
+		return AstAssign
+	case "*=":
+		return AstMulAssign
+	case "/=":
+		return AstDivAssign
+	case "%=":
+		return AstModAssign
+	case "+=":
+		return AstAddAssign
+	case "-=":
+		return AstSubAssign
+	case "<<=":
+		return AstShiftLeftAssign
+	case ">>=":
+		return AstShiftRightAssign
+	case "&=":
+		return AstAndAssign
+	case "^=":
+		return AstXorAssign
+	case "|=":
+		return AstOrAssign
+	}
+	panic("invalid operator")
 }

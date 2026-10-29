@@ -8,6 +8,16 @@ import (
 	"unsafe"
 )
 
+var StackSize int32 = 1024
+
+/******************* Cold-path helpers ***/
+
+// These are kept out of line so that boxing their arguments for fmt does not
+// make locals of the hot interpreter loop escape (the old "funcIndex escapes
+// to heap", "sp escapes to heap", "ip - 1 escapes to heap" lines), and so the
+// *strings.Builder inside OSValue.String is not "moved to heap" in
+// runCoroutine's frame.
+
 // strKey identifies one string literal in the bytecode: the function it lives
 // in plus the position of its length word.
 type strKey struct {
@@ -28,16 +38,6 @@ type VM struct {
 	// with the VM, so it can never outlive a run.
 	strs map[strKey]string
 }
-
-var StackSize int32 = 1024
-
-/******************* Cold-path helpers ***/
-
-// These are kept out of line so that boxing their arguments for fmt does not
-// make locals of the hot interpreter loop escape (the old "funcIndex escapes
-// to heap", "sp escapes to heap", "ip - 1 escapes to heap" lines), and so the
-// *strings.Builder inside OSValue.String is not "moved to heap" in
-// runCoroutine's frame.
 
 //go:noinline
 func panicInt(format string, a int) { panic(fmt.Sprintf(format, a)) }
@@ -264,8 +264,8 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic("invalid source array for OpExtendArray")
 				}
 
-				dstArray := (*OSArray)(dst.Opaque)
-				srcArray := (*OSArray)(src.Opaque)
+				dstArray := (*Array)(dst.Opaque)
+				srcArray := (*Array)(src.Opaque)
 				dstArray.Elements = append(dstArray.Elements, srcArray.Elements...)
 				push(dst)
 			}
@@ -279,7 +279,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 
 				// Take the elements straight off the operand stack: one
 				// copy instead of `size` pop() calls.
-				array := &OSArray{Elements: make([]OSValue, size)}
+				array := &Array{Elements: make([]OSValue, size)}
 				copy(array.Elements, stack[sp-size:sp])
 				clear(stack[sp-size : sp])
 				sp -= size
@@ -302,8 +302,8 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic("invalid source object for OpExtendObject")
 				}
 
-				dstObj := (*OSObject)(dst.Opaque)
-				srcObj := (*OSObject)(src.Opaque)
+				dstObj := (*Object)(dst.Opaque)
+				srcObj := (*Object)(src.Opaque)
 
 				for _, key := range srcObj.Keys {
 					dstObj.Set(key, srcObj.Values[key])
@@ -320,7 +320,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 
 				base := sp - 2*size
-				obj := &OSObject{Values: make(map[string]OSValue, size)}
+				obj := &Object{Values: make(map[string]OSValue, size)}
 				for i := int32(0); i < size; i++ {
 					key := stack[base+2*i]
 					if key.Type != OSVString {
@@ -347,7 +347,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					}
 				}
 
-				obj := (*OSObject)(top.Opaque)
+				obj := (*Object)(top.Opaque)
 
 				if value, exists := obj.Values[attr]; exists {
 					push(value)
@@ -367,7 +367,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 						}
 					}
 
-					object := (*OSObject)(obj.Opaque)
+					object := (*Object)(obj.Opaque)
 					if value, exists := object.Values[idx.StringValue()]; exists {
 						push(value)
 					} else {
@@ -382,7 +382,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					}
 				}
 
-				arr := (*OSArray)(obj.Opaque)
+				arr := (*Array)(obj.Opaque)
 
 				if idx.Type != OSVNum {
 					if throwRuntimeError("array index must be a number") {
@@ -534,7 +534,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					copy(callee.OperandStack[:vaIndex], args[:vaIndex])
 					callee.OperandStack[vaIndex] = OSValue{
 						Type:   OSVArray,
-						Opaque: unsafe.Pointer(&OSArray{Elements: variadicArgs}),
+						Opaque: unsafe.Pointer(&Array{Elements: variadicArgs}),
 					}
 					calleeArgCount = vaIndex + 1
 				} else {
@@ -545,7 +545,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				clear(stack[argStart : argStart+argCount])
 
 				if fn.Async {
-					promise := &OSPromise{Coroutine: callee}
+					promise := &Promise{Coroutine: callee}
 					callee.Parent = SnapshotLexicalChain(caller)
 					callee.Caller = nil
 					callee.AsyncResult = promise
@@ -849,7 +849,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					}
 				}
 
-				elements := (*OSArray)(aobj.Opaque).Elements
+				elements := (*Array)(aobj.Opaque).Elements
 				if len(elements) < size {
 					if throwRuntimeError("array size mismatch for destructuring") {
 						continue
@@ -954,7 +954,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 						}
 					}
 
-					promise := (*OSPromise)(value.Opaque)
+					promise := (*Promise)(value.Opaque)
 					if promise.Resolved {
 						push(promise.Value)
 						continue

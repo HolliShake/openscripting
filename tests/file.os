@@ -47,7 +47,7 @@ log [...[15, 16]];
 
 
 var obj = {
-    A: "65",
+    "A": "65",
     "B": "66",
     ...{ C: 67}
 };
@@ -107,7 +107,7 @@ log ">>" + obj->A;
 var items = [
     "One",
     "Two",
-    "3"
+    "Three"
 ];
 
 log items[1];

@@ -13,14 +13,24 @@ const debugFold = false
 
 /******************* Constant values (no boxing) ***/
 
-type constKind uint8
-
 const (
 	kNone constKind = iota
 	kNum
 	kStr
 	kBool
 )
+
+var noConst constVal
+
+// Scopes used to be stack literals whose address was passed down a recursive
+// visitor (and stored in child.Parent), so every one of them was "moved to
+// heap" together with a fresh map. They are now recycled through a pool, so
+// the steady-state cost is zero allocations per block / loop / function.
+var scopePool sync.Pool
+
+const initialBytecodeCap = 256
+
+type constKind uint8
 
 // constVal is returned by value, so folding never allocates
 // (except for string concatenation, which has to).
@@ -32,15 +42,13 @@ type constVal struct {
 	b    bool
 }
 
-var noConst constVal
-
-func numConst(f float64) constVal { return constVal{kind: kNum, num: f} }
-func strConst(s string) constVal  { return constVal{kind: kStr, str: s} }
-func boolConst(b bool) constVal   { return constVal{kind: kBool, b: b} }
 func (c constVal) folded() bool   { return c.kind != kNone }
 func (c constVal) isNumber() bool { return c.kind == kNum }
 func (c constVal) isString() bool { return c.kind == kStr }
 func (c constVal) isBool() bool   { return c.kind == kBool }
+func numConst(f float64) constVal { return constVal{kind: kNum, num: f} }
+func strConst(s string) constVal  { return constVal{kind: kStr, str: s} }
+func boolConst(b bool) constVal   { return constVal{kind: kBool, b: b} }
 
 // constEqual replaces reflect.DeepEqual for the supported kinds.
 func constEqual(a, b constVal) bool {
@@ -59,12 +67,6 @@ func constEqual(a, b constVal) bool {
 }
 
 /******************* Scope pooling ***/
-
-// Scopes used to be stack literals whose address was passed down a recursive
-// visitor (and stored in child.Parent), so every one of them was "moved to
-// heap" together with a fresh map. They are now recycled through a pool, so
-// the steady-state cost is zero allocations per block / loop / function.
-var scopePool sync.Pool
 
 // acquireScope returns a clean scope. The caller sets Type (and any other
 // fields) afterwards. VarCount starts at 0.
@@ -88,8 +90,6 @@ func releaseScope(s *Scope) {
 }
 
 /******************* Emit helpers ***/
-
-const initialBytecodeCap = 256
 
 func newFunction(file *File, name string) *Function {
 	fn := NewFunction(file, name, false)

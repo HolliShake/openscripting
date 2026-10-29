@@ -2,6 +2,34 @@ package main
 
 const minOperandStack = 32
 
+const (
+	CoroutineStateSuspended CoroutineState = iota
+	CoroutineStateRunning
+	CoroutineStateDead
+)
+
+type CoroutineState int32
+
+type Coroutine struct {
+	Parent       *Coroutine
+	Caller       *Coroutine
+	State        CoroutineState
+	Frame        CallFrame
+	Sp           int32
+	OperandStack []OSValue
+	Transfer     OSValue
+	AsyncResult  *Promise
+}
+
+// release drops everything a finished coroutine references so it cannot keep
+// the stack, cells or caller chain alive.
+func (co *Coroutine) Release() {
+	co.OperandStack = nil
+	co.Parent = nil
+	co.Caller = nil
+	co.AsyncResult = nil
+	co.Frame = CallFrame{}
+}
 func NewCoroutine(parent *Coroutine, fn *Function, stackSize int32) *Coroutine {
 	if stackSize <= 0 {
 		stackSize = minOperandStack
@@ -63,14 +91,4 @@ func growStack(co *Coroutine) []OSValue {
 	copy(grown, co.OperandStack)
 	co.OperandStack = grown
 	return grown
-}
-
-// release drops everything a finished coroutine references so it cannot keep
-// the stack, cells or caller chain alive.
-func (co *Coroutine) Release() {
-	co.OperandStack = nil
-	co.Parent = nil
-	co.Caller = nil
-	co.AsyncResult = nil
-	co.Frame = CallFrame{}
 }

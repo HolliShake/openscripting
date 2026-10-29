@@ -7,6 +7,8 @@ import (
 	"unicode/utf8"
 )
 
+var programState State
+
 type RGB struct {
 	R, G, B int
 }
@@ -138,5 +140,3 @@ func main() {
 	program := Compile(parser)
 	Run(state, program)
 }
-
-var programState State

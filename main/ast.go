@@ -1,11 +1,104 @@
 package main
 
+const (
+	AstIdentifier AstType = iota
+	AstNumLit
+	AstStrLit
+	AstBoolLit
+	AstNullLit
+	AstClassExpression
+	AstFunctionExpression
+	AstAsyncFunctionExpression
+	AstArray
+	AstObject
+	AstKeyValue
+	AstMemberAccess
+	AstIndexAccess
+	AstCall
+	AstPos
+	AstInc
+	AstNeg
+	AstDec
+	AstNot
+	AstBitNot
+	AstAwait
+	AstSpread
+	AstMul
+	AstDiv
+	AstMod
+	AstAdd
+	AstSub
+	AstShiftLeft
+	AstShiftRight
+	AstLess
+	AstLessEqual
+	AstGreater
+	AstGreaterEqual
+	AstEqual
+	AstNotEqual
+	AstBitAnd
+	AstBitXor
+	AstBitOr
+	AstAnd
+	AstOr
+	AstAssign
+	AstMulAssign
+	AstDivAssign
+	AstModAssign
+	AstAddAssign
+	AstSubAssign
+	AstShiftLeftAssign
+	AstShiftRightAssign
+	AstAndAssign
+	AstXorAssign
+	AstOrAssign
+	AstTernaryOperation
+	AstImport
+	AstClass
+	AstFunction
+	AstDestructuringArrayVar
+	AstDestructuringArrayLet
+	AstDestructuringArrayConst
+	AstDestructuringObjectVar
+	AstDestructuringObjectLet
+	AstDestructuringObjectConst
+	AstVar
+	AstLet
+	AstConst
+	AstTryCatch
+	AstSwitchStmt
+	AstIfStmt
+	AstForLoop
+	AstWhileLoop
+	AstLogStmt
+	AstContinueStmt
+	AstBreakStmt
+	AstReturnStmt
+	AstBlock
+	AstExpressionStmnt
+	AstProgram
+)
+
 const astChunk = 256
 
 var (
 	astSlab []Ast
 	astUsed int
 )
+
+type AstType int
+
+type Ast struct {
+	Type  AstType
+	Value string
+	Pos   Position
+	A     *Ast
+	B     *Ast
+	C     *Ast
+	D     *Ast
+	E     *Ast
+	Next  *Ast
+}
 
 // newAst hands out a zeroed *Ast from the current chunk. The chunk is a single
 // make() so the allocator is touched once per astChunk nodes. Advancing with an

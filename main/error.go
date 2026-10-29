@@ -9,6 +9,9 @@ import (
 const ExitFailure = 1
 const ExitSuccess = 0
 
+// errScratch is static because passing w.buf to os.Stderr.Write forces a local errWriter onto the heap.
+var errScratch errWriter
+
 // errWriter is a fixed-size, stack-allocated buffered writer for stderr.
 // Output is flushed whenever the buffer fills, so no heap growth is ever needed.
 type errWriter struct {
@@ -139,7 +142,6 @@ func (w *errWriter) snippet(file *File, position Position) {
 		lineStart = index + 1
 	}
 }
-
 func digitCount(n int) int {
 	d := 1
 	for n >= 10 {
@@ -148,9 +150,6 @@ func digitCount(n int) int {
 	}
 	return d
 }
-
-// errScratch is static because passing w.buf to os.Stderr.Write forces a local errWriter onto the heap.
-var errScratch errWriter
 
 // formatError writes "[file:line:col]: <parts...>\n" followed by the source snippet.
 // parts is not retained, so the variadic slice stays on the caller's stack.

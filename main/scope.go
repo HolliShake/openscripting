@@ -1,5 +1,23 @@
 package main
 
+const (
+	ScopeTypeGlobal ScopeType = iota
+	ScopeTypeFunction
+	ScopeTypeBlock
+	ScopeTypeLoop
+)
+
+type ScopeType byte
+
+type Scope struct {
+	Type       ScopeType
+	Parent     *Scope
+	Variables  map[string]Symbol
+	VarCount   int32
+	LoopStart  int32   // Opcode index for the start of the loop, used in loop scopes
+	BreakStart []int32 // Opcode index for the start of the break, used in loop scopes
+}
+
 func (s *Scope) ExistsFunction(name string) bool {
 	currentFunctionScope := s
 
