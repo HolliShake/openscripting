@@ -1404,7 +1404,7 @@ func (p *Parser) key(required bool) *Ast {
 		return p.terminal()
 	}
 	if required {
-		ThrowError(p.File, "missing key", p.lookahead.Pos)
+		ThrowError(p.File, "missing or invalid key", p.lookahead.Pos)
 	}
 	return nil
 }
@@ -1416,6 +1416,9 @@ func (p *Parser) keyValue(required bool, spread bool) *Ast {
 	}
 
 	k := p.key(required)
+	if required && k == nil {
+		ThrowError(p.File, "missing or invalid key", p.lookahead.Pos)
+	}
 	p.expect(":")
 	v := p.expression(false)
 	if v == nil {
@@ -1430,10 +1433,7 @@ func (p *Parser) listOfKeyValues(required bool, spread bool) *Ast {
 
 	for tail != nil && p.match(",") {
 		p.expect(",")
-		tail.Next = p.keyValue(false, spread)
-		if tail.Next == nil {
-			ThrowError(p.File, "missing key-value after comma", p.lookahead.Pos)
-		}
+		tail.Next = p.keyValue(true, spread)
 		tail = tail.Next
 	}
 

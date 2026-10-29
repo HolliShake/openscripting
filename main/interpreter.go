@@ -300,8 +300,6 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic("operand stack underflow for object creation")
 				}
 
-				// Stack layout: [k0, v0, k1, v1, ...]. Read it in place; the
-				// two temporary key/value slices are gone.
 				base := sp - 2*size
 				obj := &OSObject{Values: make(map[string]OSValue, size)}
 				for i := int32(0); i < size; i++ {
