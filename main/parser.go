@@ -1380,6 +1380,7 @@ func (p *Parser) spreadOrExpression(required bool, spread bool) *Ast {
 		p.expect("...")
 		return NewSpread(p.lookahead.Pos, p.expression(true))
 	}
+
 	return p.expression(required)
 }
 
@@ -1389,10 +1390,12 @@ func (p *Parser) listOfExpression(required bool, spread bool) *Ast {
 
 	for tail != nil && p.match(",") {
 		p.expect(",")
+
 		tail.Next = p.spreadOrExpression(false, spread) // expression or spread
 		if tail.Next == nil {
 			ThrowError(p.File, "missing expression after comma", p.lookahead.Pos)
 		}
+
 		tail = tail.Next
 	}
 
@@ -1403,9 +1406,11 @@ func (p *Parser) key(required bool) *Ast {
 	if p.matchType(IDN) || p.matchType(STR) {
 		return p.terminal()
 	}
+
 	if required {
 		ThrowError(p.File, "missing or invalid key", p.lookahead.Pos)
 	}
+
 	return nil
 }
 
@@ -1419,11 +1424,14 @@ func (p *Parser) keyValue(required bool, spread bool) *Ast {
 	if required && k == nil {
 		ThrowError(p.File, "missing or invalid key", p.lookahead.Pos)
 	}
+
 	p.expect(":")
+
 	v := p.expression(false)
 	if v == nil {
 		ThrowError(p.File, "missing value for key", p.lookahead.Pos)
 	}
+
 	return NewKeyValue(k.Pos, k, v)
 }
 
