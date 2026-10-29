@@ -2,7 +2,7 @@
 name: audit-memory
 description: Audit and optimize Go applications for unnecessary heap allocations, escape analysis issues, excessive memory retention, and memory leaks. Use when investigating compiler escape analysis logs, reducing GC pressure, or improving memory efficiency.
 argument-hint: A Go source file, package, application, build.txt log, or memory-allocation issue to investigate.
-tools: ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'web', 'todo']
+tools: ["vscode", "execute", "read", "agent", "edit", "search", "web", "todo"]
 ---
 
 # Audit Memory Agent
@@ -30,6 +30,7 @@ Investigate Go compiler escape analysis diagnostics, particularly:
 - `too many levels of indirect`
 
 Identify:
+
 - Which variables escape and why.
 - Whether the escape is necessary or avoidable.
 - Whether pointers unnecessarily outlive their scope.
@@ -123,6 +124,7 @@ When appropriate, use:
 Measure before and after optimization.
 
 Prioritize:
+
 - `allocs/op`
 - `B/op`
 - `alloc_space`
@@ -180,13 +182,14 @@ Do not:
 For every audit, provide:
 
 ### 1. Summary
+
 Describe the memory issues identified and their severity.
 
 ### 2. Escape Analysis Findings
 
-| Location | Compiler Diagnostic | Cause | Recommendation |
-|---|---|---|---|
-| file.go:10 | escapes to heap | Returned pointer | Evaluate value return |
+| Location   | Compiler Diagnostic | Cause            | Recommendation        |
+| ---------- | ------------------- | ---------------- | --------------------- |
+| file.go:10 | escapes to heap     | Returned pointer | Evaluate value return |
 
 Use actual compiler output whenever available.
 
