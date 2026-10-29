@@ -15,6 +15,9 @@ const (
 	OSVArray
 	OSVObject
 	OSVFunction
+	OSVNativeFunction
+	OSVNativeMethod // bind
+	OSVMethod       // bind
 	OSVPromise
 )
 

@@ -341,6 +341,11 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				top := pop()
 				attr := readString()
 
+				if top.Type == OSVPromise && attr == "then" {
+					push(BindPromiseThenMethod(top))
+					continue
+				}
+
 				if top.Type != OSVObject || top.Opaque == nil {
 					if throwRuntimeError("attempted to get attribute of a non-object value " + valueString(top)) {
 						continue
@@ -443,35 +448,32 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 
 				push(frame.Env[varIndex].Value)
 			}
-		case OpCall, OpCallAttr:
+		case OpCall:
 			{
-				attrName := ""
 				argCount := int32(readByte())
-				objToAcc := OSValue{}
-
-				if op == OpCallAttr {
-					objToAcc = pop()
-					attrName = readString()
-
-					switch {
-					case objToAcc.Type == OSVPromise && attrName == "then":
-						{
-							// For a promise, accessing the "then" attribute is valid.
-							// No action needed here as we just allow it.
-							(func() {}()) // No-op function to indicate valid access
-						}
-					default:
-						{
-							if throwRuntimeError("attempted to access attribute of non-object value " + valueString(objToAcc)) {
-								continue
-							}
-						}
-					}
-				}
 
 				// Expected stack layout:
 				// [..., arg1, arg2, ..., argN, function]
 				fnValue := pop()
+
+				if fnValue.Type == OSVNativeMethod {
+					// Handle native method binding here if necessary.
+					nativeMethod := (*NativeMethod)(fnValue.Opaque)
+					if nativeMethod == nil {
+						if throwRuntimeError("attempted to call a nil native method") {
+							continue
+						}
+					}
+
+					if nativeMethod.Paramc != argCount {
+						if throwRuntimeError("invalid argument count for native method") {
+							continue
+						}
+					}
+
+					nativeMethod.Callable(vm, stack[sp-int32(argCount):sp])
+					continue
+				}
 
 				if fnValue.Type != OSVFunction || fnValue.Opaque == nil {
 					if throwRuntimeError("attempted to call a non-function value " + valueString(fnValue)) {

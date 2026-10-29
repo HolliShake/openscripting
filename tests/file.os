@@ -117,3 +117,11 @@ log obj["missing"];
 var objectKey = "B";
 log obj[objectKey];
 
+var asyncF::fn() async {
+    return "Hello!";
+};
+
+asyncF()
+    ->then(fn(data) {
+        log data;
+      });
