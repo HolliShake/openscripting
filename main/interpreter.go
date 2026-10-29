@@ -82,6 +82,12 @@ func interpreterLoop(state *State, vm *VM) {
 	}
 }
 
+func enqueueMicrotask(vm *VM, coroutine *Coroutine) {
+	if coroutine != nil {
+		vm.Pending = append(vm.Pending, coroutine)
+	}
+}
+
 func runCoroutine(state *State, vm *VM, co *Coroutine) {
 	if co == nil || co.Frame.Function == nil {
 		panic("invalid coroutine or call frame")
@@ -195,8 +201,9 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				Opaque: unsafe.Pointer(unsafe.StringData(message)),
 			})
 			co.State = CoroutineStateDead
+			asyncCaller := co.AsyncCaller
 			co.Release()
-			vm.Current = nil
+			vm.Current = asyncCaller
 			return true
 		}
 
@@ -226,7 +233,30 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 		co.Sp = sp
 	}
 
+	if co.ResumeReady {
+		value := co.ResumeValue
+		rejected := co.ResumeReject
+		co.ResumeValue = OSValue{}
+		co.ResumeReady = false
+		co.ResumeReject = false
+		if rejected {
+			message := value.StringValue()
+			if throwRuntimeError(message) {
+				if co.State == CoroutineStateDead {
+					return
+				}
+			} else {
+				panic(message)
+			}
+		} else {
+			push(value)
+		}
+	}
+
 	for ip < bsize {
+		if co.State == CoroutineStateDead {
+			return
+		}
 		currentInstruction = ip
 		op := bcode[ip]
 		ip++
@@ -579,14 +609,12 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					promise := &Promise{Coroutine: callee}
 					callee.Parent = SnapshotLexicalChain(caller)
 					callee.Caller = nil
+					callee.AsyncCaller = caller
 					callee.AsyncResult = promise
-					vm.Pending = append(vm.Pending, callee)
-					push(OSValue{
-						Type:   OSVPromise,
-						Opaque: unsafe.Pointer(promise),
-					})
+					push(OSValue{Type: OSVPromise, Opaque: unsafe.Pointer(promise)})
 					saveState()
-					continue
+					vm.Current = callee
+					return
 				}
 
 				vm.Current = callee
@@ -986,21 +1014,19 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					}
 
 					promise := (*Promise)(value.Opaque)
+					reaction := PromiseReaction{Awaiter: co}
 					if promise.Resolved {
-						push(promise.Value)
-						continue
+						schedulePromiseReaction(vm, promise, reaction)
+					} else {
+						promise.Reactions = append(promise.Reactions, reaction)
 					}
-					if promise.Coroutine == nil {
-						if throwRuntimeError("attempted to await an unresolved promise") {
-							continue
-						}
+					if asyncCaller := co.AsyncCaller; asyncCaller != nil {
+						co.AsyncCaller = nil
+						vm.Current = asyncCaller
+					} else {
+						vm.Current = nil
 					}
-
-					awaited := promise.Coroutine
-					awaited.Caller = co
-					awaited.Frame.Caller = frame
 					saveState()
-					vm.Current = awaited
 					return
 				}
 				push(value)
@@ -1025,6 +1051,12 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				co.State = CoroutineStateDead
 				if promise := co.AsyncResult; promise != nil {
 					resolvePromise(vm, promise, returnValue)
+				}
+				if asyncCaller := co.AsyncCaller; asyncCaller != nil {
+					co.AsyncCaller = nil
+					vm.Current = asyncCaller
+					co.Release()
+					return
 				}
 
 				caller := co.Caller

@@ -3,17 +3,22 @@ package main
 import "unsafe"
 
 type Promise struct {
-	Value         OSValue
-	Resolved      bool
-	Rejected      bool
-	StringRoot    string
-	Coroutine     *Coroutine
-	Then          OSValue
-	Catch         OSValue
-	Callback      OSValue
-	CallbackCatch bool
-	CallbackScope *Coroutine
-	Next          *Promise
+	Value      OSValue
+	Resolved   bool
+	Rejected   bool
+	StringRoot string
+	Coroutine  *Coroutine
+	Then       OSValue
+	Catch      OSValue
+	Reactions  []PromiseReaction
+}
+
+type PromiseReaction struct {
+	Callback OSValue
+	Catch    bool
+	Scope    *Coroutine
+	Next     *Promise
+	Awaiter  *Coroutine
 }
 
 func PromiseThen(this OSValue, vm *VM, args []OSValue) OSValue {
@@ -27,12 +32,16 @@ func PromiseCatch(this OSValue, vm *VM, args []OSValue) OSValue {
 func registerPromiseCallback(this OSValue, vm *VM, callback OSValue, catch bool) OSValue {
 	promise := (*Promise)(this.Opaque)
 	next := &Promise{}
-	promise.Callback = callback
-	promise.CallbackCatch = catch
-	promise.CallbackScope = SnapshotLexicalChain(vm.Current)
-	promise.Next = next
+	reaction := PromiseReaction{
+		Callback: callback,
+		Catch:    catch,
+		Scope:    SnapshotLexicalChain(vm.Current),
+		Next:     next,
+	}
 	if promise.Resolved {
-		schedulePromiseCallback(vm, promise)
+		schedulePromiseReaction(vm, promise, reaction)
+	} else {
+		promise.Reactions = append(promise.Reactions, reaction)
 	}
 	return OSValue{
 		Type:   OSVPromise,
@@ -61,51 +70,61 @@ func settlePromise(vm *VM, promise *Promise, value OSValue, rejected bool) {
 	promise.Resolved = true
 	promise.Rejected = rejected
 	promise.Coroutine = nil
-	if promise.Next != nil {
-		schedulePromiseCallback(vm, promise)
+	for _, reaction := range promise.Reactions {
+		schedulePromiseReaction(vm, promise, reaction)
 	}
+	promise.Reactions = nil
 }
 
-func schedulePromiseCallback(vm *VM, promise *Promise) {
-	if promise.Next == nil {
+func schedulePromiseReaction(vm *VM, promise *Promise, reaction PromiseReaction) {
+	if reaction.Awaiter != nil {
+		waiter := reaction.Awaiter
+		waiter.ResumeValue = promise.Value
+		waiter.ResumeReady = true
+		waiter.ResumeReject = promise.Rejected
+		waiter.StringRoot = promise.StringRoot
+		enqueueMicrotask(vm, waiter)
 		return
 	}
-	if promise.Rejected != promise.CallbackCatch {
-		settlePromise(vm, promise.Next, promise.Value, promise.Rejected)
+	if reaction.Next == nil {
+		return
+	}
+	if promise.Rejected != reaction.Catch {
+		settlePromise(vm, reaction.Next, promise.Value, promise.Rejected)
 		return
 	}
 
-	switch promise.Callback.Type {
+	switch reaction.Callback.Type {
 	case OSVFunction:
-		if promise.Callback.Opaque == nil {
-			resolvePromise(vm, promise.Next, promise.Value)
+		if reaction.Callback.Opaque == nil {
+			resolvePromise(vm, reaction.Next, promise.Value)
 			return
 		}
 
-		callback := NewCoroutine(promise.CallbackScope, (*Function)(promise.Callback.Opaque), InitialStack(1))
-		callback.Parent = promise.CallbackScope
+		callback := NewCoroutine(reaction.Scope, (*Function)(reaction.Callback.Opaque), InitialStack(1))
+		callback.Parent = reaction.Scope
 		callback.Caller = nil
 		callback.Frame.Caller = nil
-		callback.AsyncResult = promise.Next
+		callback.AsyncResult = reaction.Next
 		callback.StringRoot = promise.StringRoot
 		callback.OperandStack[0] = promise.Value
 		callback.Sp = 1
-		vm.Pending = append(vm.Pending, callback)
+		enqueueMicrotask(vm, callback)
 	case OSVNativeFunction:
-		if promise.Callback.Opaque == nil {
-			resolvePromise(vm, promise.Next, promise.Value)
+		if reaction.Callback.Opaque == nil {
+			resolvePromise(vm, reaction.Next, promise.Value)
 			return
 		}
 
-		native := (*NativeFunction)(promise.Callback.Opaque)
+		native := (*NativeFunction)(reaction.Callback.Opaque)
 		if native.Callable == nil {
-			resolvePromise(vm, promise.Next, promise.Value)
+			resolvePromise(vm, reaction.Next, promise.Value)
 			return
 		}
 		native.Callable(vm, []OSValue{promise.Value})
-		resolvePromise(vm, promise.Next, vm.Null)
+		resolvePromise(vm, reaction.Next, vm.Null)
 	default:
-		resolvePromise(vm, promise.Next, promise.Value)
+		resolvePromise(vm, reaction.Next, promise.Value)
 	}
 }
 

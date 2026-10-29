@@ -19,7 +19,11 @@ type Coroutine struct {
 	OperandStack []OSValue
 	Transfer     OSValue
 	AsyncResult  *Promise
+	AsyncCaller  *Coroutine
 	StringRoot   string
+	ResumeValue  OSValue
+	ResumeReady  bool
+	ResumeReject bool
 }
 
 // release drops everything a finished coroutine references so it cannot keep
@@ -29,7 +33,11 @@ func (co *Coroutine) Release() {
 	co.Parent = nil
 	co.Caller = nil
 	co.AsyncResult = nil
+	co.AsyncCaller = nil
 	co.StringRoot = ""
+	co.ResumeValue = OSValue{}
+	co.ResumeReady = false
+	co.ResumeReject = false
 	co.Frame = CallFrame{}
 }
 func NewCoroutine(parent *Coroutine, fn *Function, stackSize int32) *Coroutine {
