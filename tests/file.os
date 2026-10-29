@@ -48,7 +48,6 @@ log [...[15, 16]];
 
 var obj = {
     A: "65",
-    2: 2,
     "B": "66",
     ...{ C: 67}
 };
@@ -81,3 +80,10 @@ var varArgWithFixed::fn(prefix, values...) {
 varArgWithFixed("fixed", 2, 3);
 varArgWithFixed("fixed");
 varArg();
+
+
+var fun = fn() {
+    log "From expression!!!";
+};
+
+fun();

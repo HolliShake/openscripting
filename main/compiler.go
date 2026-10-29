@@ -306,7 +306,7 @@ func tryFold(fn *Function, ast *Ast) constVal {
 
 	case AstMul, AstDiv, AstMod, AstAdd, AstSub:
 		lhs := tryFold(fn, ast.A)
-		if !lhs.folded() { // don't walk the right subtree for nothing
+		if !lhs.folded() {
 			return noConst
 		}
 		rhs := tryFold(fn, ast.B)
@@ -441,130 +441,224 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 
 	switch ast.Type {
 	case AstIdentifier:
-		name := ast.Value
-		if !scope.Exists(name) {
-			ThrowError(fn.File, "undefined variable", ast.Pos)
-		}
+		{
+			name := ast.Value
+			if !scope.Exists(name) {
+				ThrowError(fn.File, "undefined variable", ast.Pos)
+			}
 
-		isLocal := scope.ExistsFunction(name)
-		sym, exists := scope.GetVariable(name)
+			isLocal := scope.ExistsFunction(name)
+			sym, exists := scope.GetVariable(name)
 
-		if exists && !isLocal {
-			// Capture
-			offset := scope.GetVarCount()
+			if exists && !isLocal {
+				// Capture
+				offset := scope.GetVarCount()
 
-			scope.AddLocal(name, Symbol{
-				Name:    name,
-				Offset:  offset,
-				Const:   sym.Const,
-				Capture: true,
-				Pos:     ast.Pos,
-			})
+				scope.AddLocal(name, Symbol{
+					Name:    name,
+					Offset:  offset,
+					Const:   sym.Const,
+					Capture: true,
+					Pos:     ast.Pos,
+				})
 
-			emitInt(fn, OpLoadCap, sym.Offset)
-			emitInt(fn, OpStoreCap, offset)
-			emit(fn, sym.Offset)
-		} else {
-			emitInt(fn, OpLoadVar, sym.Offset)
+				emitInt(fn, OpLoadCap, sym.Offset)
+				emitInt(fn, OpStoreCap, offset)
+				emit(fn, sym.Offset)
+			} else {
+				emitInt(fn, OpLoadVar, sym.Offset)
+			}
 		}
 	case AstNullLit:
-		emit(fn, OpLoadNull)
+		{
+			emit(fn, OpLoadNull)
+		}
 	case AstArray:
-		emitInt(fn, OpMakeArray, 0)
-		size := int32(0)
+		{
+			emitInt(fn, OpMakeArray, 0)
+			size := int32(0)
 
-		for head := ast.A; head != nil; head = head.Next {
-			if head.Type == AstSpread {
-				if size > 0 {
-					emitInt(fn, OpMakeArray, size)
+			for head := ast.A; head != nil; head = head.Next {
+				if head.Type == AstSpread {
+					if size > 0 {
+						emitInt(fn, OpMakeArray, size)
+						emit(fn, OpExtendArray)
+						size = 0
+					}
+
+					visitExpression(p, scope, fn, head.A)
 					emit(fn, OpExtendArray)
-					size = 0
+					continue
 				}
 
-				visitExpression(p, scope, fn, head.A)
-				emit(fn, OpExtendArray)
-				continue
+				visitExpression(p, scope, fn, head)
+				size++
 			}
 
-			visitExpression(p, scope, fn, head)
-			size++
-		}
-
-		if size > 0 {
-			emitInt(fn, OpMakeArray, size)
-			emit(fn, OpExtendArray)
+			if size > 0 {
+				emitInt(fn, OpMakeArray, size)
+				emit(fn, OpExtendArray)
+			}
 		}
 	case AstObject:
-		emitInt(fn, OpMakeObject, 0)
-		size := int32(0)
+		{
+			emitInt(fn, OpMakeObject, 0)
+			size := int32(0)
 
-		for head := ast.A; head != nil; head = head.Next {
-			if head.Type == AstSpread {
-				if size > 0 {
-					emitInt(fn, OpMakeObject, size)
+			for head := ast.A; head != nil; head = head.Next {
+				if head.Type == AstSpread {
+					if size > 0 {
+						emitInt(fn, OpMakeObject, size)
+						emit(fn, OpExtendObject)
+						size = 0
+					}
+
+					visitExpression(p, scope, fn, head.A)
 					emit(fn, OpExtendObject)
-					size = 0
+					continue
 				}
 
-				visitExpression(p, scope, fn, head.A)
+				if head.A.Type == AstIdentifier || head.A.Type == AstStrLit {
+					emitString(fn, objectKey(head.A))
+				} else {
+					visitExpression(p, scope, fn, head.A)
+				}
+				visitExpression(p, scope, fn, head.B)
+				size++
+			}
+
+			if size > 0 {
+				emitInt(fn, OpMakeObject, size)
 				emit(fn, OpExtendObject)
-				continue
 			}
-
-			if head.A.Type == AstIdentifier || head.A.Type == AstStrLit {
-				emitString(fn, objectKey(head.A))
-			} else {
-				visitExpression(p, scope, fn, head.A)
-			}
-			visitExpression(p, scope, fn, head.B)
-			size++
 		}
+	case AstFunctionExpression, AstAsyncFunctionExpression:
+		{
+			nameNode := ast.A
+			parmNode := ast.B.A
+			bodyNode := ast.B.B
 
-		if size > 0 {
-			emitInt(fn, OpMakeObject, size)
-			emit(fn, OpExtendObject)
+			function := newFunction(fn.File, nameNode.Value)
+			funcOffset := p.state.SaveFunction(function)
+
+			localScope := acquireScope(scope)
+			localScope.Type = ScopeTypeFunction
+
+			var paramBuf [8]int32
+			reverse := paramBuf[:0]
+
+			vaIndex := -1
+			for ; parmNode != nil; parmNode = parmNode.Next {
+
+				if parmNode.Type == AstSpread {
+					parmNode = parmNode.A
+					vaIndex = len(reverse)
+				}
+
+				paramName := parmNode.Value
+
+				if localScope.ExistsLocal(paramName) {
+					ThrowError(fn.File, "variable is already defined in scope", parmNode.Pos)
+				}
+
+				offset := localScope.GetVarCount()
+
+				localScope.AddLocal(paramName, Symbol{
+					Name:    paramName,
+					Offset:  offset,
+					Const:   false,
+					Capture: false,
+					Pos:     parmNode.Pos,
+				})
+
+				reverse = append(reverse, offset)
+			}
+
+			function.Async = ast.Type == AstAsyncFunctionExpression
+			function.VarArgIndex = int32(vaIndex)
+			function.ParamCount = int32(len(reverse))
+
+			for i := len(reverse) - 1; i >= 0; i-- {
+				emitInt(function, OpStoreLocal, reverse[i])
+			}
+
+			visibleReturn := false
+			for ; bodyNode != nil; bodyNode = bodyNode.Next {
+				if bodyNode.Type == AstReturnStmt {
+					visibleReturn = true
+				}
+				visitDeclarationOrStatement(p, localScope, function, bodyNode)
+			}
+
+			if !visibleReturn {
+				emit(function, OpLoadNull)
+				emit(function, OpReturn)
+			}
+
+			status, exists := scope.GetVariable(nameNode.Value)
+			if !exists {
+				ThrowError(fn.File, "function does not exists", ast.Pos)
+			}
+
+			function.LocalCount = localScope.VarCount
+			finalizeFunction(function) // actually drop the unused capacity
+			releaseScope(localScope)
+
+			emitInt(fn, OpLoadFunction, funcOffset)
+			emitInt(fn, OpStoreLocal, status.Offset)
 		}
 	case AstCall:
-		argCount := int32(0)
-		for arg := ast.B; arg != nil; arg = arg.Next {
-			visitExpression(p, scope, fn, arg)
-			argCount++
-		}
+		{
+			argCount := int32(0)
 
-		visitExpression(p, scope, fn, ast.A)
-		emitInt(fn, OpCall, argCount)
+			for arg := ast.B; arg != nil; arg = arg.Next {
+				visitExpression(p, scope, fn, arg)
+				argCount++
+			}
+
+			visitExpression(p, scope, fn, ast.A)
+			emitInt(fn, OpCall, argCount)
+		}
 	case AstPos, AstNeg, AstNot, AstBitNot:
-		visitExpression(p, scope, fn, ast.A)
-		switch ast.Type {
-		case AstPos:
-			emit(fn, OpUnaryPos)
-		case AstNeg:
-			emit(fn, OpUnaryNeg)
-		case AstNot:
-			emit(fn, OpUnaryNot)
-		case AstBitNot:
-			emit(fn, OpUnaryBitNot)
+		{
+			visitExpression(p, scope, fn, ast.A)
+			switch ast.Type {
+			case AstPos:
+				emit(fn, OpUnaryPos)
+			case AstNeg:
+				emit(fn, OpUnaryNeg)
+			case AstNot:
+				emit(fn, OpUnaryNot)
+			case AstBitNot:
+				emit(fn, OpUnaryBitNot)
+			}
 		}
 	case AstMul, AstDiv, AstMod, AstAdd, AstSub,
 		AstShiftLeft, AstShiftRight,
 		AstLess, AstLessEqual, AstGreater, AstGreaterEqual,
 		AstEqual, AstNotEqual,
 		AstBitAnd, AstBitXor, AstBitOr:
-		visitExpression(p, scope, fn, ast.A)
-		visitExpression(p, scope, fn, ast.B)
-		emit(fn, binaryOpcode(ast.Type))
-	case AstAnd, AstOr:
-		visitExpression(p, scope, fn, ast.A)
-		var jumpPos int32
-		if ast.Type == AstAnd {
-			jumpPos = emitJump(fn, OpJmpIfFalseOrPop)
-		} else {
-			jumpPos = emitJump(fn, OpJmpIfTrueOrPop)
+		{
+			visitExpression(p, scope, fn, ast.A)
+			visitExpression(p, scope, fn, ast.B)
+			emit(fn, binaryOpcode(ast.Type))
 		}
-		visitExpression(p, scope, fn, ast.B)
-		labelJump(fn, jumpPos)
+	case AstAnd, AstOr:
+		{
+			visitExpression(p, scope, fn, ast.A)
+			var jumpPos int32
+			if ast.Type == AstAnd {
+				jumpPos = emitJump(fn, OpJmpIfFalseOrPop)
+			} else {
+				jumpPos = emitJump(fn, OpJmpIfTrueOrPop)
+			}
+			visitExpression(p, scope, fn, ast.B)
+			labelJump(fn, jumpPos)
+		}
 	default:
-		unexpected("visitExpression", ast.Type)
+		{
+			unexpected("visitExpression", ast.Type)
+		}
 	}
 }
 
@@ -672,7 +766,6 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	localScope := acquireScope(scope)
 	localScope.Type = ScopeTypeFunction
 
-	// Fixed stack buffer: no heap allocation unless there are > 8 parameters.
 	var paramBuf [8]int32
 	reverse := paramBuf[:0]
 
@@ -703,6 +796,7 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		reverse = append(reverse, offset)
 	}
 
+	function.Async = ast.Type == AstAsyncFunctionExpression
 	function.VarArgIndex = int32(vaIndex)
 	function.ParamCount = int32(len(reverse))
 

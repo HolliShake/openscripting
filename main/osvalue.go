@@ -34,6 +34,8 @@ type OSArray struct {
 	Elements []OSValue
 }
 
+type OSPromise struct{}
+
 func (obj *OSObject) Set(key string, value OSValue) {
 	if _, exists := obj.Values[key]; !exists {
 		obj.Keys = append(obj.Keys, key)
