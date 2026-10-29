@@ -29,6 +29,8 @@ var noConst constVal
 var scopePool sync.Pool
 
 const initialBytecodeCap = 256
+const maxPooledScopeVars = 64
+const maxPooledBreaks = 64
 
 type constKind uint8
 
@@ -84,6 +86,11 @@ func acquireScope(parent *Scope) *Scope {
 // releaseScope drops every reference the scope holds (symbols, parent) so a
 // pooled scope never keeps compile-time data alive.
 func releaseScope(s *Scope) {
+	if len(s.Variables) > maxPooledScopeVars || cap(s.BreakStart) > maxPooledBreaks {
+		clear(s.Variables)
+		s.Parent = nil
+		return
+	}
 	clear(s.Variables)
 	s.Parent = nil
 	scopePool.Put(s)

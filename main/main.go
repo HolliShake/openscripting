@@ -8,6 +8,8 @@ import (
 )
 
 var programState State
+var scriptFile string
+var showHelp bool
 
 type RGB struct {
 	R, G, B int
@@ -81,12 +83,9 @@ func printGradientLogo() {
 }
 
 func main() {
-	var file string
-	var help bool
-
-	flag.StringVar(&file, "f", "", "path to the script file")
-	flag.StringVar(&file, "file", "", "path to the script file")
-	flag.BoolVar(&help, "help", false, "print this help")
+	flag.StringVar(&scriptFile, "f", "", "path to the script file")
+	flag.StringVar(&scriptFile, "file", "", "path to the script file")
+	flag.BoolVar(&showHelp, "help", false, "print this help")
 
 	flag.Usage = func() {
 		printGradientLogo()
@@ -102,12 +101,12 @@ func main() {
 
 	flag.Parse()
 
-	if help {
+	if showHelp {
 		flag.Usage()
 		return
 	}
 
-	if file == "" {
+	if scriptFile == "" {
 		fmt.Fprintln(
 			os.Stderr,
 			"a script file is required; use -f or -file",
@@ -116,7 +115,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	data, err := os.ReadFile(file)
+	data, err := os.ReadFile(scriptFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error reading script: %v\n", err)
 		os.Exit(1)
@@ -133,7 +132,7 @@ func main() {
 	state := &programState
 
 	parser := NewParser(state, &File{
-		Name:    file,
+		Name:    scriptFile,
 		Content: content,
 	})
 
