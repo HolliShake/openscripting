@@ -534,11 +534,10 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		}
 	case AstFunctionExpression, AstAsyncFunctionExpression:
 		{
-			nameNode := ast.A
-			parmNode := ast.B.A
-			bodyNode := ast.B.B
+			parmNode := ast.A
+			bodyNode := ast.B
 
-			function := newFunction(fn.File, nameNode.Value)
+			function := newFunction(fn.File, "<anon/>")
 			funcOffset := p.state.SaveFunction(function)
 
 			localScope := acquireScope(scope)
@@ -595,17 +594,11 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 				emit(function, OpReturn)
 			}
 
-			status, exists := scope.GetVariable(nameNode.Value)
-			if !exists {
-				ThrowError(fn.File, "function does not exists", ast.Pos)
-			}
-
 			function.LocalCount = localScope.VarCount
 			finalizeFunction(function) // actually drop the unused capacity
 			releaseScope(localScope)
 
 			emitInt(fn, OpLoadFunction, funcOffset)
-			emitInt(fn, OpStoreLocal, status.Offset)
 		}
 	case AstCall:
 		{
@@ -817,7 +810,7 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		emit(function, OpReturn)
 	}
 
-	status, exists := scope.GetVariable(nameNode.Value)
+	sym, exists := scope.GetVariable(nameNode.Value)
 	if !exists {
 		ThrowError(fn.File, "function does not exists", ast.Pos)
 	}
@@ -827,7 +820,7 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	releaseScope(localScope)
 
 	emitInt(fn, OpLoadFunction, funcOffset)
-	emitInt(fn, OpStoreLocal, status.Offset)
+	emitInt(fn, OpStoreLocal, sym.Offset)
 }
 
 func visitIfStatement(p *Parser, scope *Scope, fn *Function, ast *Ast) {
