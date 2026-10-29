@@ -11,6 +11,7 @@ const (
 	OpExtendObject
 	OpMakeObject
 	OpGetAttr
+	OpGetIndex
 	OpLoadFunction
 	OpLoadCap
 	OpLoadVar

@@ -355,6 +355,50 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					push(vm.Null)
 				}
 			}
+		case OpGetIndex:
+			{
+				idx := pop()
+				obj := pop()
+
+				if obj.Type == OSVObject && obj.Opaque != nil {
+					if idx.Type != OSVString {
+						if throwRuntimeError("object index must be a string") {
+							continue
+						}
+					}
+
+					object := (*OSObject)(obj.Opaque)
+					if value, exists := object.Values[idx.StringValue()]; exists {
+						push(value)
+					} else {
+						push(vm.Null)
+					}
+					continue
+				}
+
+				if obj.Type != OSVArray || obj.Opaque == nil {
+					if throwRuntimeError("attempted to index a non-array value " + valueString(obj)) {
+						continue
+					}
+				}
+
+				arr := (*OSArray)(obj.Opaque)
+
+				if idx.Type != OSVNum {
+					if throwRuntimeError("array index must be a number") {
+						continue
+					}
+				}
+
+				i := int32(CoerceToNumber(idx))
+				if i < 0 || i >= int32(len(arr.Elements)) {
+					if throwRuntimeError("array index out of bounds") {
+						continue
+					}
+				}
+
+				push(arr.Elements[i])
+			}
 		case OpLoadFunction:
 			{
 				funcIndex := int(readByte())
@@ -484,7 +528,10 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					callee.Caller = nil
 					callee.AsyncResult = promise
 					vm.Pending = append(vm.Pending, callee)
-					push(OSValue{Type: OSVPromise, Opaque: unsafe.Pointer(promise)})
+					push(OSValue{
+						Type:   OSVPromise,
+						Opaque: unsafe.Pointer(promise),
+					})
 					saveState()
 					continue
 				}

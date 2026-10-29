@@ -272,7 +272,11 @@ func tryFold(fn *Function, ast *Ast) constVal {
 		}
 		return numConst(value)
 	case AstStrLit:
-		return strConst(ast.Value)
+		value, err := strconv.Unquote(ast.Value)
+		if err != nil {
+			ThrowError(fn.File, "invalid string literal", ast.Pos)
+		}
+		return strConst(value)
 	case AstBoolLit:
 		return boolConst(ast.Value == KeyTrue)
 
@@ -599,6 +603,18 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 			releaseScope(localScope)
 
 			emitInt(fn, OpLoadFunction, funcOffset)
+		}
+	case AstMemberAccess:
+		{
+			visitExpression(p, scope, fn, ast.A)
+			emit(fn, OpGetAttr)
+			emitRunes(fn, ast.B.Value)
+		}
+	case AstIndexAccess:
+		{
+			visitExpression(p, scope, fn, ast.A)
+			visitExpression(p, scope, fn, ast.B)
+			emit(fn, OpGetIndex)
 		}
 	case AstCall:
 		{

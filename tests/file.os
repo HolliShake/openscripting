@@ -101,3 +101,19 @@ var asyncChecks = fn() async {
 };
 
 asyncChecks();
+
+log ">>" + obj->A;
+
+var items = [
+    "One",
+    "Two",
+    "3"
+];
+
+log items[1];
+
+log obj["A"];
+log obj["missing"];
+var objectKey = "B";
+log obj[objectKey];
+

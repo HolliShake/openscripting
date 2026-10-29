@@ -5,3 +5,4 @@
 *.so
 *.dylib
 build.txt
+debug.log
