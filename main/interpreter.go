@@ -187,6 +187,19 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			return true
 		}
 
+		if promise := co.AsyncResult; promise != nil {
+			promise.StringRoot = message
+			rejectPromise(vm, promise, OSValue{
+				Type:   OSVString,
+				Number: float64(len(message)),
+				Opaque: unsafe.Pointer(unsafe.StringData(message)),
+			})
+			co.State = CoroutineStateDead
+			co.Release()
+			vm.Current = nil
+			return true
+		}
+
 		line := int32(0)
 		for _, sourceLine := range frame.Function.Lines {
 			if sourceLine.Index > instruction {
@@ -341,9 +354,15 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				top := pop()
 				attr := readString()
 
-				if top.Type == OSVPromise && attr == "then" {
-					push(BindPromiseThenMethod(top))
-					continue
+				if top.Type == OSVPromise {
+					if attr == "then" {
+						push(BindPromiseThenMethod(top))
+						continue
+					}
+					if attr == "catch" {
+						push(BindPromiseCatchMethod(top))
+						continue
+					}
 				}
 
 				if top.Type != OSVObject || top.Opaque == nil {
@@ -471,7 +490,17 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 						}
 					}
 
-					nativeMethod.Callable(vm, stack[sp-int32(argCount):sp])
+					if argCount < 0 || argCount > sp {
+						if throwRuntimeError("invalid native method argument count") {
+							continue
+						}
+					}
+
+					argStart := sp - int32(argCount)
+					result := nativeMethod.Callable(nativeMethod.This, vm, stack[argStart:sp])
+					clear(stack[argStart:sp])
+					sp = argStart
+					push(result)
 					continue
 				}
 
@@ -995,9 +1024,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 
 				co.State = CoroutineStateDead
 				if promise := co.AsyncResult; promise != nil {
-					promise.Value = returnValue
-					promise.Resolved = true
-					promise.Coroutine = nil
+					resolvePromise(vm, promise, returnValue)
 				}
 
 				caller := co.Caller
@@ -1041,9 +1068,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 	co.State = CoroutineStateDead
 	returnValue := vm.Null
 	if promise := co.AsyncResult; promise != nil {
-		promise.Value = returnValue
-		promise.Resolved = true
-		promise.Coroutine = nil
+		resolvePromise(vm, promise, returnValue)
 	}
 
 	parent := co.Caller
@@ -1086,12 +1111,4 @@ func Run(state *State, program *Function) {
 	vm.Current = main
 
 	interpreterLoop(state, &vm)
-}
-
-func GetBuiltinMethods() map[string]OSValue {
-	// Return a map of built-in methods.
-	return map[string]OSValue{
-		"then":  OSValue{Type: OSVFunction},
-		"catch": OSValue{Type: OSVFunction},
-	}
 }

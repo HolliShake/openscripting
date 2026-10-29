@@ -8,5 +8,5 @@ type NativeFunction struct {
 type NativeMethod struct {
 	This     OSValue
 	Paramc   int32
-	Callable func(vm *VM, args []OSValue)
+	Callable func(this OSValue, vm *VM, args []OSValue) OSValue
 }

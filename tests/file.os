@@ -123,5 +123,17 @@ var asyncF::fn() async {
 
 asyncF()
     ->then(fn(data) {
+        log "then " + data;
+        return "nah!!";
+      })
+    ->then(fn(data) {
         log data;
-      });
+        return 1000;
+    })
+    ->then(fn(data) {
+        log data;
+        return data + "asdasd";
+    })
+    ->catch(fn(data) {
+        log data;
+    });

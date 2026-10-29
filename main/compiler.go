@@ -820,7 +820,7 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		reverse = append(reverse, offset)
 	}
 
-	function.Async = ast.Type == AstAsyncFunctionExpression
+	function.Async = ast.B.Type == AstAsyncFunctionExpression
 	function.VarArgIndex = int32(vaIndex)
 	function.ParamCount = int32(len(reverse))
 

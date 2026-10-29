@@ -482,6 +482,18 @@ func (p *Parser) identifier(required bool) *Ast {
 	return ast
 }
 
+func (p *Parser) identifierOrKeyword(required bool) *Ast {
+	if !p.matchType(IDN) && !p.matchType(KEY) {
+		if required {
+			ThrowError(p.File, "expected identifier or keyword", p.lookahead.Pos)
+		}
+		return nil
+	}
+	ast := NewTerminalAst(AstIdentifier, p.lookahead.Pos, p.lookahead.Value)
+	p.lookahead = p.getNextToken()
+	return ast
+}
+
 func (p *Parser) stringLit() *Ast {
 	ast := NewTerminalAst(AstStrLit, p.lookahead.Pos, p.lookahead.Value)
 	p.expectType(STR)
@@ -632,7 +644,7 @@ func (p *Parser) memberOrCall() *Ast {
 	for {
 		if p.match("->") {
 			p.expect("->")
-			prop := p.identifier(true)
+			prop := p.identifierOrKeyword(true)
 			obj = NewMemberAccess(obj.Pos, obj, prop)
 		} else if p.match("[") {
 			p.expect("[")
