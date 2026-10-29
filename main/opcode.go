@@ -16,6 +16,7 @@ const (
 	OpLoadCap
 	OpLoadVar
 	OpCall
+	OpCallAttr
 	OpUnaryPos
 	OpUnaryNeg
 	OpUnaryNot

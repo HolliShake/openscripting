@@ -41,6 +41,11 @@ type OSPromise struct {
 	Coroutine *Coroutine
 }
 
+type OSNativeFunction struct {
+	This     OSValue
+	Callable func(vm VM, args []OSValue) OSValue
+}
+
 func (obj *OSObject) Set(key string, value OSValue) {
 	if _, exists := obj.Values[key]; !exists {
 		obj.Keys = append(obj.Keys, key)

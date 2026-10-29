@@ -625,8 +625,21 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 				argCount++
 			}
 
-			visitExpression(p, scope, fn, ast.A)
-			emitInt(fn, OpCall, argCount)
+			switch ast.A.Type {
+			case AstMemberAccess:
+				{
+					obj := ast.A.A
+					mem := ast.A.B
+					visitExpression(p, scope, fn, obj)
+					emitInt(fn, OpCall, argCount)
+					emitRunes(fn, mem.Value)
+				}
+			default:
+				{
+					visitExpression(p, scope, fn, ast.A)
+					emitInt(fn, OpCall, argCount)
+				}
+			}
 		}
 	case AstAwait:
 		{

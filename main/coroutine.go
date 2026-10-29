@@ -2,16 +2,6 @@ package main
 
 const minOperandStack = 32
 
-// initialStack sizes a new operand stack from the argument count; it grows on
-// demand up to StackSize (see growStack).
-func initialStack(argCount int32) int32 {
-	size := argCount + minOperandStack
-	if size > StackSize && argCount < StackSize {
-		size = StackSize
-	}
-	return size
-}
-
 func NewCoroutine(parent *Coroutine, fn *Function, stackSize int32) *Coroutine {
 	if stackSize <= 0 {
 		stackSize = minOperandStack
@@ -39,13 +29,23 @@ func NewCoroutine(parent *Coroutine, fn *Function, stackSize int32) *Coroutine {
 	return co
 }
 
-func snapshotLexicalChain(parent *Coroutine) *Coroutine {
+// InitialStack sizes a new operand stack from the argument count; it grows on
+// demand up to StackSize (see growStack).
+func InitialStack(argCount int32) int32 {
+	size := argCount + minOperandStack
+	if size > StackSize && argCount < StackSize {
+		size = StackSize
+	}
+	return size
+}
+
+func SnapshotLexicalChain(parent *Coroutine) *Coroutine {
 	if parent == nil {
 		return nil
 	}
 
 	return &Coroutine{
-		Parent: snapshotLexicalChain(parent.Parent),
+		Parent: SnapshotLexicalChain(parent.Parent),
 		Frame: CallFrame{
 			Function: parent.Frame.Function,
 			Env:      parent.Frame.Env,
@@ -54,8 +54,6 @@ func snapshotLexicalChain(parent *Coroutine) *Coroutine {
 }
 
 // growStack doubles co's operand stack (bounded by StackSize) and returns it.
-//
-//go:noinline
 func growStack(co *Coroutine) []OSValue {
 	current := int32(len(co.OperandStack))
 	if current >= StackSize {
@@ -69,7 +67,7 @@ func growStack(co *Coroutine) []OSValue {
 
 // release drops everything a finished coroutine references so it cannot keep
 // the stack, cells or caller chain alive.
-func (co *Coroutine) release() {
+func (co *Coroutine) Release() {
 	co.OperandStack = nil
 	co.Parent = nil
 	co.Caller = nil

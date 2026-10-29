@@ -443,9 +443,31 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 
 				push(frame.Env[varIndex].Value)
 			}
-		case OpCall:
+		case OpCall, OpCallAttr:
 			{
+				attrName := ""
 				argCount := int32(readByte())
+				objToAcc := OSValue{}
+
+				if op == OpCallAttr {
+					objToAcc = pop()
+					attrName = readString()
+
+					switch {
+					case objToAcc.Type == OSVPromise && attrName == "then":
+						{
+							// For a promise, accessing the "then" attribute is valid.
+							// No action needed here as we just allow it.
+							(func() {}()) // No-op function to indicate valid access
+						}
+					default:
+						{
+							if throwRuntimeError("attempted to access attribute of non-object value " + valueString(objToAcc)) {
+								continue
+							}
+						}
+					}
+				}
 
 				// Expected stack layout:
 				// [..., arg1, arg2, ..., argN, function]
@@ -491,7 +513,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				saveState()
 
 				caller := co
-				callee := NewCoroutine(caller, fn, initialStack(argCount))
+				callee := NewCoroutine(caller, fn, InitialStack(argCount))
 
 				if callee == nil {
 					panic("failed to create coroutine")
@@ -524,7 +546,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 
 				if fn.Async {
 					promise := &OSPromise{Coroutine: callee}
-					callee.Parent = snapshotLexicalChain(caller)
+					callee.Parent = SnapshotLexicalChain(caller)
 					callee.Caller = nil
 					callee.AsyncResult = promise
 					vm.Pending = append(vm.Pending, callee)
@@ -981,7 +1003,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				if caller == nil {
 					// The root coroutine has finished.
 					vm.Current = nil
-					co.release()
+					co.Release()
 					return
 				}
 
@@ -1001,7 +1023,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 
 				// Nothing references the finished coroutine any more; drop its
 				// stack, cells and links so they can be collected.
-				co.release()
+				co.Release()
 
 				return
 			}
@@ -1024,7 +1046,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 
 	parent := co.Caller
 	if parent == nil {
-		co.release()
+		co.Release()
 		vm.Current = nil
 		return
 	}
@@ -1033,7 +1055,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 	}
 	parent.OperandStack[parent.Sp] = returnValue
 	parent.Sp++
-	co.release()
+	co.Release()
 	vm.Current = parent
 }
 
@@ -1053,7 +1075,7 @@ func Run(state *State, program *Function) {
 		strs:  make(map[strKey]string, 16),
 	}
 
-	main := NewCoroutine(nil, program, initialStack(0))
+	main := NewCoroutine(nil, program, InitialStack(0))
 
 	if main == nil {
 		panic("failed to create main coroutine")
@@ -1062,4 +1084,12 @@ func Run(state *State, program *Function) {
 	vm.Current = main
 
 	interpreterLoop(state, &vm)
+}
+
+func GetBuiltinMethods() map[string]OSValue {
+	// Return a map of built-in methods.
+	return map[string]OSValue{
+		"then":  OSValue{Type: OSVFunction},
+		"catch": OSValue{Type: OSVFunction},
+	}
 }
