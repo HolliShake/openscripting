@@ -592,7 +592,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					}
 				}
 
-				old := &value
+				old := value
 
 				if op == OpPostInc {
 					value.Number++
@@ -600,7 +600,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					value.Number--
 				}
 				push(value)
-				push(*old)
+				push(old)
 
 			}
 		case OpCall:

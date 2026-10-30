@@ -755,26 +755,28 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		{
 			assign1(p, scope, fn, ast.A)
 			emit(fn, OpInc)
-			assign2(p, scope, fn, ast.A, false)
+			emit(fn, OpDupTop)
+			assign2(p, scope, fn, ast.A)
 
 		}
 	case AstDec:
 		{
 			assign1(p, scope, fn, ast.A)
 			emit(fn, OpDec)
-			assign2(p, scope, fn, ast.A, false)
+			emit(fn, OpDupTop)
+			assign2(p, scope, fn, ast.A)
 		}
 	case AstPostInc:
 		{
 			assign1(p, scope, fn, ast.A)
 			emit(fn, OpPostInc)
-			assign2(p, scope, fn, ast.A, true)
+			assign2(p, scope, fn, ast.A)
 		}
 	case AstPostDec:
 		{
 			assign1(p, scope, fn, ast.A)
 			emit(fn, OpPostDec)
-			assign2(p, scope, fn, ast.A, true)
+			assign2(p, scope, fn, ast.A)
 		}
 	case AstMul, AstDiv, AstMod, AstAdd, AstSub,
 		AstShiftLeft, AstShiftRight,
@@ -820,7 +822,7 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 			visitExpression(p, scope, fn, ast.B)
 			emit(fn, compoundAssignOpcode(ast.Type))
 			emit(fn, OpDupTop)
-			assign2(p, scope, fn, ast.A, false)
+			assign2(p, scope, fn, ast.A)
 		}
 	case AstTernaryOperation:
 		{
@@ -894,7 +896,7 @@ func assign1(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	}
 }
 
-func assign2(p *Parser, scope *Scope, fn *Function, lhs *Ast, postfix bool) {
+func assign2(p *Parser, scope *Scope, fn *Function, lhs *Ast) {
 	switch lhs.Type {
 	case AstIdentifier:
 		{
@@ -905,24 +907,18 @@ func assign2(p *Parser, scope *Scope, fn *Function, lhs *Ast, postfix bool) {
 			if symb.Const {
 				ThrowError(fn.File, "cannot assign to constant variable", lhs.Pos)
 			}
-			if postfix {
-				emit(fn, OpRot2)
-			}
+			emit(fn, OpRot2)
 			emitInt(fn, OpStoreLocal, symb.Offset)
 		}
 	case AstMemberAccess:
 		{
-			if postfix {
-				emit(fn, OpRot3)
-			}
+			emit(fn, OpRot3)
 			emit(fn, OpSetAttr)
 			emitRunes(fn, lhs.B.Value)
 		}
 	case AstIndexAccess:
 		{
-			if postfix {
-				emit(fn, OpRot4)
-			}
+			emit(fn, OpRot4)
 			emit(fn, OpSetIndex)
 		}
 	default:
