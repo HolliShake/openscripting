@@ -165,7 +165,6 @@ log items;
 var makeCounter::fn() {
     let c = 0;
     let _counter = fn() {
-        log c;
         c += 1;
         return c;
     };
@@ -174,8 +173,11 @@ var makeCounter::fn() {
 
 var [count, inc] = makeCounter();
 
-inc();
-inc();
-inc();
+log inc();
+log inc();
+log inc();
 
-log count++ + 2 - --count + 1;
+log count++ + 2 - ++count + 1;
+log count;
+
+items[1]++ + 2;

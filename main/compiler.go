@@ -753,8 +753,22 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		}
 	case AstInc, AstPostInc:
 		{
-			assign1(p, scope, fn, ast.A, ast.Type == AstPostInc)
+			postfix := ast.Type == AstPostInc
+			assign1(p, scope, fn, ast.A, postfix)
 			emit(fn, OpInc)
+			if !postfix {
+				emit(fn, OpDupTop)
+			}
+			assign0(p, scope, fn, ast.A)
+		}
+	case AstDec, AstPostDec:
+		{
+			postfix := ast.Type == AstPostDec
+			assign1(p, scope, fn, ast.A, postfix)
+			emit(fn, OpDec)
+			if !postfix {
+				emit(fn, OpDupTop)
+			}
 			assign0(p, scope, fn, ast.A)
 		}
 	case AstMul, AstDiv, AstMod, AstAdd, AstSub,
@@ -900,6 +914,9 @@ func assign1(p *Parser, scope *Scope, fn *Function, ast *Ast, postfix bool) {
 		}
 	default:
 		ThrowError(fn.File, "invalid left-hand operand", ast.Pos)
+	}
+	if postfix {
+		emit(fn, OpDupTop)
 	}
 }
 
