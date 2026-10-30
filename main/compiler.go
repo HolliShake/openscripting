@@ -685,6 +685,47 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 			emit(fn, OpDupTop)
 			assign0(p, scope, fn, ast.A)
 		}
+	case
+		AstMulAssign,
+		AstDivAssign,
+		AstModAssign,
+		AstAddAssign,
+		AstSubAssign,
+		AstShiftLeftAssign,
+		AstShiftRightAssign,
+		AstAndAssign,
+		AstXorAssign,
+		AstOrAssign:
+		{
+			visitExpression(p, scope, fn, ast.A)
+			visitExpression(p, scope, fn, ast.B)
+			switch ast.Type {
+			case AstMulAssign:
+				emit(fn, OpBinMul)
+			case AstDivAssign:
+				emit(fn, OpBinDiv)
+			case AstModAssign:
+				emit(fn, OpBinMod)
+			case AstAddAssign:
+				emit(fn, OpBinAdd)
+			case AstSubAssign:
+				emit(fn, OpBinSub)
+			case AstShiftLeftAssign:
+				emit(fn, OpBinShiftLeft)
+			case AstShiftRightAssign:
+				emit(fn, OpBinShiftRight)
+			case AstAndAssign:
+				emit(fn, OpBinBitAnd)
+			case AstXorAssign:
+				emit(fn, OpBinBitXor)
+			case AstOrAssign:
+				emit(fn, OpBinBitOr)
+			default:
+				unexpected("invalid assignment operator", ast.Type)
+			}
+			emit(fn, OpDupTop)
+			assign0(p, scope, fn, ast.A)
+		}
 	case AstTernaryOperation:
 		{
 			visitExpression(p, scope, fn, ast.A)

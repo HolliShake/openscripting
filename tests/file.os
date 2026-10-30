@@ -158,4 +158,5 @@ log obj;
 
 log items;
 items[1] = 1000;
+items[1] += 1000 + 2;
 log items;
