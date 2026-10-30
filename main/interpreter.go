@@ -955,6 +955,17 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					push(vm.False)
 				}
 			}
+		case OpCaseEqual:
+			{
+				rhs := pop()
+				lhs := peek()
+
+				if IsEqual(lhs, rhs) {
+					push(vm.True)
+				} else {
+					push(vm.False)
+				}
+			}
 		case OpBinBitAnd:
 			{
 				rhs := pop()

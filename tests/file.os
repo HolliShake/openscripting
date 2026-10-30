@@ -179,3 +179,12 @@ log inc();
 
 log count++ + 2 - ++count + 1;
 log count;
+
+
+var item = switch(100) {
+    10, 20, 1002 => "Ok",
+    default => "Bad"
+};
+
+log ">>>>";
+log item;

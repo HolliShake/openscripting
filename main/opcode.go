@@ -41,6 +41,7 @@ const (
 	OpBinGreaterEqual
 	OpBinEqual
 	OpBinNotEqual
+	OpCaseEqual
 	OpBinBitAnd
 	OpBinBitXor
 	OpBinBitOr

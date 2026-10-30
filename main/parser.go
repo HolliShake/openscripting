@@ -609,11 +609,7 @@ func (p *Parser) switchExpression() *Ast {
 			p.expect(KeyDefault)
 			p.expect("=>")
 			defaultBlock := p.expression(true)
-			defaultNode := NewKeyValue(
-				p.lookahead.Pos,
-				NewTerminalAst(AstNullLit, p.lookahead.Pos, ""),
-				defaultBlock,
-			)
+			defaultNode := defaultBlock
 			caseTail.Next = defaultNode
 			caseTail = caseTail.Next
 			continue
@@ -630,9 +626,13 @@ func (p *Parser) switchExpression() *Ast {
 		caseTail = caseTail.Next
 	}
 
+	if !hasDefault {
+		ThrowError(p.File, "missing default case in switch expression", p.lookahead.Pos)
+	}
+
 	p.expect("}")
 
-	return NewSwitchStatement(pos, condition, caseHead)
+	return NewSwitchExpression(pos, condition, caseHead)
 }
 
 func (p *Parser) memberOrCall() *Ast {

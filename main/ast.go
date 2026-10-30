@@ -12,6 +12,7 @@ const (
 	AstArray
 	AstObject
 	AstKeyValue
+	AstSwitchExpr
 	AstMemberAccess
 	AstIndexAccess
 	AstCall
@@ -144,6 +145,13 @@ func NewArray(position Position, elements *Ast) *Ast {
 func NewObject(position Position, properties *Ast) *Ast {
 	node := newAst(AstObject, position)
 	node.A = properties
+	return node
+}
+
+func NewSwitchExpression(position Position, discriminant *Ast, cases *Ast) *Ast {
+	node := newAst(AstSwitchExpr, position)
+	node.A = discriminant
+	node.B = cases
 	return node
 }
 

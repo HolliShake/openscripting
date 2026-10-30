@@ -699,6 +699,59 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 				ast.Type == AstAsyncFunctionExpression, ast.A, ast.B)
 			emitInt(fn, OpLoadFunction, funcOffset)
 		}
+	case AstSwitchExpr:
+		{
+			visitExpression(p, scope, fn, ast.A)
+
+			caseHead := ast.B
+			jumpEnds := []int32{}
+			defaults := []*Ast{}
+
+			for head := caseHead; head != nil; head = head.Next {
+				if head.Type != AstKeyValue {
+					// Default
+					defaults = append(defaults, head)
+					continue
+				}
+
+				conditionHead := head.A
+				conditionExpr := head.B
+
+				jumpExpr := []int32{}
+				for condition := conditionHead; condition != nil; condition = condition.Next {
+					visitExpression(p, scope, fn, condition)
+					emit(fn, OpCaseEqual)
+					jumptToValue := emitJump(fn, OpPopJmpIfTrue)
+					jumpExpr = append(jumpExpr, jumptToValue)
+				}
+
+				// If none of the conditions matched, pop the top of the stack
+				toNextCase := emitJump(fn, OpJmp)
+
+				// Label the Jump to value
+				for _, jump := range jumpExpr {
+					labelJump(fn, jump)
+				}
+
+				// Jump to value immediately without evaluating other
+				emit(fn, OpPopTop)
+				visitExpression(p, scope, fn, conditionExpr)
+
+				jumpEnds = append(jumpEnds, emitJump(fn, OpJmp))
+
+				labelJump(fn, toNextCase)
+			}
+
+			// Handle default cases
+			for _, def := range defaults {
+				emit(fn, OpPopTop)
+				visitExpression(p, scope, fn, def)
+			}
+
+			for _, jump := range jumpEnds {
+				labelJump(fn, jump)
+			}
+		}
 	case AstMemberAccess:
 		{
 			visitExpression(p, scope, fn, ast.A)
