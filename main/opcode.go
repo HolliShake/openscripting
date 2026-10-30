@@ -21,6 +21,8 @@ const (
 	OpUnaryNeg
 	OpUnaryNot
 	OpUnaryBitNot
+	OpInc
+	OpDec
 	OpBinMul
 	OpBinDiv
 	OpBinMod

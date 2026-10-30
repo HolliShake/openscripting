@@ -751,6 +751,12 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 			visitExpression(p, scope, fn, ast.A)
 			emit(fn, OpUnaryBitNot)
 		}
+	case AstInc, AstPostInc:
+		{
+			assign1(p, scope, fn, ast.A, ast.Type == AstPostInc)
+			emit(fn, OpInc)
+			assign0(p, scope, fn, ast.A)
+		}
 	case AstMul, AstDiv, AstMod, AstAdd, AstSub,
 		AstShiftLeft, AstShiftRight,
 		AstLess, AstLessEqual, AstGreater, AstGreaterEqual,
@@ -841,6 +847,59 @@ func assign0(p *Parser, scope *Scope, fn *Function, lhs *Ast) {
 		}
 	default:
 		ThrowError(fn.File, "invalid left-hand operand", lhs.Pos)
+	}
+}
+
+func assign1(p *Parser, scope *Scope, fn *Function, ast *Ast, postfix bool) {
+	switch ast.Type {
+	case AstIdentifier:
+		{
+			name := ast.Value
+			if !scope.Exists(name) {
+				ThrowError(fn.File, "undefined variable", ast.Pos)
+			}
+
+			isLocalSymb := scope.ExistsFunction(name)
+			sym, exists := scope.GetVariable(name)
+
+			if exists && !isLocalSymb {
+				// Capture
+				offset := scope.GetVarCount()
+
+				scope.AddLocal(name, Symbol{
+					Name:    name,
+					Offset:  offset,
+					Const:   sym.Const,
+					Capture: true,
+					Pos:     ast.Pos,
+				})
+
+				fn.CaptureMeta = append(fn.CaptureMeta, CaptureMeta{
+					Name: name,
+					Cell: nil,
+					Src:  sym.Offset,
+					Dst:  offset,
+				})
+
+				emitInt(fn, OpLoadVar, offset)
+			} else {
+				emitInt(fn, OpLoadVar, sym.Offset)
+			}
+		}
+	case AstMemberAccess:
+		{
+			visitExpression(p, scope, fn, ast.A)
+			emit(fn, OpGetAttr)
+			emitRunes(fn, ast.B.Value)
+		}
+	case AstIndexAccess:
+		{
+			visitExpression(p, scope, fn, ast.A)
+			visitExpression(p, scope, fn, ast.B)
+			emit(fn, OpGetIndex)
+		}
+	default:
+		ThrowError(fn.File, "invalid left-hand operand", ast.Pos)
 	}
 }
 

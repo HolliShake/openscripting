@@ -696,13 +696,17 @@ func (p *Parser) postfix() *Ast {
 }
 
 func (p *Parser) unary() *Ast {
-	if p.match("+") || p.match("-") || p.match("!") || p.match("~") || p.match(KeyAwait) {
+	if p.match("+") || p.match("++") || p.match("-") || p.match("--") || p.match("!") || p.match("~") || p.match(KeyAwait) {
 		opt := p.lookahead.Value
 		switch opt {
 		case "+":
 			p.expect("+")
+		case "++":
+			p.expect("++")
 		case "-":
 			p.expect("-")
+		case "--":
+			p.expect("--")
 		case "!":
 			p.expect("!")
 		case "~":
@@ -1852,9 +1856,9 @@ func symbolAt(src []rune, i int) string {
 func postfixOperator(opt string) AstType {
 	switch opt {
 	case "++":
-		return AstInc
+		return AstPostInc
 	case "--":
-		return AstDec
+		return AstPostDec
 	}
 	panic("invalid postfix operator")
 }

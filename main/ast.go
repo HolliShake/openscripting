@@ -17,8 +17,10 @@ const (
 	AstCall
 	AstPos
 	AstInc
+	AstPostInc
 	AstNeg
 	AstDec
+	AstPostDec
 	AstNot
 	AstBitNot
 	AstAwait

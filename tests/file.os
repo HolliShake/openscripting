@@ -178,4 +178,4 @@ inc();
 inc();
 inc();
 
-log count;
+log count++ + 2 - --count + 1;

@@ -1,6 +1,9 @@
 package main
 
+import "slices"
+
 type Function struct {
+	File          *File
 	Name          string
 	Async         bool
 	ParamCount    int32
@@ -9,25 +12,16 @@ type Function struct {
 	Bytecode      []int32
 	TryCatchTable []TryCatchTable
 	Lines         []Line
-	File          *File
-	Captures      []*Cell
 	CaptureMeta   []CaptureMeta
 }
 
 func (fn *Function) Clone() *Function {
-	return &Function{
-		Name:          fn.Name,
-		Async:         fn.Async,
-		ParamCount:    fn.ParamCount,
-		LocalCount:    fn.LocalCount,
-		VarArgIndex:   fn.VarArgIndex,
-		Bytecode:      append([]int32(nil), fn.Bytecode...),
-		TryCatchTable: append([]TryCatchTable(nil), fn.TryCatchTable...),
-		Lines:         append([]Line(nil), fn.Lines...),
-		File:          fn.File,
-		Captures:      append([]*Cell(nil), fn.Captures...),
-		CaptureMeta:   append([]CaptureMeta(nil), fn.CaptureMeta...),
-	}
+	c := *fn
+	c.Bytecode = slices.Clone(fn.Bytecode)
+	c.TryCatchTable = slices.Clone(fn.TryCatchTable)
+	c.Lines = slices.Clone(fn.Lines)
+	c.CaptureMeta = slices.Clone(fn.CaptureMeta)
+	return &c
 }
 
 func NewFunction(file *File, name string, async bool) *Function {
