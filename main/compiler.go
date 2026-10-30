@@ -802,9 +802,11 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		}
 	case AstAssign:
 		{
+			assign1(p, scope, fn, ast.A)
+			emit(fn, OpPopTop)
 			visitExpression(p, scope, fn, ast.B)
 			emit(fn, OpDupTop)
-			assign1(p, scope, fn, ast.A)
+			assign2(p, scope, fn, ast.A)
 		}
 	case
 		AstMulAssign,
