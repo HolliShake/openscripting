@@ -506,6 +506,14 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 
 				fn := state.Functions[funcIndex]
+				fn = fn.Clone()
+
+				// Save captured variables from the current environment into the function's capture metadata.
+				env := co.Frame.Env
+				for i := range fn.CaptureMeta {
+					capMeta := &fn.CaptureMeta[i]
+					capMeta.Cell = env[capMeta.Src]
+				}
 
 				if fn == nil {
 					panicInt("function at index %d is nil", funcIndex)
@@ -626,6 +634,12 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 
 				if int32(len(callee.OperandStack)) < argCount {
 					panic("callee operand stack is too small for arguments")
+				}
+
+				// Unpack captured variables into the callee's environment.
+				for i := range fn.CaptureMeta {
+					capMeta := &fn.CaptureMeta[i]
+					callee.Frame.Env[capMeta.Dst] = capMeta.Cell
 				}
 
 				// A variadic parameter occupies one local and receives the
@@ -965,19 +979,19 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpStoreCap:
 			{
-				capIndex := int(readByte())
+				dstIndex := int(readByte())
 				srcIndex := int(readByte())
 
 				parentCoro := co.Parent
-				if parentCoro == nil || srcIndex >= len(parentCoro.Frame.Env) {
-					panicInt("invalid captured variable index: %d", srcIndex)
+				if envLen := len(parentCoro.Frame.Env); parentCoro == nil || srcIndex >= envLen {
+					panic(fmt.Sprintf("invalid captured variable index, %d ~ %d", srcIndex, envLen))
 				}
 
 				cell := parentCoro.Frame.Env[srcIndex]
-				if capIndex >= len(frame.Env) {
-					panicInt("invalid local capture index: %d", capIndex)
+				if dstIndex >= len(frame.Env) {
+					panicInt("invalid local capture index: %d", dstIndex)
 				}
-				frame.Env[capIndex] = cell
+				frame.Env[dstIndex] = cell
 			}
 		case OpStoreLocal:
 			{

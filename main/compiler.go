@@ -22,15 +22,36 @@ const (
 
 var noConst constVal
 
-// Scopes used to be stack literals whose address was passed down a recursive
-// visitor (and stored in child.Parent), so every one of them was "moved to
-// heap" together with a fresh map. They are now recycled through a pool, so
-// the steady-state cost is zero allocations per block / loop / function.
+const (
+	initialBytecodeCap = 256
+	initialLinesCap    = 64
+	initialTryCap      = 4
+	maxPooledScopeVars = 64
+	maxPooledBreaks    = 64
+	// Upper bounds for scratch buffers kept in the pool, so one huge
+	// function does not pin a large buffer forever.
+	maxPooledBytecode = 1 << 16
+	maxPooledLines    = 1 << 12
+	maxPooledTry      = 1 << 8
+)
+
+// Scopes are recycled through a pool: steady-state cost is zero allocations
+// per block / loop / function.
 var scopePool sync.Pool
 
-const initialBytecodeCap = 256
-const maxPooledScopeVars = 64
-const maxPooledBreaks = 64
+// codeBuf is scratch space used while a function is being compiled. Functions
+// are compiled into pooled, generously sized buffers and then copied ONCE into
+// an exactly sized slice. Previously every function allocated a 256-element
+// buffer, grew it by append, and then allocated again in shrink().
+// Nested functions are compiled while the parent is still in progress, so each
+// in-flight function owns its own codeBuf.
+type codeBuf struct {
+	bc    []int32
+	lines []Line
+	try   []TryCatchTable
+}
+
+var codeBufPool sync.Pool
 
 type constKind uint8
 
@@ -68,14 +89,14 @@ func constEqual(a, b constVal) bool {
 	return false
 }
 
-/******************* Scope pooling ***/
+/******************* Pooling ***/
 
 // acquireScope returns a clean scope. The caller sets Type (and any other
 // fields) afterwards. VarCount starts at 0.
 func acquireScope(parent *Scope) *Scope {
 	s, _ := scopePool.Get().(*Scope)
 	if s == nil {
-		s = &Scope{Variables: make(map[string]Symbol)}
+		s = &Scope{Variables: make(map[string]Symbol, 8)}
 	}
 	vars, breaks := s.Variables, s.BreakStart[:0]
 	clear(vars)
@@ -86,40 +107,69 @@ func acquireScope(parent *Scope) *Scope {
 // releaseScope drops every reference the scope holds (symbols, parent) so a
 // pooled scope never keeps compile-time data alive.
 func releaseScope(s *Scope) {
-	if len(s.Variables) > maxPooledScopeVars || cap(s.BreakStart) > maxPooledBreaks {
-		clear(s.Variables)
-		s.Parent = nil
-		return
-	}
 	clear(s.Variables)
 	s.Parent = nil
+	if len(s.Variables) > maxPooledScopeVars || cap(s.BreakStart) > maxPooledBreaks {
+		return
+	}
 	scopePool.Put(s)
+}
+
+func acquireCodeBuf() *codeBuf {
+	if b, _ := codeBufPool.Get().(*codeBuf); b != nil {
+		return b
+	}
+	return &codeBuf{
+		bc:    make([]int32, 0, initialBytecodeCap),
+		lines: make([]Line, 0, initialLinesCap),
+		try:   make([]TryCatchTable, 0, initialTryCap),
+	}
 }
 
 /******************* Emit helpers ***/
 
-func newFunction(file *File, name string) *Function {
+// newFunction creates a function whose code slices are backed by buf.
+func newFunction(file *File, name string, buf *codeBuf) *Function {
 	fn := NewFunction(file, name, false)
-	fn.Bytecode = make([]int32, 0, initialBytecodeCap)
+	// append(buf[:0], existing...) keeps anything NewFunction may have preset.
+	fn.Bytecode = append(buf.bc[:0], fn.Bytecode...)
+	fn.Lines = append(buf.lines[:0], fn.Lines...)
+	fn.TryCatchTable = append(buf.try[:0], fn.TryCatchTable...)
 	return fn
 }
 
-// shrink returns a slice whose capacity equals its length, so the over-sized
-// backing array can be garbage collected. (`s[:len(s)]` does not do that.)
-func shrink[T any](s []T) []T {
-	if len(s) == cap(s) {
-		return s
+// detach copies s into an exactly sized slice (one allocation, no slack) and
+// returns the original backing array, emptied, for reuse (nil if too large).
+func detach[T any](s []T, maxKeep int) (exact, scratch []T) {
+	if len(s) > 0 {
+		exact = make([]T, len(s))
+		copy(exact, s)
 	}
-	out := make([]T, len(s))
-	copy(out, s)
-	return out
+	if cap(s) <= maxKeep {
+		scratch = s[:0]
+	}
+	return
 }
 
-// finalizeFunction releases the slack left over from append growth.
-func finalizeFunction(fn *Function) {
-	fn.Bytecode = shrink(fn.Bytecode)
-	fn.Lines = shrink(fn.Lines)
-	fn.TryCatchTable = shrink(fn.TryCatchTable)
+// finalizeFunction moves the compiled code into exactly sized slices and
+// returns the scratch buffers to the pool. fn must not be appended to
+// afterwards.
+func finalizeFunction(fn *Function, buf *codeBuf) {
+	fn.Bytecode, buf.bc = detach(fn.Bytecode, maxPooledBytecode)
+	fn.Lines, buf.lines = detach(fn.Lines, maxPooledLines)
+	fn.TryCatchTable, buf.try = detach(fn.TryCatchTable, maxPooledTry)
+
+	// A dropped (oversized) scratch slice must be replaced to keep the buffer usable.
+	if buf.bc == nil {
+		buf.bc = make([]int32, 0, initialBytecodeCap)
+	}
+	if buf.lines == nil {
+		buf.lines = make([]Line, 0, initialLinesCap)
+	}
+	if buf.try == nil {
+		buf.try = make([]TryCatchTable, 0, initialTryCap)
+	}
+	codeBufPool.Put(buf)
 }
 
 func assert(astType AstType, ast *Ast) {
@@ -175,7 +225,7 @@ func emitFloat(fn *Function, value float64) {
 }
 
 // emitRunes writes the length-prefixed rune sequence of s directly into the
-// bytecode, without the temporary []rune that []rune(s) used to allocate.
+// bytecode, without a temporary []rune.
 func emitRunes(fn *Function, s string) {
 	n := utf8.RuneCountInString(s)
 	fn.Bytecode = slices.Grow(fn.Bytecode, n+1)
@@ -264,6 +314,33 @@ func binaryOpcode(astType AstType) int32 {
 	default:
 		panic("invalid binary operator")
 	}
+}
+
+func compoundAssignOpcode(astType AstType) int32 {
+	switch astType {
+	case AstMulAssign:
+		return OpBinMul
+	case AstDivAssign:
+		return OpBinDiv
+	case AstModAssign:
+		return OpBinMod
+	case AstAddAssign:
+		return OpBinAdd
+	case AstSubAssign:
+		return OpBinSub
+	case AstShiftLeftAssign:
+		return OpBinShiftLeft
+	case AstShiftRightAssign:
+		return OpBinShiftRight
+	case AstAndAssign:
+		return OpBinBitAnd
+	case AstXorAssign:
+		return OpBinBitXor
+	case AstOrAssign:
+		return OpBinBitOr
+	}
+	unexpected("invalid assignment operator", astType)
+	return 0
 }
 
 /******************* Constant folding ***/
@@ -439,6 +516,74 @@ func tryFold(fn *Function, ast *Ast) constVal {
 
 /******************* Visitors ***/
 
+// compileFunction compiles a function (declaration or expression) into a new
+// Function saved in the parser state and returns its offset. Shared by both
+// visitors, which used to carry identical copies of this code.
+func compileFunction(p *Parser, scope *Scope, fn *Function, name string, async bool, parmNode, bodyNode *Ast) int32 {
+	buf := acquireCodeBuf()
+	function := newFunction(fn.File, name, buf)
+	funcOffset := p.state.SaveFunction(function)
+
+	localScope := acquireScope(scope)
+	localScope.Type = ScopeTypeFunction
+
+	// Stays on the stack for up to 8 parameters; only larger lists spill.
+	var paramBuf [8]int32
+	reverse := paramBuf[:0]
+
+	vaIndex := -1
+	for ; parmNode != nil; parmNode = parmNode.Next {
+		if parmNode.Type == AstSpread {
+			parmNode = parmNode.A
+			vaIndex = len(reverse)
+		}
+
+		paramName := parmNode.Value
+
+		if localScope.ExistsLocal(paramName) {
+			ThrowError(fn.File, "variable is already defined in scope", parmNode.Pos)
+		}
+
+		offset := localScope.GetVarCount()
+
+		localScope.AddLocal(paramName, Symbol{
+			Name:    paramName,
+			Offset:  offset,
+			Const:   false,
+			Capture: false,
+			Pos:     parmNode.Pos,
+		})
+
+		reverse = append(reverse, offset)
+	}
+
+	function.Async = async
+	function.VarArgIndex = int32(vaIndex)
+	function.ParamCount = int32(len(reverse))
+
+	for i := len(reverse) - 1; i >= 0; i-- {
+		emitInt(function, OpStoreLocal, reverse[i])
+	}
+
+	visibleReturn := false
+	for ; bodyNode != nil; bodyNode = bodyNode.Next {
+		if bodyNode.Type == AstReturnStmt {
+			visibleReturn = true
+		}
+		visitDeclarationOrStatement(p, localScope, function, bodyNode)
+	}
+
+	if !visibleReturn {
+		emit(function, OpLoadNull)
+		emit(function, OpReturn)
+	}
+
+	function.LocalCount = localScope.VarCount
+	finalizeFunction(function, buf)
+	releaseScope(localScope)
+	return funcOffset
+}
+
 func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	// Literals and operators on literals are folded here. Literal node types
 	// (number / string / bool) therefore never reach the switch below.
@@ -458,10 +603,10 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 				ThrowError(fn.File, "undefined variable", ast.Pos)
 			}
 
-			isLocal := scope.ExistsFunction(name)
+			isLocalSymb := scope.ExistsFunction(name)
 			sym, exists := scope.GetVariable(name)
 
-			if exists && !isLocal {
+			if exists && !isLocalSymb {
 				// Capture
 				offset := scope.GetVarCount()
 
@@ -473,9 +618,14 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 					Pos:     ast.Pos,
 				})
 
-				emitInt(fn, OpLoadCap, sym.Offset)
-				emitInt(fn, OpStoreCap, offset)
-				emit(fn, sym.Offset)
+				fn.CaptureMeta = append(fn.CaptureMeta, CaptureMeta{
+					Name: name,
+					Cell: nil,
+					Src:  sym.Offset,
+					Dst:  offset,
+				})
+
+				emitInt(fn, OpLoadVar, offset)
 			} else {
 				emitInt(fn, OpLoadVar, sym.Offset)
 			}
@@ -545,70 +695,8 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		}
 	case AstFunctionExpression, AstAsyncFunctionExpression:
 		{
-			parmNode := ast.A
-			bodyNode := ast.B
-
-			function := newFunction(fn.File, "<anon/>")
-			funcOffset := p.state.SaveFunction(function)
-
-			localScope := acquireScope(scope)
-			localScope.Type = ScopeTypeFunction
-
-			var paramBuf [8]int32
-			reverse := paramBuf[:0]
-
-			vaIndex := -1
-			for ; parmNode != nil; parmNode = parmNode.Next {
-
-				if parmNode.Type == AstSpread {
-					parmNode = parmNode.A
-					vaIndex = len(reverse)
-				}
-
-				paramName := parmNode.Value
-
-				if localScope.ExistsLocal(paramName) {
-					ThrowError(fn.File, "variable is already defined in scope", parmNode.Pos)
-				}
-
-				offset := localScope.GetVarCount()
-
-				localScope.AddLocal(paramName, Symbol{
-					Name:    paramName,
-					Offset:  offset,
-					Const:   false,
-					Capture: false,
-					Pos:     parmNode.Pos,
-				})
-
-				reverse = append(reverse, offset)
-			}
-
-			function.Async = ast.Type == AstAsyncFunctionExpression
-			function.VarArgIndex = int32(vaIndex)
-			function.ParamCount = int32(len(reverse))
-
-			for i := len(reverse) - 1; i >= 0; i-- {
-				emitInt(function, OpStoreLocal, reverse[i])
-			}
-
-			visibleReturn := false
-			for ; bodyNode != nil; bodyNode = bodyNode.Next {
-				if bodyNode.Type == AstReturnStmt {
-					visibleReturn = true
-				}
-				visitDeclarationOrStatement(p, localScope, function, bodyNode)
-			}
-
-			if !visibleReturn {
-				emit(function, OpLoadNull)
-				emit(function, OpReturn)
-			}
-
-			function.LocalCount = localScope.VarCount
-			finalizeFunction(function) // actually drop the unused capacity
-			releaseScope(localScope)
-
+			funcOffset := compileFunction(p, scope, fn, "<anon/>",
+				ast.Type == AstAsyncFunctionExpression, ast.A, ast.B)
 			emitInt(fn, OpLoadFunction, funcOffset)
 		}
 	case AstMemberAccess:
@@ -643,19 +731,25 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 			visitExpression(p, scope, fn, ast.A)
 			emit(fn, OpAwait)
 		}
-	case AstPos, AstNeg, AstNot, AstBitNot:
+	case AstPos:
 		{
 			visitExpression(p, scope, fn, ast.A)
-			switch ast.Type {
-			case AstPos:
-				emit(fn, OpUnaryPos)
-			case AstNeg:
-				emit(fn, OpUnaryNeg)
-			case AstNot:
-				emit(fn, OpUnaryNot)
-			case AstBitNot:
-				emit(fn, OpUnaryBitNot)
-			}
+			emit(fn, OpUnaryPos)
+		}
+	case AstNeg:
+		{
+			visitExpression(p, scope, fn, ast.A)
+			emit(fn, OpUnaryNeg)
+		}
+	case AstNot:
+		{
+			visitExpression(p, scope, fn, ast.A)
+			emit(fn, OpUnaryNot)
+		}
+	case AstBitNot:
+		{
+			visitExpression(p, scope, fn, ast.A)
+			emit(fn, OpUnaryBitNot)
 		}
 	case AstMul, AstDiv, AstMod, AstAdd, AstSub,
 		AstShiftLeft, AstShiftRight,
@@ -699,30 +793,7 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		{
 			visitExpression(p, scope, fn, ast.A)
 			visitExpression(p, scope, fn, ast.B)
-			switch ast.Type {
-			case AstMulAssign:
-				emit(fn, OpBinMul)
-			case AstDivAssign:
-				emit(fn, OpBinDiv)
-			case AstModAssign:
-				emit(fn, OpBinMod)
-			case AstAddAssign:
-				emit(fn, OpBinAdd)
-			case AstSubAssign:
-				emit(fn, OpBinSub)
-			case AstShiftLeftAssign:
-				emit(fn, OpBinShiftLeft)
-			case AstShiftRightAssign:
-				emit(fn, OpBinShiftRight)
-			case AstAndAssign:
-				emit(fn, OpBinBitAnd)
-			case AstXorAssign:
-				emit(fn, OpBinBitXor)
-			case AstOrAssign:
-				emit(fn, OpBinBitOr)
-			default:
-				unexpected("invalid assignment operator", ast.Type)
-			}
+			emit(fn, compoundAssignOpcode(ast.Type))
 			emit(fn, OpDupTop)
 			assign0(p, scope, fn, ast.A)
 		}
@@ -851,13 +922,17 @@ func visitVarObjectDestructDeclaration(p *Parser, scope *Scope, fn *Function, as
 
 		switch head.Type {
 		case AstIdentifier:
-			name = head.Value
-			emit(fn, OpGetAttr)
-			emitRunes(fn, name)
+			{
+				name = head.Value
+				emit(fn, OpGetAttr)
+				emitRunes(fn, name)
+			}
 		case AstKeyValue:
-			name = head.B.Value
-			emit(fn, OpGetAttr)
-			emitRunes(fn, objectKey(head.A))
+			{
+				name = head.B.Value
+				emit(fn, OpGetAttr)
+				emitRunes(fn, objectKey(head.A))
+			}
 		}
 
 		declareLocal(fn, scope, name, constant, head.Pos)
@@ -868,74 +943,14 @@ func visitVarObjectDestructDeclaration(p *Parser, scope *Scope, fn *Function, as
 
 func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	nameNode := ast.A
-	parmNode := ast.B.A
-	bodyNode := ast.B.B
 
-	function := newFunction(fn.File, nameNode.Value)
-	funcOffset := p.state.SaveFunction(function)
-
-	localScope := acquireScope(scope)
-	localScope.Type = ScopeTypeFunction
-
-	var paramBuf [8]int32
-	reverse := paramBuf[:0]
-
-	vaIndex := -1
-	for ; parmNode != nil; parmNode = parmNode.Next {
-
-		if parmNode.Type == AstSpread {
-			parmNode = parmNode.A
-			vaIndex = len(reverse)
-		}
-
-		paramName := parmNode.Value
-
-		if localScope.ExistsLocal(paramName) {
-			ThrowError(fn.File, "variable is already defined in scope", parmNode.Pos)
-		}
-
-		offset := localScope.GetVarCount()
-
-		localScope.AddLocal(paramName, Symbol{
-			Name:    paramName,
-			Offset:  offset,
-			Const:   false,
-			Capture: false,
-			Pos:     parmNode.Pos,
-		})
-
-		reverse = append(reverse, offset)
-	}
-
-	function.Async = ast.B.Type == AstAsyncFunctionExpression
-	function.VarArgIndex = int32(vaIndex)
-	function.ParamCount = int32(len(reverse))
-
-	for i := len(reverse) - 1; i >= 0; i-- {
-		emitInt(function, OpStoreLocal, reverse[i])
-	}
-
-	visibleReturn := false
-	for ; bodyNode != nil; bodyNode = bodyNode.Next {
-		if bodyNode.Type == AstReturnStmt {
-			visibleReturn = true
-		}
-		visitDeclarationOrStatement(p, localScope, function, bodyNode)
-	}
-
-	if !visibleReturn {
-		emit(function, OpLoadNull)
-		emit(function, OpReturn)
-	}
+	funcOffset := compileFunction(p, scope, fn, nameNode.Value,
+		ast.B.Type == AstAsyncFunctionExpression, ast.B.A, ast.B.B)
 
 	sym, exists := scope.GetVariable(nameNode.Value)
 	if !exists {
 		ThrowError(fn.File, "function does not exists", ast.Pos)
 	}
-
-	function.LocalCount = localScope.VarCount
-	finalizeFunction(function) // actually drop the unused capacity
-	releaseScope(localScope)
 
 	emitInt(fn, OpLoadFunction, funcOffset)
 	emitInt(fn, OpStoreLocal, sym.Offset)
@@ -1112,7 +1127,8 @@ func compileProgram(p *Parser) *Function {
 	ast := p.Parse()
 	assert(AstProgram, ast)
 
-	program := newFunction(p.File, "$main")
+	buf := acquireCodeBuf()
+	program := newFunction(p.File, "$main", buf)
 
 	scope := acquireScope(nil)
 	scope.Type = ScopeTypeGlobal
@@ -1145,7 +1161,7 @@ func compileProgram(p *Parser) *Function {
 	emit(program, OpReturn)
 
 	program.LocalCount = scope.VarCount
-	finalizeFunction(program)
+	finalizeFunction(program, buf)
 	releaseScope(scope)
 
 	return program

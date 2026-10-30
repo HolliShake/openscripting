@@ -160,3 +160,22 @@ log items;
 items[1] = 1000;
 items[1] += 1000 + 2;
 log items;
+
+
+var makeCounter::fn() {
+    let c = 0;
+    let _counter = fn() {
+        log c;
+        c += 1;
+        return c;
+    };
+    return [c, _counter];
+};
+
+var [count, inc] = makeCounter();
+
+inc();
+inc();
+inc();
+
+log count;
