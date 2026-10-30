@@ -679,10 +679,56 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 			visitExpression(p, scope, fn, ast.B)
 			labelJump(fn, jumpPos)
 		}
+	case AstAssign:
+		{
+			visitExpression(p, scope, fn, ast.B)
+			emit(fn, OpDupTop)
+			assign0(p, scope, fn, ast.A)
+		}
+	case AstTernaryOperation:
+		{
+			visitExpression(p, scope, fn, ast.A)
+			jumpPos := emitJump(fn, OpPopJmpIfFalse)
+			visitExpression(p, scope, fn, ast.B)
+			endJump := emitJump(fn, OpJmp)
+			labelJump(fn, jumpPos)
+			visitExpression(p, scope, fn, ast.C)
+			labelJump(fn, endJump)
+		}
 	default:
 		{
 			unexpected("visitExpression", ast.Type)
 		}
+	}
+}
+
+func assign0(p *Parser, scope *Scope, fn *Function, lhs *Ast) {
+	switch lhs.Type {
+	case AstIdentifier:
+		{
+			symb, exists := scope.GetVariable(lhs.Value)
+			if !exists {
+				ThrowError(fn.File, "variable not defined", lhs.Pos)
+			}
+			if symb.Const {
+				ThrowError(fn.File, "cannot assign to constant variable", lhs.Pos)
+			}
+			emitInt(fn, OpStoreLocal, symb.Offset)
+		}
+	case AstMemberAccess:
+		{
+			visitExpression(p, scope, fn, lhs.A)
+			emit(fn, OpSetAttr)
+			emitRunes(fn, lhs.B.Value)
+		}
+	case AstIndexAccess:
+		{
+			visitExpression(p, scope, fn, lhs.A)
+			visitExpression(p, scope, fn, lhs.B)
+			emit(fn, OpSetIndex)
+		}
+	default:
+		ThrowError(fn.File, "invalid left-hand operand", lhs.Pos)
 	}
 }
 

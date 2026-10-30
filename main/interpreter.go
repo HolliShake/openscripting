@@ -409,6 +409,21 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					push(vm.Null)
 				}
 			}
+		case OpSetAttr:
+			{
+				attr := readString()
+				obj := pop()
+				val := pop()
+
+				if obj.Type != OSVObject || obj.Opaque == nil {
+					if throwRuntimeError("attempted to set attribute of a non-object value " + valueString(obj)) {
+						continue
+					}
+				}
+
+				object := (*Object)(obj.Opaque)
+				object.Set(attr, val)
+			}
 		case OpGetIndex:
 			{
 				idx := pop()
@@ -452,6 +467,35 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 
 				push(arr.Elements[i])
+			}
+		case OpSetIndex:
+			{
+				indx := pop()
+				obj := pop()
+				val := pop()
+
+				if obj.Type != OSVArray || obj.Opaque == nil {
+					if throwRuntimeError("attempted to index a non-array value " + valueString(obj)) {
+						continue
+					}
+				}
+
+				arr := (*Array)(obj.Opaque)
+
+				if indx.Type != OSVNum {
+					if throwRuntimeError("array index must be a number") {
+						continue
+					}
+				}
+
+				i := int32(CoerceToNumber(indx))
+				if i < 0 || i >= int32(len(arr.Elements)) {
+					if throwRuntimeError("array index out of bounds") {
+						continue
+					}
+				}
+
+				arr.Elements[i] = val
 			}
 		case OpLoadFunction:
 			{

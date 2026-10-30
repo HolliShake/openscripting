@@ -137,3 +137,25 @@ asyncF()
     ->catch(fn(data) {
         log data;
     });
+
+
+var ggll = (3 < 2) 
+    ? "t" 
+    : "f";
+
+log ggll;
+
+var hg = 0;
+
+loop (hg < 10) {
+    log hg;
+    hg = hg + 1;
+}
+
+log obj;
+obj->A = 100;
+log obj;
+
+log items;
+items[1] = 1000;
+log items;
