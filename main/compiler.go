@@ -751,29 +751,30 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 			visitExpression(p, scope, fn, ast.A)
 			emit(fn, OpUnaryBitNot)
 		}
-	case AstInc, AstPostInc:
+	case AstInc:
 		{
-			postfix := ast.Type == AstPostInc
-			assign1(p, scope, fn, ast.A, postfix)
-			switch ast.Type {
-			case AstInc:
-				emit(fn, OpInc)
-			case AstPostInc:
-				emit(fn, OpPostInc)
-			}
-			assign0(p, scope, fn, ast.A)
+			assign1(p, scope, fn, ast.A)
+			emit(fn, OpInc)
+			assign2(p, scope, fn, ast.A, false)
+
 		}
-	case AstDec, AstPostDec:
+	case AstDec:
 		{
-			postfix := ast.Type == AstPostDec
-			assign1(p, scope, fn, ast.A, postfix)
-			switch ast.Type {
-			case AstDec:
-				emit(fn, OpDec)
-			case AstPostDec:
-				emit(fn, OpPostDec)
-			}
-			assign0(p, scope, fn, ast.A)
+			assign1(p, scope, fn, ast.A)
+			emit(fn, OpDec)
+			assign2(p, scope, fn, ast.A, false)
+		}
+	case AstPostInc:
+		{
+			assign1(p, scope, fn, ast.A)
+			emit(fn, OpPostInc)
+			assign2(p, scope, fn, ast.A, true)
+		}
+	case AstPostDec:
+		{
+			assign1(p, scope, fn, ast.A)
+			emit(fn, OpPostDec)
+			assign2(p, scope, fn, ast.A, true)
 		}
 	case AstMul, AstDiv, AstMod, AstAdd, AstSub,
 		AstShiftLeft, AstShiftRight,
@@ -801,7 +802,7 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		{
 			visitExpression(p, scope, fn, ast.B)
 			emit(fn, OpDupTop)
-			assign0(p, scope, fn, ast.A)
+			assign1(p, scope, fn, ast.A)
 		}
 	case
 		AstMulAssign,
@@ -815,11 +816,11 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		AstXorAssign,
 		AstOrAssign:
 		{
-			assign1(p, scope, fn, ast.A, false)
+			assign1(p, scope, fn, ast.A)
 			visitExpression(p, scope, fn, ast.B)
 			emit(fn, compoundAssignOpcode(ast.Type))
 			emit(fn, OpDupTop)
-			assign0(p, scope, fn, ast.A)
+			assign2(p, scope, fn, ast.A, false)
 		}
 	case AstTernaryOperation:
 		{
@@ -838,36 +839,7 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	}
 }
 
-func assign0(p *Parser, scope *Scope, fn *Function, lhs *Ast) {
-	switch lhs.Type {
-	case AstIdentifier:
-		{
-			symb, exists := scope.GetVariable(lhs.Value)
-			if !exists {
-				ThrowError(fn.File, "variable not defined", lhs.Pos)
-			}
-			if symb.Const {
-				ThrowError(fn.File, "cannot assign to constant variable", lhs.Pos)
-			}
-			emitInt(fn, OpStoreLocal, symb.Offset)
-		}
-	case AstMemberAccess:
-		{
-			emit(fn, OpRot3)
-			emit(fn, OpSetAttr)
-			emitRunes(fn, lhs.B.Value)
-		}
-	case AstIndexAccess:
-		{
-			emit(fn, OpRot4)
-			emit(fn, OpSetIndex)
-		}
-	default:
-		ThrowError(fn.File, "invalid left-hand operand", lhs.Pos)
-	}
-}
-
-func assign1(p *Parser, scope *Scope, fn *Function, ast *Ast, postfix bool) {
+func assign1(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	switch ast.Type {
 	case AstIdentifier:
 		{
@@ -920,8 +892,41 @@ func assign1(p *Parser, scope *Scope, fn *Function, ast *Ast, postfix bool) {
 	default:
 		ThrowError(fn.File, "invalid left-hand operand", ast.Pos)
 	}
-	if postfix {
-		emit(fn, OpDupTop)
+}
+
+func assign2(p *Parser, scope *Scope, fn *Function, lhs *Ast, postfix bool) {
+	switch lhs.Type {
+	case AstIdentifier:
+		{
+			symb, exists := scope.GetVariable(lhs.Value)
+			if !exists {
+				ThrowError(fn.File, "variable not defined", lhs.Pos)
+			}
+			if symb.Const {
+				ThrowError(fn.File, "cannot assign to constant variable", lhs.Pos)
+			}
+			if postfix {
+				emit(fn, OpRot2)
+			}
+			emitInt(fn, OpStoreLocal, symb.Offset)
+		}
+	case AstMemberAccess:
+		{
+			if postfix {
+				emit(fn, OpRot3)
+			}
+			emit(fn, OpSetAttr)
+			emitRunes(fn, lhs.B.Value)
+		}
+	case AstIndexAccess:
+		{
+			if postfix {
+				emit(fn, OpRot4)
+			}
+			emit(fn, OpSetIndex)
+		}
+	default:
+		ThrowError(fn.File, "invalid left-hand operand", lhs.Pos)
 	}
 }
 

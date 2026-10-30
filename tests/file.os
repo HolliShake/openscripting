@@ -12,9 +12,8 @@ var objc = {
 
 
 log items;
-items[1] += 1000 + 2;
-objc->A  += 4000 + 0;
-items[1]++;
+
+log ++items[1];
 log items;
 log objc;
 

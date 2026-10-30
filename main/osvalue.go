@@ -85,7 +85,7 @@ func (v OSValue) writeString(builder *strings.Builder, active map[unsafe.Pointer
 			}
 		}
 	case OSVString:
-		builder.WriteString(v.StringValue())
+		builder.WriteString(strconv.Quote(v.StringValue()))
 	case OSVArray:
 		{
 			if active[v.Opaque] {

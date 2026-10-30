@@ -14,6 +14,7 @@ const (
 	OpSetAttr
 	OpGetIndex
 	OpSetIndex
+	OpRot2
 	OpRot3
 	OpRot4
 	OpLoadFunction

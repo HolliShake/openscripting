@@ -497,6 +497,15 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 
 				arr.Elements[i] = val
 			}
+		case OpRot2:
+			{
+				// A, B -> B, A
+				b := stack[sp-1]
+				a := stack[sp-2]
+				//========================//
+				stack[sp-2] = b
+				stack[sp-1] = a
+			}
 		case OpRot3:
 			{
 				// A, B, C -> C, A, B
@@ -576,19 +585,23 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpPostInc, OpPostDec:
 			{
-				value := peek()
+				value := pop()
 				if !IsNumber(value) {
 					if throwRuntimeError("increment and decrement require a number") {
 						continue
 					}
 				}
 
-				if op == OpInc {
+				old := &value
+
+				if op == OpPostInc {
 					value.Number++
 				} else {
 					value.Number--
 				}
-				stack[sp-1] = value
+				push(value)
+				push(*old)
+
 			}
 		case OpCall:
 			{
@@ -1093,6 +1106,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				push(v2)
 				push(v1)
 			}
+
 		case OpAwait:
 			{
 				value := pop()
