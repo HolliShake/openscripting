@@ -755,14 +755,24 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		{
 			postfix := ast.Type == AstPostInc
 			assign1(p, scope, fn, ast.A, postfix)
-			emit(fn, OpInc)
+			switch ast.Type {
+			case AstInc:
+				emit(fn, OpInc)
+			case AstPostInc:
+				emit(fn, OpPostInc)
+			}
 			assign0(p, scope, fn, ast.A)
 		}
 	case AstDec, AstPostDec:
 		{
 			postfix := ast.Type == AstPostDec
 			assign1(p, scope, fn, ast.A, postfix)
-			emit(fn, OpDec)
+			switch ast.Type {
+			case AstDec:
+				emit(fn, OpDec)
+			case AstPostDec:
+				emit(fn, OpPostDec)
+			}
 			assign0(p, scope, fn, ast.A)
 		}
 	case AstMul, AstDiv, AstMod, AstAdd, AstSub,

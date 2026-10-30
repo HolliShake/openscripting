@@ -574,6 +574,22 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 				stack[sp-1] = value
 			}
+		case OpPostInc, OpPostDec:
+			{
+				value := peek()
+				if !IsNumber(value) {
+					if throwRuntimeError("increment and decrement require a number") {
+						continue
+					}
+				}
+
+				if op == OpInc {
+					value.Number++
+				} else {
+					value.Number--
+				}
+				stack[sp-1] = value
+			}
 		case OpCall:
 			{
 				argCount := int32(readByte())
