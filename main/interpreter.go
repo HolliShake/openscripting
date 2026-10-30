@@ -524,21 +524,6 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					Opaque: unsafe.Pointer(fn),
 				})
 			}
-		case OpLoadCap:
-			{
-				capIndex := int(readByte())
-				parentCoro := co.Parent
-
-				for parentCoro != nil && parentCoro.Frame.Function == frame.Function {
-					parentCoro = parentCoro.Parent
-				}
-
-				if parentCoro == nil || capIndex >= len(parentCoro.Frame.Env) || parentCoro.Frame.Env[capIndex] == nil {
-					panicInt("invalid captured variable index: %d", capIndex)
-				}
-
-				push(parentCoro.Frame.Env[capIndex].Value)
-			}
 		case OpLoadVar:
 			{
 				varIndex := int(readByte())
@@ -976,22 +961,6 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				for i := size - 1; i >= 0; i-- {
 					push(elements[i])
 				}
-			}
-		case OpStoreCap:
-			{
-				dstIndex := int(readByte())
-				srcIndex := int(readByte())
-
-				parentCoro := co.Parent
-				if envLen := len(parentCoro.Frame.Env); parentCoro == nil || srcIndex >= envLen {
-					panic(fmt.Sprintf("invalid captured variable index, %d ~ %d", srcIndex, envLen))
-				}
-
-				cell := parentCoro.Frame.Env[srcIndex]
-				if dstIndex >= len(frame.Env) {
-					panicInt("invalid local capture index: %d", dstIndex)
-				}
-				frame.Env[dstIndex] = cell
 			}
 		case OpStoreLocal:
 			{

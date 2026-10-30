@@ -15,7 +15,6 @@ const (
 	OpGetIndex
 	OpSetIndex
 	OpLoadFunction
-	OpLoadCap
 	OpLoadVar
 	OpCall
 	OpUnaryPos
@@ -49,7 +48,6 @@ const (
 	OpJmpIfFalseOrPop
 	OpJmpIfTrueOrPop
 	OpDestructArray
-	OpStoreCap
 	OpStoreLocal
 	OpStdWrite
 	OpReturn
