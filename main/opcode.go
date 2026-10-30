@@ -14,6 +14,8 @@ const (
 	OpSetAttr
 	OpGetIndex
 	OpSetIndex
+	OpRot3
+	OpRot4
 	OpLoadFunction
 	OpLoadVar
 	OpCall
@@ -22,7 +24,9 @@ const (
 	OpUnaryNot
 	OpUnaryBitNot
 	OpInc
+	OpPostInc
 	OpDec
+	OpPostDec
 	OpBinMul
 	OpBinDiv
 	OpBinMod
@@ -42,6 +46,7 @@ const (
 	OpBinAnd
 	OpBinOr
 	OpDupTop
+	OpDup2
 	OpPopTop
 	OpJmp
 	OpAbsJmp

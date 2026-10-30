@@ -193,9 +193,10 @@ func (p *Parser) scanEscape() {
 		return
 	case 'x', 'u', 'U':
 		width := 2
-		if escape == 'u' {
+		switch escape {
+		case 'u':
 			width = 4
-		} else if escape == 'U' {
+		case 'U':
 			width = 8
 		}
 

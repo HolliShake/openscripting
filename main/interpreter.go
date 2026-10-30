@@ -412,8 +412,8 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 		case OpSetAttr:
 			{
 				attr := readString()
-				obj := pop()
 				val := pop()
+				obj := pop()
 
 				if obj.Type != OSVObject || obj.Opaque == nil {
 					if throwRuntimeError("attempted to set attribute of a non-object value " + valueString(obj)) {
@@ -470,9 +470,9 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpSetIndex:
 			{
-				indx := pop()
-				obj := pop()
 				val := pop()
+				idx := pop()
+				obj := pop()
 
 				if obj.Type != OSVArray || obj.Opaque == nil {
 					if throwRuntimeError("attempted to index a non-array value " + valueString(obj)) {
@@ -482,13 +482,13 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 
 				arr := (*Array)(obj.Opaque)
 
-				if indx.Type != OSVNum {
+				if idx.Type != OSVNum {
 					if throwRuntimeError("array index must be a number") {
 						continue
 					}
 				}
 
-				i := int32(CoerceToNumber(indx))
+				i := int32(CoerceToNumber(idx))
 				if i < 0 || i >= int32(len(arr.Elements)) {
 					if throwRuntimeError("array index out of bounds") {
 						continue
@@ -496,6 +496,30 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 
 				arr.Elements[i] = val
+			}
+		case OpRot3:
+			{
+				// A, B, C -> C, A, B
+				c := stack[sp-1]
+				b := stack[sp-2]
+				a := stack[sp-3]
+				//========================//
+				stack[sp-3] = c
+				stack[sp-2] = a
+				stack[sp-1] = b
+			}
+		case OpRot4:
+			{
+				// A, B, C, D -> D, A, B, C
+				d := stack[sp-1]
+				c := stack[sp-2]
+				b := stack[sp-3]
+				a := stack[sp-4]
+				//========================//
+				stack[sp-4] = d
+				stack[sp-3] = a
+				stack[sp-2] = b
+				stack[sp-1] = c
 			}
 		case OpLoadFunction:
 			{
@@ -1045,6 +1069,13 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 		case OpDupTop:
 			{
 				push(peek())
+			}
+		case OpDup2:
+			{
+				v1 := stack[sp-1]
+				v2 := stack[sp-2]
+				push(v2)
+				push(v1)
 			}
 		case OpAwait:
 			{

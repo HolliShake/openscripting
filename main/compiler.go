@@ -756,9 +756,6 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 			postfix := ast.Type == AstPostInc
 			assign1(p, scope, fn, ast.A, postfix)
 			emit(fn, OpInc)
-			if !postfix {
-				emit(fn, OpDupTop)
-			}
 			assign0(p, scope, fn, ast.A)
 		}
 	case AstDec, AstPostDec:
@@ -766,9 +763,6 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 			postfix := ast.Type == AstPostDec
 			assign1(p, scope, fn, ast.A, postfix)
 			emit(fn, OpDec)
-			if !postfix {
-				emit(fn, OpDupTop)
-			}
 			assign0(p, scope, fn, ast.A)
 		}
 	case AstMul, AstDiv, AstMod, AstAdd, AstSub,
@@ -811,7 +805,7 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		AstXorAssign,
 		AstOrAssign:
 		{
-			visitExpression(p, scope, fn, ast.A)
+			assign1(p, scope, fn, ast.A, false)
 			visitExpression(p, scope, fn, ast.B)
 			emit(fn, compoundAssignOpcode(ast.Type))
 			emit(fn, OpDupTop)
@@ -849,14 +843,13 @@ func assign0(p *Parser, scope *Scope, fn *Function, lhs *Ast) {
 		}
 	case AstMemberAccess:
 		{
-			visitExpression(p, scope, fn, lhs.A)
+			emit(fn, OpRot3)
 			emit(fn, OpSetAttr)
 			emitRunes(fn, lhs.B.Value)
 		}
 	case AstIndexAccess:
 		{
-			visitExpression(p, scope, fn, lhs.A)
-			visitExpression(p, scope, fn, lhs.B)
+			emit(fn, OpRot4)
 			emit(fn, OpSetIndex)
 		}
 	default:
@@ -903,6 +896,7 @@ func assign1(p *Parser, scope *Scope, fn *Function, ast *Ast, postfix bool) {
 	case AstMemberAccess:
 		{
 			visitExpression(p, scope, fn, ast.A)
+			emit(fn, OpDupTop)
 			emit(fn, OpGetAttr)
 			emitRunes(fn, ast.B.Value)
 		}
@@ -910,6 +904,7 @@ func assign1(p *Parser, scope *Scope, fn *Function, ast *Ast, postfix bool) {
 		{
 			visitExpression(p, scope, fn, ast.A)
 			visitExpression(p, scope, fn, ast.B)
+			emit(fn, OpDup2)
 			emit(fn, OpGetIndex)
 		}
 	default:
