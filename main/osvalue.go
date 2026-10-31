@@ -51,51 +51,93 @@ func promiseState(value OSValue) string {
 }
 
 func (v OSValue) String() string {
-	// Scalars never need a builder or the cycle-detection map.
+	// Scalars never need a builder or cycle detection.
 	switch v.Type {
 	case OSVNull:
-		return KeyNull
+		{
+			return KeyNull
+		}
 	case OSVInt:
-		return strconv.FormatInt(int64(v.Number), 10)
+		{
+			return strconv.FormatInt(int64(v.Number), 10)
+		}
 	case OSVNum:
-		return strconv.FormatFloat(v.Number, 'f', -1, 64)
+		{
+			return strconv.FormatFloat(v.Number, 'f', -1, 64)
+		}
 	case OSVBool:
-		if v.Number != 0 {
-			return KeyTrue
+		{
+			if v.Number != 0 {
+				return KeyTrue
+			}
+			return KeyFalse
 		}
-		return KeyFalse
 	case OSVString:
-		return v.StringValue()
-	case OSVFunction:
-		return "<function>"
-	case OSVClass:
-		if v.Opaque == nil || (*Class)(v.Opaque).Name == "" {
-			return "<class>"
+		{
+			return v.StringValue()
 		}
-		return "<class " + (*Class)(v.Opaque).Name + ">"
+	case OSVFunction:
+		{
+			return "<function>"
+		}
+	case OSVClass:
+		{
+			if v.Opaque == nil || (*Class)(v.Opaque).Name == "" {
+				return "<class>"
+			}
+			return "<class " + (*Class)(v.Opaque).Name + ">"
+		}
 	case OSVPromise:
-		return "<promise " + promiseState(v) + ">"
+		{
+			return "<promise " + promiseState(v) + ">"
+		}
+	case OSVArray, OSVObject:
+		{
+			// Containers fall through to the builder below.
+		}
 	default:
-		if v.Type != OSVArray && v.Type != OSVObject {
+		{
 			return "<unknown>"
 		}
 	}
 
+	// The set of containers currently being printed is the recursion path,
+	// which is tiny: a slice on the stack replaces the per-call map.
+	var pathBuf [8]unsafe.Pointer
+	path := pathBuf[:0]
+
 	var builder strings.Builder
-	v.writeString(&builder, make(map[unsafe.Pointer]bool))
+	builder.Grow(64)
+	v.writeString(&builder, &path)
 	return builder.String()
 }
 
-func (v OSValue) writeString(builder *strings.Builder, active map[unsafe.Pointer]bool) {
+// onPath reports whether p is a container that is currently being printed.
+func onPath(path []unsafe.Pointer, p unsafe.Pointer) bool {
+	for _, q := range path {
+		if q == p {
+			return true
+		}
+	}
+	return false
+}
+
+func (v OSValue) writeString(builder *strings.Builder, path *[]unsafe.Pointer) {
 	switch v.Type {
 	case OSVNull:
-		builder.WriteString(KeyNull)
+		{
+			builder.WriteString(KeyNull)
+		}
 	case OSVInt:
-		var tmp [24]byte
-		builder.Write(strconv.AppendInt(tmp[:0], int64(v.Number), 10))
+		{
+			var tmp [24]byte
+			builder.Write(strconv.AppendInt(tmp[:0], int64(v.Number), 10))
+		}
 	case OSVNum:
-		var tmp [32]byte
-		builder.Write(strconv.AppendFloat(tmp[:0], v.Number, 'f', -1, 64))
+		{
+			var tmp [32]byte
+			builder.Write(strconv.AppendFloat(tmp[:0], v.Number, 'f', -1, 64))
+		}
 	case OSVBool:
 		{
 			if v.Number != 0 {
@@ -105,15 +147,20 @@ func (v OSValue) writeString(builder *strings.Builder, active map[unsafe.Pointer
 			}
 		}
 	case OSVString:
-		builder.WriteString(strconv.Quote(v.StringValue()))
+		{
+			// Quote straight into a stack buffer instead of allocating the
+			// quoted string first.
+			var tmp [64]byte
+			builder.Write(strconv.AppendQuote(tmp[:0], v.StringValue()))
+		}
 	case OSVArray:
 		{
-			if active[v.Opaque] {
+			if onPath(*path, v.Opaque) {
 				builder.WriteString("[self]")
 				return
 			}
 
-			active[v.Opaque] = true
+			*path = append(*path, v.Opaque)
 
 			elements := (*Array)(v.Opaque).Elements
 			builder.WriteByte('[')
@@ -121,20 +168,20 @@ func (v OSValue) writeString(builder *strings.Builder, active map[unsafe.Pointer
 				if index > 0 {
 					builder.WriteString(", ")
 				}
-				element.writeString(builder, active)
+				element.writeString(builder, path)
 			}
 			builder.WriteByte(']')
 
-			delete(active, v.Opaque)
+			*path = (*path)[:len(*path)-1]
 		}
 	case OSVObject:
 		{
-			if active[v.Opaque] {
+			if onPath(*path, v.Opaque) {
 				builder.WriteString("{self}")
 				return
 			}
 
-			active[v.Opaque] = true
+			*path = append(*path, v.Opaque)
 
 			obj := (*Object)(v.Opaque)
 			if obj.ClassName != "" {
@@ -148,32 +195,43 @@ func (v OSValue) writeString(builder *strings.Builder, active map[unsafe.Pointer
 				}
 				builder.WriteString(key)
 				builder.WriteString(": ")
-				obj.Values[key].writeString(builder, active)
+				obj.Values[key].writeString(builder, path)
 			}
 			builder.WriteByte('}')
 
-			delete(active, v.Opaque)
+			*path = (*path)[:len(*path)-1]
 		}
 	case OSVFunction:
-		builder.WriteString("<function>")
+		{
+			builder.WriteString("<function>")
+		}
 	case OSVClass:
-		if v.Opaque == nil || (*Class)(v.Opaque).Name == "" {
-			builder.WriteString("<class>")
-		} else {
-			builder.WriteString("<class ")
-			builder.WriteString((*Class)(v.Opaque).Name)
-			builder.WriteByte('>')
+		{
+			if v.Opaque == nil || (*Class)(v.Opaque).Name == "" {
+				builder.WriteString("<class>")
+			} else {
+				builder.WriteString("<class ")
+				builder.WriteString((*Class)(v.Opaque).Name)
+				builder.WriteByte('>')
+			}
 		}
 	case OSVPromise:
-		builder.WriteString("<promise ")
-		builder.WriteString(promiseState(v))
-		builder.WriteByte('>')
+		{
+			builder.WriteString("<promise ")
+			builder.WriteString(promiseState(v))
+			builder.WriteByte('>')
+		}
 	default:
-		builder.WriteString("<unknown>")
+		{
+			builder.WriteString("<unknown>")
+		}
 	}
 }
+
+// IsNumber: OSVInt and OSVNum are adjacent, and the byte subtraction wraps
+// for every type below OSVInt, so one unsigned compare replaces two.
 func IsNumber(v OSValue) bool {
-	return v.Type == OSVInt || v.Type == OSVNum
+	return v.Type-OSVInt <= OSVNum-OSVInt
 }
 
 func IsString(v OSValue) bool {
@@ -183,15 +241,21 @@ func IsString(v OSValue) bool {
 func CoerceToNumber(v OSValue) float64 {
 	switch v.Type {
 	case OSVNull:
-		return 0
-	case OSVInt, OSVNum, OSVBool:
-		return v.Number
-	case OSVString:
-		number, err := strconv.ParseFloat(v.StringValue(), 64)
-		if err != nil {
+		{
 			return 0
 		}
-		return number
+	case OSVInt, OSVNum, OSVBool:
+		{
+			return v.Number
+		}
+	case OSVString:
+		{
+			number, err := strconv.ParseFloat(v.StringValue(), 64)
+			if err != nil {
+				return 0
+			}
+			return number
+		}
 	}
 	return 0
 }
@@ -202,35 +266,54 @@ func IsEqual(a, b OSValue) bool {
 	}
 	switch a.Type {
 	case OSVNull:
-		return true
+		{
+			return true
+		}
 	case OSVInt, OSVNum, OSVBool:
-		return a.Number == b.Number
+		{
+			return a.Number == b.Number
+		}
 	case OSVString:
-		return a.StringValue() == b.StringValue()
-	case OSVFunction:
-		return a.Opaque == b.Opaque
-	case OSVClass:
-		return a.Opaque == b.Opaque
-	case OSVPromise:
-		return a.Opaque == b.Opaque
+		{
+			// Number holds the byte length: different lengths can never be
+			// equal, and identical data pointers need no comparison.
+			if a.Number != b.Number {
+				return false
+			}
+			if a.Opaque == b.Opaque {
+				return true
+			}
+			return a.StringValue() == b.StringValue()
+		}
+	case OSVFunction, OSVClass, OSVPromise:
+		{
+			return a.Opaque == b.Opaque
+		}
 	default:
-		return false
+		{
+			return false
+		}
 	}
 }
 
 func CoerceToBool(v OSValue) bool {
 	switch v.Type {
 	case OSVNull:
-		return false
-	case OSVInt, OSVNum:
-		return v.Number != 0
-	case OSVBool:
-		return v.Number != 0
-	case OSVString:
-		return v.Number != 0
+		{
+			return false
+		}
+	case OSVInt, OSVNum, OSVBool, OSVString:
+		{
+			// For strings Number is the byte length.
+			return v.Number != 0
+		}
 	case OSVFunction, OSVPromise, OSVClass:
-		return v.Opaque != nil
+		{
+			return v.Opaque != nil
+		}
 	default:
-		return false
+		{
+			return false
+		}
 	}
 }
