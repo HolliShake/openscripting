@@ -2,8 +2,11 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"unicode/utf8"
 )
@@ -1187,8 +1190,9 @@ func assign2(s *State, scope *Scope, fn *Function, lhs *Ast) {
 // checkDeclKind validates var/let placement. Shared by all declaration visitors.
 func checkDeclKind(fn *Function, scope *Scope, ast *Ast) {
 	isGlobal := scope.Type == ScopeTypeGlobal
+	isModule := scope.Type == ScopeTypeModule
 	switch {
-	case ast.Type == AstVar && !isGlobal:
+	case ast.Type == AstVar && !isGlobal && !isModule:
 		{
 			ThrowError(fn.File, "var declarations are not allowed in non-global scope", ast.Pos)
 		}
@@ -1568,6 +1572,194 @@ func visitTryCatch(s *State, scope *Scope, fn *Function, ast *Ast) {
 	labelJump(fn, endJump)
 }
 
+func moduleDeclarationNames(ast *Ast) map[string]struct{} {
+	names := make(map[string]struct{})
+	for statement := ast.A; statement != nil; statement = statement.Next {
+		switch statement.Type {
+		case AstClass, AstFunction:
+			names[statement.A.Value] = struct{}{}
+		case AstVar, AstLet, AstConst:
+			for declaration := statement.A; declaration != nil; declaration = declaration.Next {
+				names[declaration.A.Value] = struct{}{}
+			}
+		case AstDestructuringArrayVar, AstDestructuringArrayLet, AstDestructuringArrayConst:
+			for item := statement.A; item != nil; item = item.Next {
+				names[item.Value] = struct{}{}
+			}
+		case AstDestructuringObjectVar, AstDestructuringObjectLet, AstDestructuringObjectConst:
+			for item := statement.A; item != nil; item = item.Next {
+				if item.Type == AstKeyValue {
+					names[item.B.Value] = struct{}{}
+				} else {
+					names[item.Value] = struct{}{}
+				}
+			}
+		}
+	}
+	return names
+}
+
+func compileImportedModule(s *State, fn *Function, ast *Ast, path string) *Import {
+	if s.Imports == nil {
+		s.Imports = make(map[string]*Import)
+	}
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error reading imported module %q: %v\n", path, err)
+		os.Exit(1)
+	}
+	for _, cached := range s.Imports {
+		if cached.FileInfo == nil || !os.SameFile(cached.FileInfo, fileInfo) {
+			continue
+		}
+		if cached.IsImporting {
+			cycle := append(append([]string(nil), s.ImportStack...), cached.Path)
+			ThrowError(fn.File, "circular module import: "+strings.Join(cycle, " -> "), ast.Pos)
+		}
+		s.Imports[path] = cached
+		return cached
+	}
+	if module, exists := s.Imports[path]; exists {
+		if module.IsImporting {
+			cycle := append(append([]string(nil), s.ImportStack...), path)
+			ThrowError(fn.File, "circular module import: "+strings.Join(cycle, " -> "), ast.Pos)
+		}
+		return module
+	}
+
+	module := &Import{IsImporting: true, Path: path, FileInfo: fileInfo}
+	s.Imports[path] = module
+	s.ImportStack = append(s.ImportStack, path)
+	defer func() {
+		s.ImportStack = s.ImportStack[:len(s.ImportStack)-1]
+	}()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error reading imported module %q: %v\n", path, err)
+		os.Exit(1)
+	}
+	file := &File{Name: path, Content: []rune(string(data))}
+	moduleParser := NewParser(s, file)
+	moduleAst := moduleParser.Parse()
+	assert(AstProgram, moduleAst)
+
+	buf := acquireCodeBuf()
+	moduleFunction := newFunction(file, path, buf)
+	moduleFunction.Module = module
+	module.Function = s.SaveFunction(moduleFunction)
+	moduleScope := acquireScope(nil)
+	moduleScope.Type = ScopeTypeModule
+
+	for statement := moduleAst.A; statement != nil; statement = statement.Next {
+		if statement.Type != AstFunction {
+			continue
+		}
+		name := statement.A
+		if moduleScope.ExistsLocal(name.Value) {
+			ThrowError(file, "variable is already defined in scope", name.Pos)
+		}
+		moduleScope.AddLocal(name.Value, Symbol{
+			Name:   name.Value,
+			Offset: moduleScope.GetVarCount(),
+			Pos:    name.Pos,
+		})
+	}
+
+	declaredNames := moduleDeclarationNames(moduleAst)
+	for statement := moduleAst.A; statement != nil; statement = statement.Next {
+		visitDeclarationOrStatement(s, moduleScope, moduleFunction, statement)
+	}
+
+	module.Exports = make(map[string]struct{}, len(declaredNames))
+	for name := range declaredNames {
+		if symbol, exists := moduleScope.Variables[name]; exists {
+			emitString(moduleFunction, name)
+			emitInt(moduleFunction, OpLoadVar, symbol.Offset)
+			module.Exports[name] = struct{}{}
+		}
+	}
+	emitInt(moduleFunction, OpMakeObject, int32(len(module.Exports)))
+	emit(moduleFunction, OpReturn)
+	moduleFunction.LocalCount = moduleScope.VarCount
+	finalizeFunction(moduleFunction, buf)
+	releaseScope(moduleScope)
+	module.IsImporting = false
+	return module
+}
+
+func visitImport(s *State, scope *Scope, fn *Function, ast *Ast) {
+	moduleName, err := strconv.Unquote(ast.A.Value)
+	if err != nil {
+		ThrowError(fn.File, "invalid module path", ast.A.Pos)
+	}
+	if exports, isBuiltin := getBuiltinModule(moduleName); isBuiltin {
+		if ast.B == nil {
+			ThrowError(fn.File, "builtin module import requires named imports", ast.Pos)
+		}
+		for item := ast.B; item != nil; item = item.Next {
+			exportName, localName := item.Value, item.Value
+			if item.Type == AstKeyValue {
+				exportName = objectKey(item.A)
+				localName = item.B.Value
+			}
+			if _, exists := exports[exportName]; !exists {
+				ThrowError(fn.File, "builtin module does not export requested name", item.Pos)
+			}
+			if scope.ExistsLocal(localName) {
+				ThrowError(fn.File, "variable is already defined in scope", item.Pos)
+			}
+			offset := scope.GetVarCount()
+			scope.AddLocal(localName, Symbol{
+				Name:   localName,
+				Offset: offset,
+				Const:  true,
+				Pos:    item.Pos,
+			})
+			emitString(fn, moduleName)
+			emitString(fn, exportName)
+			emit(fn, OpLoadBuiltin)
+			emitInt(fn, OpStoreLocal, offset)
+		}
+		return
+	}
+	path, err := filepath.Abs(filepath.Join(filepath.Dir(fn.File.Name), moduleName))
+	if err != nil {
+		ThrowError(fn.File, "invalid module path", ast.A.Pos)
+	}
+	path = filepath.Clean(path)
+	module := compileImportedModule(s, fn, ast, path)
+	emitInt(fn, OpLoadFunction, module.Function)
+	emitInt(fn, OpCall, 0)
+
+	for item := ast.B; item != nil; item = item.Next {
+		exportName, localName := item.Value, item.Value
+		if item.Type == AstKeyValue {
+			exportName = objectKey(item.A)
+			localName = item.B.Value
+		}
+		_, exists := module.Exports[exportName]
+		if !exists {
+			ThrowError(fn.File, "module does not export requested name", item.Pos)
+		}
+		if scope.ExistsLocal(localName) {
+			ThrowError(fn.File, "variable is already defined in scope", item.Pos)
+		}
+		offset := scope.GetVarCount()
+		scope.AddLocal(localName, Symbol{
+			Name:   localName,
+			Offset: offset,
+			Const:  true,
+			Pos:    item.Pos,
+		})
+		emit(fn, OpDupTop)
+		emit(fn, OpGetAttr)
+		emitRunes(fn, exportName)
+		emitInt(fn, OpStoreLocal, offset)
+	}
+	emit(fn, OpPopTop)
+}
+
 func visitDeclarationOrStatement(s *State, scope *Scope, fn *Function, ast *Ast) {
 	emitLine(fn, ast.Pos)
 	switch ast.Type {
@@ -1628,6 +1820,10 @@ func visitDeclarationOrStatement(s *State, scope *Scope, fn *Function, ast *Ast)
 	case AstTryCatch:
 		{
 			visitTryCatch(s, scope, fn, ast)
+		}
+	case AstImport:
+		{
+			visitImport(s, scope, fn, ast)
 		}
 	default:
 		{

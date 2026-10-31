@@ -1,9 +1,10 @@
 package main
 
 type State struct {
-	File      []*File
-	Imports   map[string]*Import
-	Functions []*Function
+	File        []*File
+	Imports     map[string]*Import
+	ImportStack []string
+	Functions   []*Function
 }
 
 func (s *State) SaveFunction(f *Function) int32 {

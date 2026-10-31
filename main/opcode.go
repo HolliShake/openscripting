@@ -63,4 +63,5 @@ const (
 	OpReturn
 	OpAwait
 	OpCallSuper
+	OpLoadBuiltin
 )

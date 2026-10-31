@@ -121,8 +121,8 @@ func schedulePromiseReaction(vm *VM, promise *Promise, reaction PromiseReaction)
 			resolvePromise(vm, reaction.Next, promise.Value)
 			return
 		}
-		native.Callable(vm, []OSValue{promise.Value})
-		resolvePromise(vm, reaction.Next, vm.Null)
+		result := native.Callable(vm, []OSValue{promise.Value})
+		resolvePromise(vm, reaction.Next, result)
 	default:
 		resolvePromise(vm, reaction.Next, promise.Value)
 	}

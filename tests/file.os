@@ -223,3 +223,11 @@ log person->getName();
 log person;
 
 log [1,2,3];
+
+import { isEven } from "./import.os";
+import { println } from "core:io";
+
+
+log ">>>>>>>";
+log isEven(5);
+println("hello world!!!", "DDD");

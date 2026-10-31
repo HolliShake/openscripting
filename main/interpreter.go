@@ -720,6 +720,30 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 				sp++
 			}
+		case OpLoadBuiltin:
+			{
+				if sp < 2 || stack[sp-2].Type != OSVString || stack[sp-1].Type != OSVString {
+					panic("invalid builtin module operands")
+				}
+				moduleName := stack[sp-2].StringValue()
+				exportName := stack[sp-1].StringValue()
+				stack[sp-2] = OSValue{}
+				stack[sp-1] = OSValue{}
+				sp -= 2
+				module, exists := getBuiltinModule(moduleName)
+				if !exists {
+					panic("unknown builtin module: " + moduleName)
+				}
+				value, exists := module[exportName]
+				if !exists {
+					panic("unknown builtin export: " + exportName)
+				}
+				if sp >= int32(len(stack)) {
+					stack = growStack(co)
+				}
+				stack[sp] = value
+				sp++
+			}
 		case OpLoadVar:
 			{
 				varIndex := bcode[ip]
@@ -887,139 +911,169 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					fnValue = class.Constructor
 				}
 
-				if fnValue.Type == OSVNativeMethod {
-					// Handle native method binding here if necessary.
-					nativeMethod := (*NativeMethod)(fnValue.Opaque)
-					if nativeMethod == nil {
-						errMsg = "attempted to call a nil native method"
+				switch fnValue.Type {
+				case OSVNativeMethod:
+					{
+						nativeMethod := (*NativeMethod)(fnValue.Opaque)
+						if nativeMethod == nil {
+							errMsg = "attempted to call a nil native method"
+							goto throwError
+						}
+						if nativeMethod.Paramc != argCount {
+							errMsg = "invalid argument count for native method"
+							goto throwError
+						}
+						if argCount < 0 || argCount > sp {
+							errMsg = "invalid native method argument count"
+							goto throwError
+						}
+
+						argStart := sp - argCount
+						result := nativeMethod.Callable(nativeMethod.This, vm, stack[argStart:sp])
+						clear(stack[argStart:sp])
+						sp = argStart
+						if sp >= int32(len(stack)) {
+							stack = growStack(co)
+						}
+						stack[sp] = result
+						sp++
+						continue
+					}
+				case OSVNativeFunction:
+					{
+						if fnValue.Opaque == nil {
+							errMsg = "attempted to call a nil native function"
+							goto throwError
+						}
+						native := (*NativeFunction)(fnValue.Opaque)
+						if native.Callable == nil {
+							errMsg = "attempted to call a native function without an implementation"
+							goto throwError
+						}
+						if native.Paramc >= 0 && native.Paramc != argCount {
+							errMsg = argcMessage(native.Paramc, argCount)
+							goto throwError
+						}
+						if argCount < 0 || argCount > sp {
+							errMsg = "invalid native function argument count"
+							goto throwError
+						}
+
+						argStart := sp - argCount
+						result := native.Callable(vm, stack[argStart:sp])
+						clear(stack[argStart:sp])
+						sp = argStart
+						if sp >= int32(len(stack)) {
+							stack = growStack(co)
+						}
+						stack[sp] = result
+						sp++
+						continue
+					}
+				case OSVFunction:
+					{
+						if fnValue.Opaque == nil {
+							errMsg = "attempted to call a nil function"
+							goto throwError
+						}
+						fn := (*Function)(fnValue.Opaque)
+						if argCount < 0 || argCount > sp {
+							errMsg = "invalid function argument count"
+							goto throwError
+						}
+						if fn == nil {
+							errMsg = "attempted to call a nil function"
+							goto throwError
+						}
+
+						if module := fn.Module; module != nil && module.Initialized {
+							if argCount != 0 {
+								errMsg = "invalid module initializer argument count"
+								goto throwError
+							}
+							if sp >= int32(len(stack)) {
+								stack = growStack(co)
+							}
+							stack[sp] = module.Value
+							sp++
+							continue
+						}
+
+						vaIndex := fn.VarArgIndex
+						if (vaIndex == -1 && argCount != fn.ParamCount) || (vaIndex != -1 && argCount < vaIndex) {
+							errMsg = argcMessage(fn.ParamCount, argCount)
+							goto throwError
+						}
+
+						argStart := sp - argCount
+						args := stack[argStart:sp]
+						sp = argStart
+						frame.Ip = ip
+						co.Sp = sp
+
+						caller := co
+						callee := NewCoroutine(caller, fn, InitialStack(argCount))
+						if callee == nil {
+							panic("failed to create coroutine")
+						}
+						if int32(len(callee.OperandStack)) < argCount {
+							panic("callee operand stack is too small for arguments")
+						}
+
+						for i := range fn.CaptureMeta {
+							capMeta := &fn.CaptureMeta[i]
+							callee.Frame.Env[capMeta.Dst] = capMeta.Cell
+						}
+
+						calleeArgCount := argCount
+						if vaIndex >= 0 {
+							variadicArgs := make([]OSValue, argCount-vaIndex)
+							copy(variadicArgs, args[vaIndex:])
+							copy(callee.OperandStack[:vaIndex], args[:vaIndex])
+							callee.OperandStack[vaIndex] = OSValue{
+								Type:   OSVArray,
+								Opaque: unsafe.Pointer(&Array{Elements: variadicArgs}),
+							}
+							calleeArgCount = vaIndex + 1
+						} else {
+							copy(callee.OperandStack[:argCount], args)
+						}
+						callee.Sp = calleeArgCount
+						clear(stack[argStart : argStart+argCount])
+
+						if fn.Async {
+							promise := &Promise{Coroutine: callee}
+							callee.Parent = SnapshotLexicalChain(caller)
+							callee.Caller = nil
+							callee.AsyncCaller = caller
+							callee.AsyncResult = promise
+							if sp >= int32(len(stack)) {
+								stack = growStack(co)
+							}
+							stack[sp] = OSValue{Type: OSVPromise, Opaque: unsafe.Pointer(promise)}
+							sp++
+							frame.Ip = ip
+							co.Sp = sp
+							vm.Current = callee
+							return
+						}
+
+						vm.Current = callee
+						co = callee
+						frame = &callee.Frame
+						bcode = frame.Function.Bytecode
+						bsize = int32(len(bcode))
+						ip = frame.Ip
+						sp = callee.Sp
+						stack = callee.OperandStack
+						strTab = nil
+					}
+				default:
+					{
+						errMsg = "attempted to call a non-function value " + valueString(fnValue)
 						goto throwError
 					}
-
-					if nativeMethod.Paramc != argCount {
-						errMsg = "invalid argument count for native method"
-						goto throwError
-					}
-
-					if argCount < 0 || argCount > sp {
-						errMsg = "invalid native method argument count"
-						goto throwError
-					}
-
-					argStart := sp - argCount
-					result := nativeMethod.Callable(nativeMethod.This, vm, stack[argStart:sp])
-					clear(stack[argStart:sp])
-					sp = argStart
-
-					if sp >= int32(len(stack)) {
-						stack = growStack(co)
-					}
-					stack[sp] = result
-					sp++
-					continue
 				}
-
-				if fnValue.Type != OSVFunction || fnValue.Opaque == nil {
-					errMsg = "attempted to call a non-function value " + valueString(fnValue)
-					goto throwError
-				}
-
-				fn := (*Function)(fnValue.Opaque)
-
-				if argCount < 0 || argCount > sp {
-					errMsg = "invalid function argument count"
-					goto throwError
-				}
-
-				if fn == nil {
-					errMsg = "attempted to call a nil function"
-					goto throwError
-				}
-
-				vaIndex := fn.VarArgIndex
-
-				if (vaIndex == -1 && argCount != fn.ParamCount) || (vaIndex != -1 && argCount < vaIndex) {
-					errMsg = argcMessage(fn.ParamCount, argCount)
-					goto throwError
-				}
-
-				// Copy arguments in their original order before switching
-				// to the new coroutine.
-				argStart := sp - argCount
-				args := stack[argStart:sp]
-				sp = argStart
-
-				// Save the caller AFTER consuming its arguments.
-				frame.Ip = ip
-				co.Sp = sp
-
-				caller := co
-				callee := NewCoroutine(caller, fn, InitialStack(argCount))
-
-				if callee == nil {
-					panic("failed to create coroutine")
-				}
-
-				if int32(len(callee.OperandStack)) < argCount {
-					panic("callee operand stack is too small for arguments")
-				}
-
-				// Unpack captured variables into the callee's environment.
-				for i := range fn.CaptureMeta {
-					capMeta := &fn.CaptureMeta[i]
-					callee.Frame.Env[capMeta.Dst] = capMeta.Cell
-				}
-
-				// A variadic parameter occupies one local and receives the
-				// remaining arguments as an array.
-				calleeArgCount := argCount
-
-				if vaIndex >= 0 {
-					variadicArgs := make([]OSValue, argCount-vaIndex)
-					copy(variadicArgs, args[vaIndex:])
-
-					copy(callee.OperandStack[:vaIndex], args[:vaIndex])
-					callee.OperandStack[vaIndex] = OSValue{
-						Type:   OSVArray,
-						Opaque: unsafe.Pointer(&Array{Elements: variadicArgs}),
-					}
-					calleeArgCount = vaIndex + 1
-				} else {
-					copy(callee.OperandStack[:argCount], args)
-				}
-
-				callee.Sp = calleeArgCount
-				clear(stack[argStart : argStart+argCount])
-
-				if fn.Async {
-					promise := &Promise{Coroutine: callee}
-					callee.Parent = SnapshotLexicalChain(caller)
-					callee.Caller = nil
-					callee.AsyncCaller = caller
-					callee.AsyncResult = promise
-
-					if sp >= int32(len(stack)) {
-						stack = growStack(co)
-					}
-					stack[sp] = OSValue{Type: OSVPromise, Opaque: unsafe.Pointer(promise)}
-					sp++
-
-					frame.Ip = ip
-					co.Sp = sp
-					vm.Current = callee
-					return
-				}
-
-				// Plain call: switch frames in place instead of bouncing
-				// through interpreterLoop and rebuilding every closure.
-				vm.Current = callee
-				co = callee
-				frame = &callee.Frame
-				bcode = frame.Function.Bytecode
-				bsize = int32(len(bcode))
-				ip = frame.Ip
-				sp = callee.Sp
-				stack = callee.OperandStack
-				strTab = nil
 			}
 		case OpBinMul:
 			{
@@ -1523,6 +1577,11 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 				if sp != 0 {
 					panicInt("stack not empty on return (stack pointer: %d)", int(sp))
+				}
+
+				if module := frame.Function.Module; module != nil {
+					module.Value = returnValue
+					module.Initialized = true
 				}
 
 				// Save the completed coroutine's final state.

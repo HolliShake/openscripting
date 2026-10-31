@@ -12,6 +12,7 @@ type Function struct {
 	ParamCount       int32
 	LocalCount       int32
 	VarArgIndex      int32 // -1 for non vararg functions
+	Module           *Import
 	Bytecode         []int32
 	TryCatchTable    []TryCatchTable
 	Lines            []Line

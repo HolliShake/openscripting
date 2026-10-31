@@ -5,6 +5,7 @@ const (
 	ScopeTypeFunction
 	ScopeTypeBlock
 	ScopeTypeLoop
+	ScopeTypeModule
 )
 
 type ScopeType byte

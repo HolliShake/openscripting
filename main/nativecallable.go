@@ -2,7 +2,7 @@ package main
 
 type NativeFunction struct {
 	Paramc   int32
-	Callable func(vm *VM, args []OSValue)
+	Callable func(vm *VM, args []OSValue) OSValue
 }
 
 type NativeMethod struct {
