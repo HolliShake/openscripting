@@ -1733,7 +1733,7 @@ func compileImportedModule(s *State, fn *Function, ast *Ast, path string) *Impor
 		if _, dup := module.Exports[name]; dup {
 			continue
 		}
-				if symbol, exists := moduleScope.Variables[name]; exists {
+		if symbol, exists := moduleScope.Variables[name]; exists {
 			emitString(moduleFunction, name)
 			emitInt(moduleFunction, OpLoadVar, symbol.Offset)
 			module.Exports[name] = struct{}{}
