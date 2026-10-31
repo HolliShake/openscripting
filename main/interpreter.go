@@ -30,11 +30,12 @@ const (
 // inside OSValue.String is not "moved to heap" in runCoroutine's frame.
 
 type VM struct {
-	Current *Coroutine
-	Pending []*Coroutine
-	Null    OSValue
-	True    OSValue
-	False   OSValue
+	Current     *Coroutine
+	Pending     []*Coroutine
+	Null        OSValue
+	True        OSValue
+	False       OSValue
+	NativeError string
 
 	// pendingHead is the index of the next microtask to run in Pending.
 	// Consuming with an index (instead of Pending = Pending[1:]) avoids
@@ -948,7 +949,15 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 						}
 
 						argStart := sp - argCount
+						vm.NativeError = ""
 						result := nativeMethod.Callable(nativeMethod.This, vm, stack[argStart:sp])
+						if vm.NativeError != "" {
+							errMsg = vm.NativeError
+							vm.NativeError = ""
+							clear(stack[argStart:sp])
+							sp = argStart
+							goto throwError
+						}
 						clear(stack[argStart:sp])
 						sp = argStart
 						if sp >= len(stack) {
@@ -979,7 +988,15 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 						}
 
 						argStart := sp - argCount
+						vm.NativeError = ""
 						result := native.Callable(vm, stack[argStart:sp])
+						if vm.NativeError != "" {
+							errMsg = vm.NativeError
+							vm.NativeError = ""
+							clear(stack[argStart:sp])
+							sp = argStart
+							goto throwError
+						}
 						clear(stack[argStart:sp])
 						sp = argStart
 						if sp >= len(stack) {
