@@ -1,31 +1,33 @@
-log "sync:start";
+import { println } from "core:io";
+
+println("sync:start");
 
 var immediate = fn() async {
-    log "immediate:body";
+    println("immediate:body");
     return "ready";
 };
 
 var pending = fn() async {
-    log "pending:before-await";
+    println("pending:before-await");
     let value = await immediate();
-    log "pending:after-await";
+    println("pending:after-await");
     return value;
 };
 
 var promise = pending();
 promise->then(fn(value) {
-    log "then:first";
+    println("then:first");
 });
 promise->then(fn(value) {
-    log "then:second";
+    println("then:second");
 });
 
 var waiter = fn(label) async {
-    log label + ":before-await";
+    println(label + ":before-await");
     let value = await promise;
-    log label + ":after-await";
+    println(label + ":after-await");
 };
 
 waiter("waiter:one");
 waiter("waiter:two");
-log "sync:end";
+println("sync:end");

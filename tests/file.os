@@ -1,3 +1,4 @@
+import { println } from "core:io";
 
 var fact::fn(n) {
     if (n <= 1) {
@@ -6,44 +7,44 @@ var fact::fn(n) {
     return n * fact(n - 1);
 };
 
-log "result"; 
+println("result"); 
 
-log fact(5);
+println(fact(5));
 
 var f::fn() {
     return 0;
 };
 
 try {
-    log fact(5) / 2;
+    println(fact(5) / 2);
 } catch(err) {
-    log err;
+    println(err);
 }
 
 var x = 2, z = x;
 
-log x * 2 + z;
+println(x * 2 + z);
 
 var ff = false, gg = ff;
 
-log ff || true;
+println(ff || true);
 
 var arr = [1, 2, 3];
 
-log arr;
+println(arr);
 
 const arrayValue = [1, 2, 3, ...[4,5,6], 7, 8, 9, ...[10, 11, 12, ...[13, 14, 15]]];
 
 var [a, b, c] = arrayValue;
 
-log a;
-log b;
-log c;
-log arrayValue;
+println(a);
+println(b);
+println(c);
+println(arrayValue);
 
-log [];
-log [13, 14];
-log [...[15, 16]];
+println([]);
+println([13, 14]);
+println([... [15, 16]]);
 
 
 var obj = {
@@ -52,13 +53,13 @@ var obj = {
     ...{ C: 67}
 };
 
-log obj;
+println(obj);
 
 var { A: Ey, C, B: B } = obj;
 
-log Ey;
-log B;
-log C;
+println(Ey);
+println(B);
+println(C);
 
 
 var add::fn(a, b) {
@@ -66,15 +67,15 @@ var add::fn(a, b) {
 };
 
 var varArg::fn(a...) {
-    log a;
+    println(a);
 };
 
 
 varArg(1,2,3,4);
 
 var varArgWithFixed::fn(prefix, values...) {
-    log prefix;
-    log values;
+    println(prefix);
+    println(values);
 };
 
 varArgWithFixed("fixed", 2, 3);
@@ -83,12 +84,12 @@ varArg();
 
 
 var fun = fn() async {
-    log "async body";
+    println("async body");
     return 40 + 2;
 };
 
 var pending = fun();
-log "before await";
+println("before await");
 
 var nestedAsync = fn() async {
     return await fun();
@@ -96,13 +97,13 @@ var nestedAsync = fn() async {
 nestedAsync();
 
 var asyncChecks = fn() async {
-    log await pending;
-    log await pending;
+    println(await pending);
+    println(await pending);
 };
 
 asyncChecks();
 
-log ">>" + obj->A;
+println(">>" + obj->A);
 
 var items = [
     "One",
@@ -110,12 +111,12 @@ var items = [
     "Three"
 ];
 
-log items[1];
+println(items[1]);
 
-log obj["A"];
-log obj["missing"];
+println(obj["A"]);
+println(obj["missing"]);
 var objectKey = "B";
-log obj[objectKey];
+println(obj[objectKey]);
 
 var asyncF::fn() async {
     return "Hello!";
@@ -123,19 +124,19 @@ var asyncF::fn() async {
 
 asyncF()
     ->then(fn(data) {
-        log "then " + data;
+        println("then " + data);
         return "nah!!";
       })
     ->then(fn(data) {
-        log data;
+        println(data);
         return 1000;
     })
     ->then(fn(data) {
-        log data;
+        println(data);
         return data + "asdasd";
     })
     ->catch(fn(data) {
-        log data;
+        println(data);
     });
 
 
@@ -143,23 +144,23 @@ var ggll = (3 < 2)
     ? "t" 
     : "f";
 
-log ggll;
+println(ggll);
 
 var hg = 0;
 
 loop (hg < 10) {
-    log hg;
+    println(hg);
     hg = hg + 1;
 }
 
-log obj;
+println(obj);
 obj->A = 100;
-log obj;
+println(obj);
 
-log items;
+println(items);
 items[1] = 1000;
 items[1] += 1000 + 2;
-log items;
+println(items);
 
 
 var makeCounter::fn() {
@@ -173,12 +174,12 @@ var makeCounter::fn() {
 
 var [count, inc] = makeCounter();
 
-log inc();
-log inc();
-log inc();
+println(inc());
+println(inc());
+println(inc());
 
-log count++ + 2 - ++count + 1;
-log count;
+println(count++ + 2 - ++count + 1);
+println(count);
 
 
 var item = switch(100) {
@@ -186,8 +187,8 @@ var item = switch(100) {
     default => "Bad"
 };
 
-log ">>>>";
-log item;
+println(">>>>");
+println(item);
 
 
 
@@ -215,19 +216,18 @@ var MyClass = class {
     },
 };
 
-log MyClass("Doy");
+println(MyClass("Doy"));
 
 
 var person = Person("Doydoy");
-log person->getName();
-log person;
+println(person->getName());
+println(person);
 
-log [1,2,3];
+println([1,2,3]);
 
 import { isEven } from "./import.os";
-import { println } from "core:io";
 
 
-log ">>>>>>>";
-log isEven(5);
+println(">>>>>>>");
+println(isEven(5));
 println("hello world!!!", "DDD");

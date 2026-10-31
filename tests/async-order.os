@@ -1,21 +1,23 @@
-log "sync:start";
+import { println } from "core:io";
+
+println("sync:start");
 
 var asyncFn = fn() async {
-    log "async:body";
+    println("async:body");
     return 1;
 };
 
 var promise = asyncFn();
-log "sync:end";
+println("sync:end");
 promise->then(fn(value) {
-    log "then:callback";
+    println("then:callback");
 });
 
 var awaitFn = fn() async {
-    log "await:before";
+    println("await:before");
     let value = await asyncFn();
-    log "await:after";
+    println("await:after");
 };
 
 awaitFn();
-log "sync:after-await-call";
+println("sync:after-await-call");

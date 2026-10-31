@@ -78,8 +78,6 @@ func printGradientLogo() {
 
 		fmt.Print("\033[0m\n")
 	}
-
-	fmt.Print("\n\033[1;97m                         OpenScript\033[0m\n\n")
 }
 
 func main() {

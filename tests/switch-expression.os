@@ -1,3 +1,5 @@
+import { println } from "core:io";
+
 var matched = switch(2) {
     1 => "first",
     2, 3 => "matched",
@@ -14,6 +16,6 @@ var nullCase = switch(null) {
     default => "fallback"
 };
 
-log matched;
-log fallback;
-log nullCase;
+println(matched);
+println(fallback);
+println(nullCase);

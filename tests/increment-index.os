@@ -1,8 +1,10 @@
+import { println } from "core:io";
+
 var items = [10, 20];
-log items[1]++ + 2;
-log items[1];
-log ++items[0];
-log items[0];
+println(items[1]++ + 2);
+println(items[1]);
+println(++items[0]);
+println(items[0]);
 
 var evaluations = 0;
 var getItems::fn() {
@@ -13,21 +15,21 @@ var getIndex::fn() {
 	evaluations++;
 	return 0;
 };
-log getItems()[getIndex()]++;
-log evaluations;
-log items[0];
+println(getItems()[getIndex()]++);
+println(evaluations);
+println(items[0]);
 
 evaluations = 0;
-log ++getItems()[getIndex()];
-log evaluations;
-log items[0];
+println(++getItems()[getIndex()]);
+println(evaluations);
+println(items[0]);
 
 evaluations = 0;
-log getItems()[getIndex()]--;
-log evaluations;
-log items[0];
+println(getItems()[getIndex()]--);
+println(evaluations);
+println(items[0]);
 
 evaluations = 0;
-log --getItems()[getIndex()];
-log evaluations;
-log items[0];
+println(--getItems()[getIndex()]);
+println(evaluations);
+println(items[0]);

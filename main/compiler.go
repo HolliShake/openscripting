@@ -641,9 +641,9 @@ func tryFold(fn *Function, ast *Ast) constVal {
 
 // resolveVar finds the variable named by an identifier node, registers a
 // capture if it lives in an enclosing function, and returns the local offset
-// to use in this function. It emits no code. Shared by identifier loads and
-// assignment targets (these used to be two identical copies).
-func resolveVar(scope *Scope, fn *Function, ast *Ast) int32 {
+// to use in this function together with the variable's constness. It emits no
+// code. Returning the constness lets callers skip a second scope-chain walk.
+func resolveVar(scope *Scope, fn *Function, ast *Ast) (offset int32, isConst bool) {
 	name := ast.Value
 	if !scope.Exists(name) {
 		ThrowError(fn.File, "undefined variable", ast.Pos)
@@ -654,7 +654,7 @@ func resolveVar(scope *Scope, fn *Function, ast *Ast) int32 {
 
 	if exists && !isLocalSymb {
 		// Capture
-		offset := scope.GetVarCount()
+		offset = scope.GetVarCount()
 
 		scope.AddLocal(name, Symbol{
 			Name:    name,
@@ -670,9 +670,9 @@ func resolveVar(scope *Scope, fn *Function, ast *Ast) int32 {
 			Src:  sym.Offset,
 			Dst:  offset,
 		})
-		return offset
+		return offset, sym.Const
 	}
-	return sym.Offset
+	return sym.Offset, sym.Const
 }
 
 /******************* Visitors ***/
@@ -935,7 +935,8 @@ func visitExpression(s *State, scope *Scope, fn *Function, ast *Ast) {
 	switch ast.Type {
 	case AstIdentifier:
 		{
-			emitInt(fn, OpLoadVar, resolveVar(scope, fn, ast))
+			offset, _ := resolveVar(scope, fn, ast)
+			emitInt(fn, OpLoadVar, offset)
 		}
 	case AstNullLit:
 		{
@@ -1025,26 +1026,26 @@ func visitExpression(s *State, scope *Scope, fn *Function, ast *Ast) {
 			assign1(s, scope, fn, ast.A)
 			emit(fn, OpInc)
 			emit(fn, OpDupTop)
-			assign2(s, scope, fn, ast.A)
+			assign2(s, scope, fn, ast.A, false)
 		}
 	case AstDec:
 		{
 			assign1(s, scope, fn, ast.A)
 			emit(fn, OpDec)
 			emit(fn, OpDupTop)
-			assign2(s, scope, fn, ast.A)
+			assign2(s, scope, fn, ast.A, false)
 		}
 	case AstPostInc:
 		{
 			assign1(s, scope, fn, ast.A)
 			emit(fn, OpPostInc)
-			assign2(s, scope, fn, ast.A)
+			assign2(s, scope, fn, ast.A, false)
 		}
 	case AstPostDec:
 		{
 			assign1(s, scope, fn, ast.A)
 			emit(fn, OpPostDec)
-			assign2(s, scope, fn, ast.A)
+			assign2(s, scope, fn, ast.A, false)
 		}
 	case AstMul, AstDiv, AstMod, AstAdd, AstSub,
 		AstShiftLeft, AstShiftRight,
@@ -1070,28 +1071,7 @@ func visitExpression(s *State, scope *Scope, fn *Function, ast *Ast) {
 		}
 	case AstAssign:
 		{
-			if ast.A.Type == AstIdentifier {
-				// Plain `x = expr`: no need to load the old value, pop it and
-				// rotate. Only the capture registration of resolveVar is needed.
-				// (Rot2 on [v, v] was a no-op for identifiers.)
-				resolveVar(scope, fn, ast.A)
-				visitExpression(s, scope, fn, ast.B)
-				emit(fn, OpDupTop)
-				symb, exists := scope.GetVariable(ast.A.Value)
-				if !exists {
-					ThrowError(fn.File, "variable not defined", ast.A.Pos)
-				}
-				if symb.Const {
-					ThrowError(fn.File, "cannot assign to constant variable", ast.A.Pos)
-				}
-				emitInt(fn, OpStoreLocal, symb.Offset)
-			} else {
-				assign1(s, scope, fn, ast.A)
-				emit(fn, OpPopTop)
-				visitExpression(s, scope, fn, ast.B)
-				emit(fn, OpDupTop)
-				assign2(s, scope, fn, ast.A)
-			}
+			assignVar(s, scope, fn, ast.A, ast.B)
 		}
 	case
 		AstMulAssign,
@@ -1109,7 +1089,7 @@ func visitExpression(s *State, scope *Scope, fn *Function, ast *Ast) {
 			visitExpression(s, scope, fn, ast.B)
 			emit(fn, compoundAssignOpcode(ast.Type))
 			emit(fn, OpDupTop)
-			assign2(s, scope, fn, ast.A)
+			assign2(s, scope, fn, ast.A, false)
 		}
 	case AstTernaryOperation:
 		{
@@ -1128,11 +1108,25 @@ func visitExpression(s *State, scope *Scope, fn *Function, ast *Ast) {
 	}
 }
 
+func assignVar(s *State, scope *Scope, fn *Function, lhs *Ast, rhs *Ast) {
+	switch lhs.Type {
+	case AstMemberAccess:
+		visitExpression(s, scope, fn, lhs.A)
+	case AstIndexAccess:
+		visitExpression(s, scope, fn, lhs.A)
+		visitExpression(s, scope, fn, lhs.B)
+	}
+	visitExpression(s, scope, fn, rhs)
+	emit(fn, OpDupTop)
+	assign2(s, scope, fn, lhs, true)
+}
+
 func assign1(s *State, scope *Scope, fn *Function, ast *Ast) {
 	switch ast.Type {
 	case AstIdentifier:
 		{
-			emitInt(fn, OpLoadVar, resolveVar(scope, fn, ast))
+			offset, _ := resolveVar(scope, fn, ast)
+			emitInt(fn, OpLoadVar, offset)
 		}
 	case AstMemberAccess:
 		{
@@ -1155,7 +1149,7 @@ func assign1(s *State, scope *Scope, fn *Function, ast *Ast) {
 	}
 }
 
-func assign2(s *State, scope *Scope, fn *Function, lhs *Ast) {
+func assign2(_ *State, scope *Scope, fn *Function, lhs *Ast, simpleAssign bool) {
 	switch lhs.Type {
 	case AstIdentifier:
 		{
@@ -1166,7 +1160,9 @@ func assign2(s *State, scope *Scope, fn *Function, lhs *Ast) {
 			if symb.Const {
 				ThrowError(fn.File, "cannot assign to constant variable", lhs.Pos)
 			}
-			emit(fn, OpRot2)
+			if !simpleAssign {
+				emit(fn, OpRot2)
+			}
 			emitInt(fn, OpStoreLocal, symb.Offset)
 		}
 	case AstMemberAccess:
@@ -1572,26 +1568,28 @@ func visitTryCatch(s *State, scope *Scope, fn *Function, ast *Ast) {
 	labelJump(fn, endJump)
 }
 
-func moduleDeclarationNames(ast *Ast) map[string]struct{} {
-	names := make(map[string]struct{})
+// moduleDeclarationNames appends every top-level declared name to names, in
+// source order. Callers pass a stack-backed slice, so typical modules need no
+// heap allocation and the result order is deterministic (unlike a map).
+func moduleDeclarationNames(ast *Ast, names []string) []string {
 	for statement := ast.A; statement != nil; statement = statement.Next {
 		switch statement.Type {
 		case AstClass, AstFunction:
-			names[statement.A.Value] = struct{}{}
+			names = append(names, statement.A.Value)
 		case AstVar, AstLet, AstConst:
 			for declaration := statement.A; declaration != nil; declaration = declaration.Next {
-				names[declaration.A.Value] = struct{}{}
+				names = append(names, declaration.A.Value)
 			}
 		case AstDestructuringArrayVar, AstDestructuringArrayLet, AstDestructuringArrayConst:
 			for item := statement.A; item != nil; item = item.Next {
-				names[item.Value] = struct{}{}
+				names = append(names, item.Value)
 			}
 		case AstDestructuringObjectVar, AstDestructuringObjectLet, AstDestructuringObjectConst:
 			for item := statement.A; item != nil; item = item.Next {
 				if item.Type == AstKeyValue {
-					names[item.B.Value] = struct{}{}
+					names = append(names, item.B.Value)
 				} else {
-					names[item.Value] = struct{}{}
+					names = append(names, item.Value)
 				}
 			}
 		}
@@ -1599,15 +1597,40 @@ func moduleDeclarationNames(ast *Ast) map[string]struct{} {
 	return names
 }
 
+// sourceRunes is []rune(string(data)) without the intermediate string copy.
+// Invalid bytes decode to U+FFFD, exactly like the conversion it replaces.
+func sourceRunes(data []byte) []rune {
+	runes := make([]rune, 0, utf8.RuneCount(data))
+	for len(data) > 0 {
+		r, n := utf8.DecodeRune(data)
+		runes = append(runes, r)
+		data = data[n:]
+	}
+	return runes
+}
+
 func compileImportedModule(s *State, fn *Function, ast *Ast, path string) *Import {
 	if s.Imports == nil {
 		s.Imports = make(map[string]*Import)
 	}
+
+	// Fast path: this exact path was already seen. No Stat, no scan.
+	if cached, ok := s.Imports[path]; ok {
+		if cached.IsImporting {
+			cycle := append(append([]string(nil), s.ImportStack...), cached.Path)
+			ThrowError(fn.File, "circular module import: "+strings.Join(cycle, " -> "), ast.Pos)
+		}
+		return cached
+	}
+
 	fileInfo, err := os.Stat(path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error reading imported module %q: %v\n", path, err)
 		os.Exit(1)
 	}
+
+	// Slow path: a different path may still name the same file (symlink or
+	// hard link), so compare file identity against every known module.
 	for _, cached := range s.Imports {
 		if cached.FileInfo == nil || !os.SameFile(cached.FileInfo, fileInfo) {
 			continue
@@ -1618,13 +1641,6 @@ func compileImportedModule(s *State, fn *Function, ast *Ast, path string) *Impor
 		}
 		s.Imports[path] = cached
 		return cached
-	}
-	if module, exists := s.Imports[path]; exists {
-		if module.IsImporting {
-			cycle := append(append([]string(nil), s.ImportStack...), path)
-			ThrowError(fn.File, "circular module import: "+strings.Join(cycle, " -> "), ast.Pos)
-		}
-		return module
 	}
 
 	module := &Import{IsImporting: true, Path: path, FileInfo: fileInfo}
@@ -1639,7 +1655,7 @@ func compileImportedModule(s *State, fn *Function, ast *Ast, path string) *Impor
 		fmt.Fprintf(os.Stderr, "error reading imported module %q: %v\n", path, err)
 		os.Exit(1)
 	}
-	file := &File{Name: path, Content: []rune(string(data))}
+	file := &File{Name: path, Content: sourceRunes(data)}
 	moduleParser := NewParser(s, file)
 	moduleAst := moduleParser.Parse()
 	assert(AstProgram, moduleAst)
@@ -1666,13 +1682,17 @@ func compileImportedModule(s *State, fn *Function, ast *Ast, path string) *Impor
 		})
 	}
 
-	declaredNames := moduleDeclarationNames(moduleAst)
+	var nameBuf [16]string
+	declaredNames := moduleDeclarationNames(moduleAst, nameBuf[:0])
 	for statement := moduleAst.A; statement != nil; statement = statement.Next {
 		visitDeclarationOrStatement(s, moduleScope, moduleFunction, statement)
 	}
 
 	module.Exports = make(map[string]struct{}, len(declaredNames))
-	for name := range declaredNames {
+	for _, name := range declaredNames {
+		if _, dup := module.Exports[name]; dup {
+			continue
+		}
 		if symbol, exists := moduleScope.Variables[name]; exists {
 			emitString(moduleFunction, name)
 			emitInt(moduleFunction, OpLoadVar, symbol.Offset)
@@ -1723,11 +1743,11 @@ func visitImport(s *State, scope *Scope, fn *Function, ast *Ast) {
 		}
 		return
 	}
+	// filepath.Abs already returns a cleaned path, so no extra Clean is needed.
 	path, err := filepath.Abs(filepath.Join(filepath.Dir(fn.File.Name), moduleName))
 	if err != nil {
 		ThrowError(fn.File, "invalid module path", ast.A.Pos)
 	}
-	path = filepath.Clean(path)
 	module := compileImportedModule(s, fn, ast, path)
 	emitInt(fn, OpLoadFunction, module.Function)
 	emitInt(fn, OpCall, 0)

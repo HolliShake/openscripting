@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"log"
+	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 	"unsafe"
@@ -70,12 +72,6 @@ func (vm *VM) strTable(bcode []int32) []string {
 }
 
 //go:noinline
-func panicInt(format string, a int) { panic(fmt.Sprintf(format, a)) }
-
-//go:noinline
-func panicInt2(format string, a, b int) { panic(fmt.Sprintf(format, a, b)) }
-
-//go:noinline
 func valueString(v OSValue) string { return v.String() }
 
 //go:noinline
@@ -101,19 +97,38 @@ func operand(bcode []int32, ip, bsize int32) int32 {
 	return bcode[ip]
 }
 
-// decodeRunes turns a rune-per-word literal into a string. The bytecode
-// length is a rune count, so the backing bytes are sized from the encoded
-// runes to avoid append growth for multibyte text.
+// decodeRunes turns a rune-per-word literal into a string with exactly one
+// allocation. The bytecode length is a rune count, so the byte size is
+// computed up front. Pure-ASCII literals (the common case) take a straight
+// byte-copy path. Invalid runes encode as U+FFFD (3 bytes), matching what
+// utf8.EncodeRune writes, so the buffer can never be undersized.
 func decodeRunes(runes []int32) string {
-	byteSize := 0
+	if len(runes) == 0 {
+		return ""
+	}
 
+	byteSize := 0
 	for _, value := range runes {
-		byteSize += utf8.RuneLen(rune(value))
+		if uint32(value) < utf8.RuneSelf {
+			byteSize++
+		} else if n := utf8.RuneLen(rune(value)); n > 0 {
+			byteSize += n
+		} else {
+			byteSize += 3 // utf8.RuneError
+		}
 	}
 
 	buf := make([]byte, byteSize)
-	byteOffset := 0
 
+	if byteSize == len(runes) {
+		// Every rune fit in one byte: all ASCII.
+		for i, value := range runes {
+			buf[i] = byte(value)
+		}
+		return unsafe.String(unsafe.SliceData(buf), byteSize)
+	}
+
+	byteOffset := 0
 	for _, value := range runes {
 		byteOffset += utf8.EncodeRune(buf[byteOffset:], rune(value))
 	}
@@ -420,6 +435,8 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				dstObj := (*Object)(dst.Opaque)
 				srcObj := (*Object)(src.Opaque)
 
+				// Reserve key capacity once instead of growing per Set.
+				dstObj.Keys = slices.Grow(dstObj.Keys, len(srcObj.Keys))
 				for _, key := range srcObj.Keys {
 					dstObj.Set(key, srcObj.Values[key])
 				}
@@ -439,6 +456,8 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 
 				base := sp - 2*size
 				obj := &Object{Values: make(map[string]OSValue, size)}
+				// Reserve key capacity once instead of growing per Set.
+				obj.Keys = slices.Grow(obj.Keys, int(size))
 				for i := int32(0); i < size; i++ {
 					key := stack[base+2*i]
 					if key.Type != OSVString {
@@ -686,12 +705,12 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				ip++
 
 				if funcIndex < 0 || funcIndex >= len(state.Functions) {
-					panicInt("invalid function index: %d", funcIndex)
+					panic("invalid function index: " + strconv.Itoa(funcIndex))
 				}
 
 				fn := state.Functions[funcIndex]
 				if fn == nil {
-					panicInt("function at index %d is nil", funcIndex)
+					panic("function at index " + strconv.Itoa(funcIndex) + " is nil")
 				}
 
 				// Only functions that capture variables need a per-closure
@@ -699,7 +718,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				if len(fn.CaptureMeta) > 0 {
 					fn = fn.Clone()
 					if fn == nil {
-						panicInt("function at index %d is nil", funcIndex)
+						panic("function at index " + strconv.Itoa(funcIndex) + " is nil")
 					}
 
 					// Save captured variables from the current environment
@@ -751,7 +770,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 
 				env := frame.Env
 				if uint32(varIndex) >= uint32(len(env)) || env[varIndex] == nil {
-					panicInt2("invalid local variable index: %d of %d", int(varIndex), len(env))
+					panic("invalid local variable index: " + strconv.Itoa(int(varIndex)) + " of " + strconv.Itoa(len(env)))
 				}
 
 				if sp >= int32(len(stack)) {
@@ -898,7 +917,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 							ClassName: class.Name,
 							Values:    make(map[string]OSValue),
 						})}
-						if sp+2 > int32(len(stack)) {
+						for sp+2 > int32(len(stack)) {
 							stack = growStack(co)
 						}
 						argStart := sp - argCount
@@ -1407,7 +1426,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 
 				env := frame.Env
 				if uint32(localIndex) >= uint32(len(env)) || env[localIndex] == nil {
-					panicInt2("invalid local variable index: %d (frame.Env length: %d)", int(localIndex), len(env))
+					panic("invalid local variable index: " + strconv.Itoa(int(localIndex)) + " (frame.Env length: " + strconv.Itoa(len(env)) + ")")
 				}
 
 				if sp <= 0 {
@@ -1576,7 +1595,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					returnValue = vm.Null
 				}
 				if sp != 0 {
-					panicInt("stack not empty on return (stack pointer: %d)", int(sp))
+					panic("stack not empty on return (stack pointer: " + strconv.Itoa(int(sp)) + ")")
 				}
 
 				if module := frame.Function.Module; module != nil {
@@ -1644,7 +1663,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		default:
 			{
-				panicInt2("unknown opcode %v at offset %d", int(op), int(ip-1))
+				panic("unknown opcode " + strconv.Itoa(int(op)) + " at offset " + strconv.Itoa(int(ip-1)))
 			}
 		}
 		continue
