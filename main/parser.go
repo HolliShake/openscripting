@@ -333,6 +333,9 @@ func (p *Parser) scanNumber(pos Position) Token {
 			if !hasDigit {
 				ThrowError(p.File, "invalid numeric literal", pos)
 			}
+			if i < n && (src[i] == 'n' || src[i] == 'N') {
+				i++
+			}
 			return p.emit(NUM, i, pos)
 		}
 	}
@@ -340,13 +343,16 @@ func (p *Parser) scanNumber(pos Position) Token {
 	for i < n && (isDigit(src[i]) || src[i] == '_') {
 		i++
 	}
+	isInteger := true
 	if i+1 < n && src[i] == '.' && isDigit(src[i+1]) {
+		isInteger = false
 		i++
 		for i < n && (isDigit(src[i]) || src[i] == '_') {
 			i++
 		}
 	}
 	if i < n && (src[i] == 'e' || src[i] == 'E') {
+		isInteger = false
 		k := i + 1
 		if k < n && (src[k] == '+' || src[k] == '-') {
 			k++
@@ -358,6 +364,9 @@ func (p *Parser) scanNumber(pos Position) Token {
 		if k > d {
 			i = k
 		}
+	}
+	if isInteger && i < n && (src[i] == 'n' || src[i] == 'N') {
+		i++
 	}
 	return p.emit(NUM, i, pos)
 }

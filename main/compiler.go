@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"slices"
@@ -234,6 +235,11 @@ func emitFloat(fn *Function, value float64) {
 	fn.Bytecode = append(fn.Bytecode, OpLoadNum, whole, decimal)
 }
 
+func emitBigInt(fn *Function, value string) {
+	emit(fn, OpLoadBigInt)
+	emitRunes(fn, value)
+}
+
 // emitRunes writes the length-prefixed rune sequence of s directly into the
 // bytecode, without a temporary []rune.
 func emitRunes(fn *Function, s string) {
@@ -423,6 +429,9 @@ func tryFold(fn *Function, ast *Ast) constVal {
 	switch ast.Type {
 	case AstNumLit:
 		{
+			if strings.HasSuffix(ast.Value, "n") || strings.HasSuffix(ast.Value, "N") {
+				return noConst
+			}
 			value, err := strconv.ParseFloat(ast.Value, 64)
 			if err != nil {
 				ThrowError(fn.File, "invalid number format", ast.Pos)
@@ -1022,6 +1031,22 @@ func visitExpression(s *State, scope *Scope, fn *Function, ast *Ast) {
 	}
 
 	switch ast.Type {
+	case AstNumLit:
+		{
+			literal := ast.Value[:len(ast.Value)-1]
+			literal = strings.ReplaceAll(literal, "_", "")
+			base := 10
+			if strings.HasPrefix(literal, "0x") || strings.HasPrefix(literal, "0X") ||
+				strings.HasPrefix(literal, "0o") || strings.HasPrefix(literal, "0O") ||
+				strings.HasPrefix(literal, "0b") || strings.HasPrefix(literal, "0B") {
+				base = 0
+			}
+			value, ok := new(big.Int).SetString(literal, base)
+			if !ok {
+				ThrowError(fn.File, "invalid BigInt literal", ast.Pos)
+			}
+			emitBigInt(fn, value.String())
+		}
 	case AstIdentifier:
 		{
 			offset, _ := resolveVar(scope, fn, ast)

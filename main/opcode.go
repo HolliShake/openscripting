@@ -64,4 +64,5 @@ const (
 	OpAwait
 	OpCallSuper
 	OpLoadBuiltin
+	OpLoadBigInt
 )

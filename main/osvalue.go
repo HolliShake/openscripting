@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math/big"
 	"strconv"
 	"strings"
 	"unsafe"
@@ -19,6 +20,7 @@ const (
 	OSVNativeMethod // bind
 	OSVPromise
 	OSVClass
+	OSVBigInt
 )
 
 type OSValueType byte
@@ -64,6 +66,13 @@ func (v OSValue) String() string {
 	case OSVNum:
 		{
 			return strconv.FormatFloat(v.Number, 'f', -1, 64)
+		}
+	case OSVBigInt:
+		{
+			if v.Opaque == nil {
+				return "0"
+			}
+			return (*big.Int)(v.Opaque).String()
 		}
 	case OSVBool:
 		{
@@ -137,6 +146,14 @@ func (v OSValue) writeString(builder *strings.Builder, path *[]unsafe.Pointer) {
 		{
 			var tmp [32]byte
 			builder.Write(strconv.AppendFloat(tmp[:0], v.Number, 'f', -1, 64))
+		}
+	case OSVBigInt:
+		{
+			if v.Opaque == nil {
+				builder.WriteByte('0')
+			} else {
+				builder.WriteString((*big.Int)(v.Opaque).String())
+			}
 		}
 	case OSVBool:
 		{
@@ -273,6 +290,13 @@ func IsEqual(a, b OSValue) bool {
 		{
 			return a.Number == b.Number
 		}
+	case OSVBigInt:
+		{
+			if a.Opaque == nil || b.Opaque == nil {
+				return a.Opaque == b.Opaque
+			}
+			return (*big.Int)(a.Opaque).Cmp((*big.Int)(b.Opaque)) == 0
+		}
 	case OSVString:
 		{
 			// Number holds the byte length: different lengths can never be
@@ -306,6 +330,10 @@ func CoerceToBool(v OSValue) bool {
 		{
 			// For strings Number is the byte length.
 			return v.Number != 0
+		}
+	case OSVBigInt:
+		{
+			return v.Opaque != nil && (*big.Int)(v.Opaque).Sign() != 0
 		}
 	case OSVFunction, OSVPromise, OSVClass:
 		{

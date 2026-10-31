@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"math/big"
 	"slices"
 	"strconv"
 	"strings"
@@ -75,9 +76,51 @@ func (vm *VM) strTable(bcode []int32) []string {
 //go:noinline
 func valueString(v OSValue) string { return v.String() }
 
+func bigIntValue(value *big.Int) OSValue {
+	return OSValue{Type: OSVBigInt, Opaque: unsafe.Pointer(value)}
+}
+
+func isBigIntPair(left, right OSValue) bool {
+	return left.Type == OSVBigInt && left.Opaque != nil && right.Type == OSVBigInt && right.Opaque != nil
+}
+
 //go:noinline
 func argcMessage(expected, got int) string {
 	return fmt.Sprintf("function expects %d arguments, got %d", expected, got)
+}
+
+// Panic helpers kept out of line: building their messages with string
+// concatenation inside the interpreter loop bloats its frame and hurts
+// register allocation.
+
+//go:noinline
+func panicLoadLocal(index, n int) {
+	panic("invalid local variable index: " + strconv.Itoa(index) + " of " + strconv.Itoa(n))
+}
+
+//go:noinline
+func panicStoreLocal(index, n int) {
+	panic("invalid local variable index: " + strconv.Itoa(index) + " (frame.Env length: " + strconv.Itoa(n) + ")")
+}
+
+//go:noinline
+func panicFuncIndex(index int) {
+	panic("invalid function index: " + strconv.Itoa(index))
+}
+
+//go:noinline
+func panicNilFunc(index int) {
+	panic("function at index " + strconv.Itoa(index) + " is nil")
+}
+
+//go:noinline
+func panicReturnStack(sp int) {
+	panic("stack not empty on return (stack pointer: " + strconv.Itoa(sp) + ")")
+}
+
+//go:noinline
+func panicUnknownOp(op int32, offset int) {
+	panic("unknown opcode " + strconv.Itoa(int(op)) + " at offset " + strconv.Itoa(offset))
 }
 
 // writeLog avoids boxing the string into a []any for log.Println.
@@ -264,6 +307,10 @@ func enqueueMicrotask(vm *VM, coroutine *Coroutine) {
 // reference on every instruction). Everything here is plain local state, so
 // the compiler can keep the hot variables in registers.
 //
+// Hot arithmetic/comparison opcodes test for the number/number case first and
+// work in place on the operand stack; the BigInt and error paths follow
+// unchanged.
+//
 // Errors are raised with `errMsg = ...; goto throwError`; the shared handler
 // at the bottom of the dispatch loop calls raise().
 func runCoroutine(state *State, vm *VM, co *Coroutine) {
@@ -279,6 +326,10 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 	stack := co.OperandStack
 	bsize := len(bcode)
 	currentInstruction := ip
+
+	// Local environment of the current frame, cached next to bcode/stack and
+	// refreshed at every frame switch (call / return).
+	env := frame.Env
 
 	// Literal table for the current bytecode; looked up lazily on the first
 	// string literal executed in a frame, and reset whenever frames switch.
@@ -327,6 +378,21 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					Type:   OSVNum,
 					Number: CombineFloat(a, b),
 				}
+				sp++
+			}
+		case OpLoadBigInt:
+			{
+				var value string
+				value, strTab, ip = readString(vm, bcode, ip, bsize, strTab)
+				integer, ok := new(big.Int).SetString(value, 10)
+				if !ok {
+					errMsg = "invalid BigInt literal"
+					goto throwError
+				}
+				if sp >= len(stack) {
+					stack = growStack(co)
+				}
+				stack[sp] = bigIntValue(integer)
 				sp++
 			}
 		case OpLoadStr:
@@ -509,26 +575,26 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				if sp <= 0 {
 					panic(msgUnderflow)
 				}
-				sp--
-				top := stack[sp]
-				stack[sp] = OSValue{}
 
 				var attr string
 				attr, strTab, ip = readString(vm, bcode, ip, bsize, strTab)
 
 				// Plain objects are by far the most common receiver. The
 				// value types are mutually exclusive, so checking them
-				// first changes nothing.
+				// first changes nothing. The result overwrites the receiver
+				// in place: no pop, clear and push.
+				top := stack[sp-1]
 				if top.Type == OSVObject && top.Opaque != nil {
-					obj := (*Object)(top.Opaque)
-					if value, exists := obj.Values[attr]; exists {
-						stack[sp] = value
+					if value, exists := (*Object)(top.Opaque).Values[attr]; exists {
+						stack[sp-1] = value
 					} else {
-						stack[sp] = vm.Null
+						stack[sp-1] = vm.Null
 					}
-					sp++
 					continue
 				}
+
+				sp--
+				stack[sp] = OSValue{}
 
 				if top.Type == OSVPromise {
 					if attr == "then" {
@@ -596,7 +662,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				// Fast path: array[number].
 				if obj.Type == OSVArray && obj.Opaque != nil && idx.Type == OSVNum {
 					arr := (*Array)(obj.Opaque)
-					i := int(CoerceToNumber(idx))
+					i := int(idx.Number)
 					if i >= 0 && i < len(arr.Elements) {
 						stack[sp-1] = OSValue{}
 						sp--
@@ -657,7 +723,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					goto throwError
 				}
 
-				i := int(CoerceToNumber(idx))
+				i := int(idx.Number)
 				if i < 0 || i >= len(arr.Elements) {
 					errMsg = msgIndexBounds
 					goto throwError
@@ -670,11 +736,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 		case OpRot2:
 			{
 				// A, B -> B, A
-				b := stack[sp-1]
-				a := stack[sp-2]
-				//========================//
-				stack[sp-2] = b
-				stack[sp-1] = a
+				stack[sp-2], stack[sp-1] = stack[sp-1], stack[sp-2]
 			}
 		case OpRot3:
 			{
@@ -702,16 +764,16 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpLoadFunction:
 			{
-				funcIndex := int(operand(bcode, ip, bsize))
+				funcIndex := operand(bcode, ip, bsize)
 				ip++
 
 				if funcIndex < 0 || funcIndex >= len(state.Functions) {
-					panic("invalid function index: " + strconv.Itoa(funcIndex))
+					panicFuncIndex(funcIndex)
 				}
 
 				fn := state.Functions[funcIndex]
 				if fn == nil {
-					panic("function at index " + strconv.Itoa(funcIndex) + " is nil")
+					panicNilFunc(funcIndex)
 				}
 
 				// Only functions that capture variables need a per-closure
@@ -719,12 +781,11 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				if len(fn.CaptureMeta) > 0 {
 					fn = fn.Clone()
 					if fn == nil {
-						panic("function at index " + strconv.Itoa(funcIndex) + " is nil")
+						panicNilFunc(funcIndex)
 					}
 
 					// Save captured variables from the current environment
 					// into the function's capture metadata.
-					env := frame.Env
 					for i := range fn.CaptureMeta {
 						capMeta := &fn.CaptureMeta[i]
 						capMeta.Cell = env[capMeta.Src]
@@ -769,9 +830,8 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				varIndex := int(bcode[ip])
 				ip++
 
-				env := frame.Env
-				if varIndex < 0 || varIndex >= len(env) || env[varIndex] == nil {
-					panic("invalid local variable index: " + strconv.Itoa(varIndex) + " of " + strconv.Itoa(len(env)))
+				if uint(varIndex) >= uint(len(env)) || env[varIndex] == nil {
+					panicLoadLocal(varIndex, len(env))
 				}
 
 				if sp >= len(stack) {
@@ -780,6 +840,64 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				stack[sp] = env[varIndex].Value
 				sp++
 			}
+		case OpUnaryPos:
+			{
+				if sp <= 0 {
+					panic(msgUnderflow)
+				}
+				value := stack[sp-1]
+				if value.Type != OSVBigInt && !IsNumber(value) {
+					errMsg = "invalid operand for unary plus"
+					goto throwError
+				}
+			}
+		case OpUnaryNeg:
+			{
+				if sp <= 0 {
+					panic(msgUnderflow)
+				}
+				value := stack[sp-1]
+				if value.Type == OSVNum {
+					stack[sp-1].Number = -value.Number
+				} else if value.Type == OSVBigInt && value.Opaque != nil {
+					stack[sp-1] = bigIntValue(new(big.Int).Neg((*big.Int)(value.Opaque)))
+				} else if IsNumber(value) {
+					stack[sp-1].Number = -value.Number
+				} else {
+					errMsg = "invalid operand for negation"
+					goto throwError
+				}
+			}
+		case OpUnaryNot:
+			{
+				if sp <= 0 {
+					panic(msgUnderflow)
+				}
+				if stack[sp-1].Type != OSVBool {
+					errMsg = "invalid operand for logical not"
+					goto throwError
+				}
+				if stack[sp-1].Number == 0 {
+					stack[sp-1] = vm.True
+				} else {
+					stack[sp-1] = vm.False
+				}
+			}
+		case OpUnaryBitNot:
+			{
+				if sp <= 0 {
+					panic(msgUnderflow)
+				}
+				value := stack[sp-1]
+				if value.Type == OSVBigInt && value.Opaque != nil {
+					stack[sp-1] = bigIntValue(new(big.Int).Not((*big.Int)(value.Opaque)))
+				} else if IsNumber(value) {
+					stack[sp-1] = OSValue{Type: OSVNum, Number: float64(^int64(value.Number))}
+				} else {
+					errMsg = "invalid operand for bitwise not"
+					goto throwError
+				}
+			}
 		case OpInc:
 			{
 				if sp <= 0 {
@@ -787,6 +905,15 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 
 				top := &stack[sp-1]
+				if top.Type == OSVNum {
+					top.Number++
+					continue
+				}
+				if top.Type == OSVBigInt && top.Opaque != nil {
+					updated := new(big.Int).Add((*big.Int)(top.Opaque), big.NewInt(1))
+					*top = bigIntValue(updated)
+					continue
+				}
 				if !IsNumber(*top) {
 					errMsg = msgIncDec
 					goto throwError
@@ -800,6 +927,15 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 
 				top := &stack[sp-1]
+				if top.Type == OSVNum {
+					top.Number--
+					continue
+				}
+				if top.Type == OSVBigInt && top.Opaque != nil {
+					updated := new(big.Int).Sub((*big.Int)(top.Opaque), big.NewInt(1))
+					*top = bigIntValue(updated)
+					continue
+				}
 				if !IsNumber(*top) {
 					errMsg = msgIncDec
 					goto throwError
@@ -813,7 +949,17 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 
 				old := stack[sp-1]
-				if !IsNumber(old) {
+				if old.Type == OSVBigInt && old.Opaque != nil {
+					updated := new(big.Int).Add((*big.Int)(old.Opaque), big.NewInt(1))
+					if sp >= len(stack) {
+						stack = growStack(co)
+					}
+					stack[sp-1] = bigIntValue(updated)
+					stack[sp] = old
+					sp++
+					continue
+				}
+				if old.Type != OSVNum && !IsNumber(old) {
 					errMsg = msgIncDec
 					goto throwError
 				}
@@ -835,7 +981,17 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 
 				old := stack[sp-1]
-				if !IsNumber(old) {
+				if old.Type == OSVBigInt && old.Opaque != nil {
+					updated := new(big.Int).Sub((*big.Int)(old.Opaque), big.NewInt(1))
+					if sp >= len(stack) {
+						stack = growStack(co)
+					}
+					stack[sp-1] = bigIntValue(updated)
+					stack[sp] = old
+					sp++
+					continue
+				}
+				if old.Type != OSVNum && !IsNumber(old) {
 					errMsg = msgIncDec
 					goto throwError
 				}
@@ -855,8 +1011,8 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				argCount := operand(bcode, ip, bsize)
 				ip++
 
-				if !frame.Function.ClassConstructor || frame.Function.ClassSuperOffset >= len(frame.Env) ||
-					frame.Function.ClassThisOffset >= len(frame.Env) {
+				if !frame.Function.ClassConstructor || frame.Function.ClassSuperOffset >= len(env) ||
+					frame.Function.ClassThisOffset >= len(env) {
 					errMsg = "super constructor call outside a class constructor"
 					goto throwError
 				}
@@ -865,7 +1021,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					goto throwError
 				}
 
-				superValue := frame.Env[frame.Function.ClassSuperOffset].Value
+				superValue := env[frame.Function.ClassSuperOffset].Value
 				if superValue.Type != OSVClass || superValue.Opaque == nil {
 					errMsg = "class has no superclass constructor"
 					goto throwError
@@ -882,7 +1038,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 				argStart := sp - argCount
 				copy(stack[argStart+2:sp+2], stack[argStart:sp])
-				stack[argStart] = frame.Env[frame.Function.ClassThisOffset].Value
+				stack[argStart] = env[frame.Function.ClassThisOffset].Value
 				stack[argStart+1] = OSValue{Type: OSVClass, Opaque: unsafe.Pointer(superClass.Super)}
 				sp += 2
 				stack[sp] = constructor
@@ -932,82 +1088,10 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 
 				switch fnValue.Type {
-				case OSVNativeMethod:
-					{
-						nativeMethod := (*NativeMethod)(fnValue.Opaque)
-						if nativeMethod == nil {
-							errMsg = "attempted to call a nil native method"
-							goto throwError
-						}
-						if nativeMethod.Paramc != argCount {
-							errMsg = "invalid argument count for native method"
-							goto throwError
-						}
-						if argCount < 0 || argCount > sp {
-							errMsg = "invalid native method argument count"
-							goto throwError
-						}
-
-						argStart := sp - argCount
-						vm.NativeError = ""
-						result := nativeMethod.Callable(nativeMethod.This, vm, stack[argStart:sp])
-						if vm.NativeError != "" {
-							errMsg = vm.NativeError
-							vm.NativeError = ""
-							clear(stack[argStart:sp])
-							sp = argStart
-							goto throwError
-						}
-						clear(stack[argStart:sp])
-						sp = argStart
-						if sp >= len(stack) {
-							stack = growStack(co)
-						}
-						stack[sp] = result
-						sp++
-						continue
-					}
-				case OSVNativeFunction:
-					{
-						if fnValue.Opaque == nil {
-							errMsg = "attempted to call a nil native function"
-							goto throwError
-						}
-						native := (*NativeFunction)(fnValue.Opaque)
-						if native.Callable == nil {
-							errMsg = "attempted to call a native function without an implementation"
-							goto throwError
-						}
-						if native.Paramc >= 0 && native.Paramc != argCount {
-							errMsg = argcMessage(native.Paramc, argCount)
-							goto throwError
-						}
-						if argCount < 0 || argCount > sp {
-							errMsg = "invalid native function argument count"
-							goto throwError
-						}
-
-						argStart := sp - argCount
-						vm.NativeError = ""
-						result := native.Callable(vm, stack[argStart:sp])
-						if vm.NativeError != "" {
-							errMsg = vm.NativeError
-							vm.NativeError = ""
-							clear(stack[argStart:sp])
-							sp = argStart
-							goto throwError
-						}
-						clear(stack[argStart:sp])
-						sp = argStart
-						if sp >= len(stack) {
-							stack = growStack(co)
-						}
-						stack[sp] = result
-						sp++
-						continue
-					}
 				case OSVFunction:
 					{
+						// Checked first: script-to-script calls are by far
+						// the most common.
 						if fnValue.Opaque == nil {
 							errMsg = "attempted to call a nil function"
 							goto throwError
@@ -1102,7 +1186,82 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 						ip = frame.Ip
 						sp = callee.Sp
 						stack = callee.OperandStack
+						env = frame.Env
 						strTab = nil
+					}
+				case OSVNativeFunction:
+					{
+						if fnValue.Opaque == nil {
+							errMsg = "attempted to call a nil native function"
+							goto throwError
+						}
+						native := (*NativeFunction)(fnValue.Opaque)
+						if native.Callable == nil {
+							errMsg = "attempted to call a native function without an implementation"
+							goto throwError
+						}
+						if native.Paramc >= 0 && native.Paramc != argCount {
+							errMsg = argcMessage(native.Paramc, argCount)
+							goto throwError
+						}
+						if argCount < 0 || argCount > sp {
+							errMsg = "invalid native function argument count"
+							goto throwError
+						}
+
+						argStart := sp - argCount
+						vm.NativeError = ""
+						result := native.Callable(vm, stack[argStart:sp])
+						if vm.NativeError != "" {
+							errMsg = vm.NativeError
+							vm.NativeError = ""
+							clear(stack[argStart:sp])
+							sp = argStart
+							goto throwError
+						}
+						clear(stack[argStart:sp])
+						sp = argStart
+						if sp >= len(stack) {
+							stack = growStack(co)
+						}
+						stack[sp] = result
+						sp++
+						continue
+					}
+				case OSVNativeMethod:
+					{
+						nativeMethod := (*NativeMethod)(fnValue.Opaque)
+						if nativeMethod == nil {
+							errMsg = "attempted to call a nil native method"
+							goto throwError
+						}
+						if nativeMethod.Paramc != argCount {
+							errMsg = "invalid argument count for native method"
+							goto throwError
+						}
+						if argCount < 0 || argCount > sp {
+							errMsg = "invalid native method argument count"
+							goto throwError
+						}
+
+						argStart := sp - argCount
+						vm.NativeError = ""
+						result := nativeMethod.Callable(nativeMethod.This, vm, stack[argStart:sp])
+						if vm.NativeError != "" {
+							errMsg = vm.NativeError
+							vm.NativeError = ""
+							clear(stack[argStart:sp])
+							sp = argStart
+							goto throwError
+						}
+						clear(stack[argStart:sp])
+						sp = argStart
+						if sp >= len(stack) {
+							stack = growStack(co)
+						}
+						stack[sp] = result
+						sp++
+						continue
 					}
 				default:
 					{
@@ -1117,6 +1276,18 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic(msgUnderflow)
 				}
 				l, r := stack[sp-2], stack[sp-1]
+				if l.Type == OSVNum && r.Type == OSVNum {
+					stack[sp-2] = OSValue{Type: OSVNum, Number: l.Number * r.Number}
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
+				if isBigIntPair(l, r) {
+					stack[sp-2] = bigIntValue(new(big.Int).Mul((*big.Int)(l.Opaque), (*big.Int)(r.Opaque)))
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
 				if !(IsNumber(l) && IsNumber(r)) {
 					errMsg = msgArith
 					goto throwError
@@ -1131,6 +1302,26 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic(msgUnderflow)
 				}
 				l, r := stack[sp-2], stack[sp-1]
+				if l.Type == OSVNum && r.Type == OSVNum {
+					if r.Number == 0 {
+						errMsg = "division by zero"
+						goto throwError
+					}
+					stack[sp-2] = OSValue{Type: OSVNum, Number: l.Number / r.Number}
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
+				if isBigIntPair(l, r) {
+					if (*big.Int)(r.Opaque).Sign() == 0 {
+						errMsg = "division by zero"
+						goto throwError
+					}
+					stack[sp-2] = bigIntValue(new(big.Int).Quo((*big.Int)(l.Opaque), (*big.Int)(r.Opaque)))
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
 				if !(IsNumber(l) && IsNumber(r)) {
 					errMsg = msgArith
 					goto throwError
@@ -1149,6 +1340,29 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic(msgUnderflow)
 				}
 				l, r := stack[sp-2], stack[sp-1]
+				if l.Type == OSVNum && r.Type == OSVNum {
+					if r.Number == 0 {
+						errMsg = "division by zero"
+						goto throwError
+					}
+					stack[sp-2] = OSValue{
+						Type:   OSVNum,
+						Number: l.Number - float64(int64(l.Number/r.Number))*r.Number,
+					}
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
+				if isBigIntPair(l, r) {
+					if (*big.Int)(r.Opaque).Sign() == 0 {
+						errMsg = "division by zero"
+						goto throwError
+					}
+					stack[sp-2] = bigIntValue(new(big.Int).Rem((*big.Int)(l.Opaque), (*big.Int)(r.Opaque)))
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
 				if !(IsNumber(l) && IsNumber(r)) {
 					errMsg = msgArith
 					goto throwError
@@ -1170,6 +1384,18 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic(msgUnderflow)
 				}
 				l, r := stack[sp-2], stack[sp-1]
+				if l.Type == OSVNum && r.Type == OSVNum {
+					stack[sp-2] = OSValue{Type: OSVNum, Number: l.Number + r.Number}
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
+				if isBigIntPair(l, r) {
+					stack[sp-2] = bigIntValue(new(big.Int).Add((*big.Int)(l.Opaque), (*big.Int)(r.Opaque)))
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
 				if IsNumber(l) && IsNumber(r) {
 					stack[sp-2] = OSValue{Type: OSVNum, Number: l.Number + r.Number}
 					sp--
@@ -1198,6 +1424,18 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic(msgUnderflow)
 				}
 				l, r := stack[sp-2], stack[sp-1]
+				if l.Type == OSVNum && r.Type == OSVNum {
+					stack[sp-2] = OSValue{Type: OSVNum, Number: l.Number - r.Number}
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
+				if isBigIntPair(l, r) {
+					stack[sp-2] = bigIntValue(new(big.Int).Sub((*big.Int)(l.Opaque), (*big.Int)(r.Opaque)))
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
 				if !(IsNumber(l) && IsNumber(r)) {
 					errMsg = msgArith
 					goto throwError
@@ -1212,6 +1450,25 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic(msgUnderflow)
 				}
 				l, r := stack[sp-2], stack[sp-1]
+				if l.Type == OSVNum && r.Type == OSVNum {
+					stack[sp-2] = OSValue{
+						Type:   OSVNum,
+						Number: float64(int64(l.Number) << uint(int64(r.Number))),
+					}
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
+				if isBigIntPair(l, r) {
+					if (*big.Int)(r.Opaque).Sign() < 0 || !(*big.Int)(r.Opaque).IsUint64() {
+						errMsg = msgBitwise
+						goto throwError
+					}
+					stack[sp-2] = bigIntValue(new(big.Int).Lsh((*big.Int)(l.Opaque), uint((*big.Int)(r.Opaque).Uint64())))
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
 				if !(IsNumber(l) && IsNumber(r)) {
 					errMsg = msgBitwise
 					goto throwError
@@ -1229,6 +1486,25 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic(msgUnderflow)
 				}
 				l, r := stack[sp-2], stack[sp-1]
+				if l.Type == OSVNum && r.Type == OSVNum {
+					stack[sp-2] = OSValue{
+						Type:   OSVNum,
+						Number: float64(int64(l.Number) >> uint(int64(r.Number))),
+					}
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
+				if isBigIntPair(l, r) {
+					if (*big.Int)(r.Opaque).Sign() < 0 || !(*big.Int)(r.Opaque).IsUint64() {
+						errMsg = msgBitwise
+						goto throwError
+					}
+					stack[sp-2] = bigIntValue(new(big.Int).Rsh((*big.Int)(l.Opaque), uint((*big.Int)(r.Opaque).Uint64())))
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
 				if !(IsNumber(l) && IsNumber(r)) {
 					errMsg = msgBitwise
 					goto throwError
@@ -1246,6 +1522,26 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic(msgUnderflow)
 				}
 				l, r := stack[sp-2], stack[sp-1]
+				if l.Type == OSVNum && r.Type == OSVNum {
+					if l.Number < r.Number {
+						stack[sp-2] = vm.True
+					} else {
+						stack[sp-2] = vm.False
+					}
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
+				if isBigIntPair(l, r) {
+					if (*big.Int)(l.Opaque).Cmp((*big.Int)(r.Opaque)) < 0 {
+						stack[sp-2] = vm.True
+					} else {
+						stack[sp-2] = vm.False
+					}
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
 				if !(IsNumber(l) && IsNumber(r)) {
 					errMsg = msgCompare
 					goto throwError
@@ -1264,6 +1560,26 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic(msgUnderflow)
 				}
 				l, r := stack[sp-2], stack[sp-1]
+				if l.Type == OSVNum && r.Type == OSVNum {
+					if l.Number <= r.Number {
+						stack[sp-2] = vm.True
+					} else {
+						stack[sp-2] = vm.False
+					}
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
+				if isBigIntPair(l, r) {
+					if (*big.Int)(l.Opaque).Cmp((*big.Int)(r.Opaque)) <= 0 {
+						stack[sp-2] = vm.True
+					} else {
+						stack[sp-2] = vm.False
+					}
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
 				if !(IsNumber(l) && IsNumber(r)) {
 					errMsg = msgCompare
 					goto throwError
@@ -1282,6 +1598,26 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic(msgUnderflow)
 				}
 				l, r := stack[sp-2], stack[sp-1]
+				if l.Type == OSVNum && r.Type == OSVNum {
+					if l.Number > r.Number {
+						stack[sp-2] = vm.True
+					} else {
+						stack[sp-2] = vm.False
+					}
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
+				if isBigIntPair(l, r) {
+					if (*big.Int)(l.Opaque).Cmp((*big.Int)(r.Opaque)) > 0 {
+						stack[sp-2] = vm.True
+					} else {
+						stack[sp-2] = vm.False
+					}
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
 				if !(IsNumber(l) && IsNumber(r)) {
 					errMsg = msgCompare
 					goto throwError
@@ -1300,6 +1636,26 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic(msgUnderflow)
 				}
 				l, r := stack[sp-2], stack[sp-1]
+				if l.Type == OSVNum && r.Type == OSVNum {
+					if l.Number >= r.Number {
+						stack[sp-2] = vm.True
+					} else {
+						stack[sp-2] = vm.False
+					}
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
+				if isBigIntPair(l, r) {
+					if (*big.Int)(l.Opaque).Cmp((*big.Int)(r.Opaque)) >= 0 {
+						stack[sp-2] = vm.True
+					} else {
+						stack[sp-2] = vm.False
+					}
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
 				if !(IsNumber(l) && IsNumber(r)) {
 					errMsg = msgCompare
 					goto throwError
@@ -1318,10 +1674,17 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic(msgUnderflow)
 				}
 
-				if IsEqual(stack[sp-2], stack[sp-1]) {
-					stack[sp-2] = vm.True
+				l, r := &stack[sp-2], &stack[sp-1]
+				var eq bool
+				if l.Type == OSVNum && r.Type == OSVNum {
+					eq = l.Number == r.Number
 				} else {
-					stack[sp-2] = vm.False
+					eq = IsEqual(*l, *r)
+				}
+				if eq {
+					*l = vm.True
+				} else {
+					*l = vm.False
 				}
 				sp--
 				stack[sp] = OSValue{}
@@ -1332,10 +1695,17 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic(msgUnderflow)
 				}
 
-				if !IsEqual(stack[sp-2], stack[sp-1]) {
-					stack[sp-2] = vm.True
+				l, r := &stack[sp-2], &stack[sp-1]
+				var eq bool
+				if l.Type == OSVNum && r.Type == OSVNum {
+					eq = l.Number == r.Number
 				} else {
-					stack[sp-2] = vm.False
+					eq = IsEqual(*l, *r)
+				}
+				if !eq {
+					*l = vm.True
+				} else {
+					*l = vm.False
 				}
 				sp--
 				stack[sp] = OSValue{}
@@ -1347,10 +1717,17 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic(msgUnderflow)
 				}
 
-				if IsEqual(stack[sp-2], stack[sp-1]) {
-					stack[sp-1] = vm.True
+				l, r := &stack[sp-2], &stack[sp-1]
+				var eq bool
+				if l.Type == OSVNum && r.Type == OSVNum {
+					eq = l.Number == r.Number
 				} else {
-					stack[sp-1] = vm.False
+					eq = IsEqual(*l, *r)
+				}
+				if eq {
+					*r = vm.True
+				} else {
+					*r = vm.False
 				}
 			}
 		case OpBinBitAnd:
@@ -1359,6 +1736,21 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic(msgUnderflow)
 				}
 				l, r := stack[sp-2], stack[sp-1]
+				if l.Type == OSVNum && r.Type == OSVNum {
+					stack[sp-2] = OSValue{
+						Type:   OSVNum,
+						Number: float64(int64(l.Number) & int64(r.Number)),
+					}
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
+				if isBigIntPair(l, r) {
+					stack[sp-2] = bigIntValue(new(big.Int).And((*big.Int)(l.Opaque), (*big.Int)(r.Opaque)))
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
 				if !(IsNumber(l) && IsNumber(r)) {
 					errMsg = msgBitwise
 					goto throwError
@@ -1376,6 +1768,21 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic(msgUnderflow)
 				}
 				l, r := stack[sp-2], stack[sp-1]
+				if l.Type == OSVNum && r.Type == OSVNum {
+					stack[sp-2] = OSValue{
+						Type:   OSVNum,
+						Number: float64(int64(l.Number) ^ int64(r.Number)),
+					}
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
+				if isBigIntPair(l, r) {
+					stack[sp-2] = bigIntValue(new(big.Int).Xor((*big.Int)(l.Opaque), (*big.Int)(r.Opaque)))
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
 				if !(IsNumber(l) && IsNumber(r)) {
 					errMsg = msgBitwise
 					goto throwError
@@ -1393,6 +1800,21 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic(msgUnderflow)
 				}
 				l, r := stack[sp-2], stack[sp-1]
+				if l.Type == OSVNum && r.Type == OSVNum {
+					stack[sp-2] = OSValue{
+						Type:   OSVNum,
+						Number: float64(int64(l.Number) | int64(r.Number)),
+					}
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
+				if isBigIntPair(l, r) {
+					stack[sp-2] = bigIntValue(new(big.Int).Or((*big.Int)(l.Opaque), (*big.Int)(r.Opaque)))
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
 				if !(IsNumber(l) && IsNumber(r)) {
 					errMsg = msgBitwise
 					goto throwError
@@ -1406,7 +1828,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpDestructArray:
 			{
-				size := int(operand(bcode, ip, bsize))
+				size := operand(bcode, ip, bsize)
 				ip++
 
 				if sp <= 0 {
@@ -1441,9 +1863,8 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				localIndex := int(bcode[ip])
 				ip++
 
-				env := frame.Env
-				if localIndex < 0 || localIndex >= len(env) || env[localIndex] == nil {
-					panic("invalid local variable index: " + strconv.Itoa(localIndex) + " (frame.Env length: " + strconv.Itoa(len(env)) + ")")
+				if uint(localIndex) >= uint(len(env)) || env[localIndex] == nil {
+					panicStoreLocal(localIndex, len(env))
 				}
 
 				if sp <= 0 {
@@ -1490,7 +1911,13 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				sp--
 				expval := stack[sp]
 				stack[sp] = OSValue{}
-				if !CoerceToBool(expval) {
+				var cond bool
+				if expval.Type == OSVBool {
+					cond = expval.Number != 0
+				} else {
+					cond = CoerceToBool(expval)
+				}
+				if !cond {
 					ip = offset
 				}
 			}
@@ -1506,7 +1933,13 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				sp--
 				expval := stack[sp]
 				stack[sp] = OSValue{}
-				if CoerceToBool(expval) {
+				var cond bool
+				if expval.Type == OSVBool {
+					cond = expval.Number != 0
+				} else {
+					cond = CoerceToBool(expval)
+				}
+				if cond {
 					ip = offset
 				}
 			}
@@ -1519,7 +1952,14 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic(msgUnderflow)
 				}
 
-				if !CoerceToBool(stack[sp-1]) {
+				top := &stack[sp-1]
+				var cond bool
+				if top.Type == OSVBool {
+					cond = top.Number != 0
+				} else {
+					cond = CoerceToBool(*top)
+				}
+				if !cond {
 					ip = offset
 				} else {
 					sp--
@@ -1535,7 +1975,14 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					panic(msgUnderflow)
 				}
 
-				if CoerceToBool(stack[sp-1]) {
+				top := &stack[sp-1]
+				var cond bool
+				if top.Type == OSVBool {
+					cond = top.Number != 0
+				} else {
+					cond = CoerceToBool(*top)
+				}
+				if cond {
 					ip = offset
 				} else {
 					sp--
@@ -1612,7 +2059,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					returnValue = vm.Null
 				}
 				if sp != 0 {
-					panic("stack not empty on return (stack pointer: " + strconv.Itoa(sp) + ")")
+					panicReturnStack(sp)
 				}
 
 				if module := frame.Function.Module; module != nil {
@@ -1676,11 +2123,12 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				ip = frame.Ip
 				sp = caller.Sp
 				stack = caller.OperandStack
+				env = frame.Env
 				strTab = nil
 			}
 		default:
 			{
-				panic("unknown opcode " + strconv.Itoa(int(op)) + " at offset " + strconv.Itoa(ip-1))
+				panicUnknownOp(op, ip-1)
 			}
 		}
 		continue
