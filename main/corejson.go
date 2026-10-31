@@ -130,12 +130,12 @@ func nativeJSONStringify(vm *VM, args []OSValue) OSValue {
 func writeJSONValue(buffer *bytes.Buffer, value OSValue, active map[unsafe.Pointer]bool) error {
 	switch value.Type {
 	case OSVNull:
-		buffer.WriteString("null")
+		buffer.WriteString(KeyNull)
 	case OSVBool:
 		if value.Number != 0 {
-			buffer.WriteString("true")
+			buffer.WriteString(KeyTrue)
 		} else {
-			buffer.WriteString("false")
+			buffer.WriteString(KeyFalse)
 		}
 	case OSVInt:
 		if math.IsNaN(value.Number) || math.IsInf(value.Number, 0) {
