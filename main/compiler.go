@@ -1625,8 +1625,7 @@ func compileImportedModule(s *State, fn *Function, ast *Ast, path string) *Impor
 
 	fileInfo, err := os.Stat(path)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading imported module %q: %v\n", path, err)
-		os.Exit(1)
+		ThrowError(fn.File, fmt.Sprintf("error reading imported module %q: %v", path, err), ast.Pos)
 	}
 
 	// Slow path: a different path may still name the same file (symlink or
@@ -1652,8 +1651,7 @@ func compileImportedModule(s *State, fn *Function, ast *Ast, path string) *Impor
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading imported module %q: %v\n", path, err)
-		os.Exit(1)
+		ThrowError(fn.File, fmt.Sprintf("error reading imported module %q: %v", path, err), ast.Pos)
 	}
 	file := &File{Name: path, Content: sourceRunes(data)}
 	moduleParser := NewParser(s, file)
@@ -1743,8 +1741,37 @@ func visitImport(s *State, scope *Scope, fn *Function, ast *Ast) {
 		}
 		return
 	}
-	// filepath.Abs already returns a cleaned path, so no extra Clean is needed.
-	path, err := filepath.Abs(filepath.Join(filepath.Dir(fn.File.Name), moduleName))
+	var path string
+	if strings.HasPrefix(moduleName, "lib:") {
+		libraryName := strings.TrimPrefix(moduleName, "lib:")
+		if libraryName == "" {
+			ThrowError(fn.File, "invalid library module path", ast.A.Pos)
+		}
+
+		executable, err := os.Executable()
+		if err != nil {
+			ThrowError(fn.File, "could not locate executable for library import", ast.A.Pos)
+		}
+		libraryRoot, err := filepath.Abs(filepath.Join(filepath.Dir(executable), "lib"))
+		if err != nil {
+			ThrowError(fn.File, "invalid library module path", ast.A.Pos)
+		}
+		path = filepath.Join(libraryRoot, filepath.FromSlash(libraryName))
+		if filepath.Ext(path) == "" {
+			path += ".os"
+		}
+		path, err = filepath.Abs(path)
+		if err != nil {
+			ThrowError(fn.File, "invalid library module path", ast.A.Pos)
+		}
+		relative, err := filepath.Rel(libraryRoot, path)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			ThrowError(fn.File, "library module path escapes lib directory", ast.A.Pos)
+		}
+	} else {
+		// filepath.Abs already returns a cleaned path, so no extra Clean is needed.
+		path, err = filepath.Abs(filepath.Join(filepath.Dir(fn.File.Name), moduleName))
+	}
 	if err != nil {
 		ThrowError(fn.File, "invalid module path", ast.A.Pos)
 	}

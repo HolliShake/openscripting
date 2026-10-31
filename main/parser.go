@@ -1665,6 +1665,8 @@ func (p *Parser) statement() *Ast {
 		return p.importStatement()
 	} else if p.match(KeyVar) {
 		return p.variableDeclaration(KeyVar, true)
+	} else if p.match(KeyConst) {
+		return p.variableDeclaration(KeyConst, true)
 	}
 	return p.blockLevelStatement()
 }

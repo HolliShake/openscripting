@@ -1,4 +1,5 @@
 import { println } from "core:io";
+import { isEven:IsEven } from "lib:number";
 
 var fact::fn(n) {
     if (n <= 1) {
@@ -225,9 +226,7 @@ println(person);
 
 println([1,2,3]);
 
-import { isEven } from "./import.os";
-
 
 println(">>>>>>>");
-println(isEven(5));
+println(IsEven(5));
 println("hello world!!!", "DDD");
