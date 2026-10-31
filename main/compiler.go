@@ -1457,6 +1457,48 @@ func visitIfStatement(s *State, scope *Scope, fn *Function, ast *Ast) {
 	labelJump(fn, endIf)
 }
 
+func visitForStatement(s *State, scope *Scope, fn *Function, ast *Ast) {
+	initNode := ast.A
+	condNode := ast.B
+	muttNode := ast.C
+	bodyNode := ast.D
+
+	loopStart := int32(len(fn.Bytecode))
+
+	loopScope := acquireScope(scope)
+	loopScope.Type = ScopeTypeLoop
+	loopScope.LoopStart = loopStart
+
+	if initNode != nil {
+		visitDeclarationOrStatement(s, loopScope, fn, initNode)
+	}
+
+	condPos := int32(len(fn.Bytecode))
+	var jmpIfFalsePos int32
+	if condNode != nil {
+		visitExpression(s, loopScope, fn, condNode)
+		jmpIfFalsePos = emitJump(fn, OpPopJmpIfFalse)
+	}
+
+	visitDeclarationOrStatement(s, loopScope, fn, bodyNode)
+
+	if muttNode != nil {
+		visitExpression(s, loopScope, fn, muttNode)
+	}
+	emitInt(fn, OpAbsJmp, condPos)
+
+	if condNode != nil {
+		labelJump(fn, jmpIfFalsePos)
+	}
+
+	// Break
+	for _, jmpSlot := range loopScope.BreakStart {
+		labelJump(fn, jmpSlot)
+	}
+
+	releaseScope(loopScope)
+}
+
 func visitWhileStatement(s *State, scope *Scope, fn *Function, ast *Ast) {
 	condNode := ast.A
 	bodyNode := ast.B
@@ -1833,6 +1875,10 @@ func visitDeclarationOrStatement(s *State, scope *Scope, fn *Function, ast *Ast)
 	case AstIfStmt:
 		{
 			visitIfStatement(s, scope, fn, ast)
+		}
+	case AstForLoop:
+		{
+			visitForStatement(s, scope, fn, ast)
 		}
 	case AstWhileLoop:
 		{

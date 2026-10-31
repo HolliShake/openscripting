@@ -233,3 +233,15 @@ println([1,2,3]);
 println(">>>>>>>");
 println(IsEven(5));
 println("hello world!!!", "DDD");
+
+
+loop (let x = 0;x < 3;x++) {
+    println(x);
+}
+
+loop (;;) {
+    println("Hola!");
+}
+
+
+
