@@ -677,10 +677,10 @@ func resolveVar(scope *Scope, fn *Function, ast *Ast) int32 {
 // compileFunction compiles a function (declaration or expression) into a new
 // Function saved in the parser state and returns its offset. Shared by both
 // visitors, which used to carry identical copies of this code.
-func compileFunction(p *Parser, scope *Scope, fn *Function, name string, async bool, implicitThis, staticThis bool, parmNode, bodyNode *Ast) int32 {
+func compileFunction(s *State, scope *Scope, fn *Function, name string, async bool, implicitThis, staticThis bool, parmNode, bodyNode *Ast) int32 {
 	buf := acquireCodeBuf()
 	function := newFunction(fn.File, name, buf)
-	funcOffset := p.state.SaveFunction(function)
+	funcOffset := s.SaveFunction(function)
 
 	localScope := acquireScope(scope)
 	localScope.Type = ScopeTypeFunction
@@ -747,7 +747,7 @@ func compileFunction(p *Parser, scope *Scope, fn *Function, name string, async b
 		if bodyNode.Type == AstReturnStmt {
 			visibleReturn = true
 		}
-		visitDeclarationOrStatement(p, localScope, function, bodyNode)
+		visitDeclarationOrStatement(s, localScope, function, bodyNode)
 	}
 
 	if !visibleReturn {
@@ -764,7 +764,7 @@ func compileFunction(p *Parser, scope *Scope, fn *Function, name string, async b
 // Array / object / switch live in their own functions so their locals do not
 // inflate the stack frame of the deeply recursive visitExpression.
 
-func visitArrayLiteral(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+func visitArrayLiteral(s *State, scope *Scope, fn *Function, ast *Ast) {
 	count, hasSpread := int32(0), false
 	for head := ast.A; head != nil; head = head.Next {
 		if head.Type == AstSpread {
@@ -778,7 +778,7 @@ func visitArrayLiteral(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	// instead of MakeArray 0 + MakeArray n + ExtendArray.
 	if !hasSpread {
 		for head := ast.A; head != nil; head = head.Next {
-			visitExpression(p, scope, fn, head)
+			visitExpression(s, scope, fn, head)
 		}
 		emitInt(fn, OpMakeArray, count)
 		return
@@ -795,12 +795,12 @@ func visitArrayLiteral(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 				size = 0
 			}
 
-			visitExpression(p, scope, fn, head.A)
+			visitExpression(s, scope, fn, head.A)
 			emit(fn, OpExtendArray)
 			continue
 		}
 
-		visitExpression(p, scope, fn, head)
+		visitExpression(s, scope, fn, head)
 		size++
 	}
 
@@ -810,15 +810,15 @@ func visitArrayLiteral(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	}
 }
 
-func emitObjectKey(p *Parser, scope *Scope, fn *Function, key *Ast) {
+func emitObjectKey(s *State, scope *Scope, fn *Function, key *Ast) {
 	if key.Type == AstIdentifier || key.Type == AstStrLit {
 		emitString(fn, objectKey(key))
 	} else {
-		visitExpression(p, scope, fn, key)
+		visitExpression(s, scope, fn, key)
 	}
 }
 
-func visitObjectLiteral(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+func visitObjectLiteral(s *State, scope *Scope, fn *Function, ast *Ast) {
 	count, hasSpread := int32(0), false
 	for head := ast.A; head != nil; head = head.Next {
 		if head.Type == AstSpread {
@@ -831,8 +831,8 @@ func visitObjectLiteral(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	// Fast path: no spread, build the object in one op.
 	if !hasSpread {
 		for head := ast.A; head != nil; head = head.Next {
-			emitObjectKey(p, scope, fn, head.A)
-			visitExpression(p, scope, fn, head.B)
+			emitObjectKey(s, scope, fn, head.A)
+			visitExpression(s, scope, fn, head.B)
 		}
 		emitInt(fn, OpMakeObject, count)
 		return
@@ -849,13 +849,13 @@ func visitObjectLiteral(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 				size = 0
 			}
 
-			visitExpression(p, scope, fn, head.A)
+			visitExpression(s, scope, fn, head.A)
 			emit(fn, OpExtendObject)
 			continue
 		}
 
-		emitObjectKey(p, scope, fn, head.A)
-		visitExpression(p, scope, fn, head.B)
+		emitObjectKey(s, scope, fn, head.A)
+		visitExpression(s, scope, fn, head.B)
 		size++
 	}
 
@@ -865,8 +865,8 @@ func visitObjectLiteral(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	}
 }
 
-func visitSwitchExpr(p *Parser, scope *Scope, fn *Function, ast *Ast) {
-	visitExpression(p, scope, fn, ast.A)
+func visitSwitchExpr(s *State, scope *Scope, fn *Function, ast *Ast) {
+	visitExpression(s, scope, fn, ast.A)
 
 	// Stack buffers: typical switches fit without touching the heap.
 	var endBuf [8]int32
@@ -885,7 +885,7 @@ func visitSwitchExpr(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		// Consumed (labelled) before the next case, so one buffer is reused.
 		jumpExpr := exprBuf[:0]
 		for condition := head.A; condition != nil; condition = condition.Next {
-			visitExpression(p, scope, fn, condition)
+			visitExpression(s, scope, fn, condition)
 			emit(fn, OpCaseEqual)
 			jumpExpr = append(jumpExpr, emitJump(fn, OpPopJmpIfTrue))
 		}
@@ -900,7 +900,7 @@ func visitSwitchExpr(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 
 		// Jump to value immediately without evaluating other conditions
 		emit(fn, OpPopTop)
-		visitExpression(p, scope, fn, head.B)
+		visitExpression(s, scope, fn, head.B)
 
 		jumpEnds = append(jumpEnds, emitJump(fn, OpJmp))
 
@@ -910,7 +910,7 @@ func visitSwitchExpr(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	// Handle default cases
 	for _, def := range defaults {
 		emit(fn, OpPopTop)
-		visitExpression(p, scope, fn, def)
+		visitExpression(s, scope, fn, def)
 	}
 
 	for _, jump := range jumpEnds {
@@ -918,7 +918,7 @@ func visitSwitchExpr(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	}
 }
 
-func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+func visitExpression(s *State, scope *Scope, fn *Function, ast *Ast) {
 	// Literals and operators on literals are folded here. Literal node types
 	// (number / string / bool) therefore never reach the switch below.
 	if c := tryFold(fn, ast); c.folded() {
@@ -940,36 +940,36 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		}
 	case AstArray:
 		{
-			visitArrayLiteral(p, scope, fn, ast)
+			visitArrayLiteral(s, scope, fn, ast)
 		}
 	case AstObject:
 		{
-			visitObjectLiteral(p, scope, fn, ast)
+			visitObjectLiteral(s, scope, fn, ast)
 		}
 	case AstClassExpression:
 		{
-			visitClassExpression(p, scope, fn, ast, "<anon/>")
+			visitClassExpression(s, scope, fn, ast, "<anon/>")
 		}
 	case AstFunctionExpression, AstAsyncFunctionExpression:
 		{
-			funcOffset := compileFunction(p, scope, fn, "<anon/>",
+			funcOffset := compileFunction(s, scope, fn, "<anon/>",
 				ast.Type == AstAsyncFunctionExpression, false, false, ast.A, ast.B)
 			emitInt(fn, OpLoadFunction, funcOffset)
 		}
 	case AstSwitchExpr:
 		{
-			visitSwitchExpr(p, scope, fn, ast)
+			visitSwitchExpr(s, scope, fn, ast)
 		}
 	case AstMemberAccess:
 		{
-			visitExpression(p, scope, fn, ast.A)
+			visitExpression(s, scope, fn, ast.A)
 			emit(fn, OpGetAttr)
 			emitRunes(fn, ast.B.Value)
 		}
 	case AstIndexAccess:
 		{
-			visitExpression(p, scope, fn, ast.A)
-			visitExpression(p, scope, fn, ast.B)
+			visitExpression(s, scope, fn, ast.A)
+			visitExpression(s, scope, fn, ast.B)
 			emit(fn, OpGetIndex)
 		}
 	case AstCall:
@@ -977,7 +977,7 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 			argCount := int32(0)
 
 			for arg := ast.B; arg != nil; arg = arg.Next {
-				visitExpression(p, scope, fn, arg)
+				visitExpression(s, scope, fn, arg)
 				argCount++
 			}
 
@@ -985,7 +985,7 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 				emitInt(fn, OpCallSuper, argCount)
 				emitInt(fn, OpCall, argCount+2)
 			} else {
-				visitExpression(p, scope, fn, ast.A)
+				visitExpression(s, scope, fn, ast.A)
 				emitInt(fn, OpCall, argCount)
 			}
 		}
@@ -994,54 +994,54 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 			if !fn.Async {
 				ThrowError(fn.File, "await is only allowed inside async functions", ast.Pos)
 			}
-			visitExpression(p, scope, fn, ast.A)
+			visitExpression(s, scope, fn, ast.A)
 			emit(fn, OpAwait)
 		}
 	case AstPos:
 		{
-			visitExpression(p, scope, fn, ast.A)
+			visitExpression(s, scope, fn, ast.A)
 			emit(fn, OpUnaryPos)
 		}
 	case AstNeg:
 		{
-			visitExpression(p, scope, fn, ast.A)
+			visitExpression(s, scope, fn, ast.A)
 			emit(fn, OpUnaryNeg)
 		}
 	case AstNot:
 		{
-			visitExpression(p, scope, fn, ast.A)
+			visitExpression(s, scope, fn, ast.A)
 			emit(fn, OpUnaryNot)
 		}
 	case AstBitNot:
 		{
-			visitExpression(p, scope, fn, ast.A)
+			visitExpression(s, scope, fn, ast.A)
 			emit(fn, OpUnaryBitNot)
 		}
 	case AstInc:
 		{
-			assign1(p, scope, fn, ast.A)
+			assign1(s, scope, fn, ast.A)
 			emit(fn, OpInc)
 			emit(fn, OpDupTop)
-			assign2(p, scope, fn, ast.A)
+			assign2(s, scope, fn, ast.A)
 		}
 	case AstDec:
 		{
-			assign1(p, scope, fn, ast.A)
+			assign1(s, scope, fn, ast.A)
 			emit(fn, OpDec)
 			emit(fn, OpDupTop)
-			assign2(p, scope, fn, ast.A)
+			assign2(s, scope, fn, ast.A)
 		}
 	case AstPostInc:
 		{
-			assign1(p, scope, fn, ast.A)
+			assign1(s, scope, fn, ast.A)
 			emit(fn, OpPostInc)
-			assign2(p, scope, fn, ast.A)
+			assign2(s, scope, fn, ast.A)
 		}
 	case AstPostDec:
 		{
-			assign1(p, scope, fn, ast.A)
+			assign1(s, scope, fn, ast.A)
 			emit(fn, OpPostDec)
-			assign2(p, scope, fn, ast.A)
+			assign2(s, scope, fn, ast.A)
 		}
 	case AstMul, AstDiv, AstMod, AstAdd, AstSub,
 		AstShiftLeft, AstShiftRight,
@@ -1049,20 +1049,20 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		AstEqual, AstNotEqual,
 		AstBitAnd, AstBitXor, AstBitOr:
 		{
-			visitExpression(p, scope, fn, ast.A)
-			visitExpression(p, scope, fn, ast.B)
+			visitExpression(s, scope, fn, ast.A)
+			visitExpression(s, scope, fn, ast.B)
 			emit(fn, binaryOpcode(ast.Type))
 		}
 	case AstAnd, AstOr:
 		{
-			visitExpression(p, scope, fn, ast.A)
+			visitExpression(s, scope, fn, ast.A)
 			var jumpPos int32
 			if ast.Type == AstAnd {
 				jumpPos = emitJump(fn, OpJmpIfFalseOrPop)
 			} else {
 				jumpPos = emitJump(fn, OpJmpIfTrueOrPop)
 			}
-			visitExpression(p, scope, fn, ast.B)
+			visitExpression(s, scope, fn, ast.B)
 			labelJump(fn, jumpPos)
 		}
 	case AstAssign:
@@ -1072,7 +1072,7 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 				// rotate. Only the capture registration of resolveVar is needed.
 				// (Rot2 on [v, v] was a no-op for identifiers.)
 				resolveVar(scope, fn, ast.A)
-				visitExpression(p, scope, fn, ast.B)
+				visitExpression(s, scope, fn, ast.B)
 				emit(fn, OpDupTop)
 				symb, exists := scope.GetVariable(ast.A.Value)
 				if !exists {
@@ -1083,11 +1083,11 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 				}
 				emitInt(fn, OpStoreLocal, symb.Offset)
 			} else {
-				assign1(p, scope, fn, ast.A)
+				assign1(s, scope, fn, ast.A)
 				emit(fn, OpPopTop)
-				visitExpression(p, scope, fn, ast.B)
+				visitExpression(s, scope, fn, ast.B)
 				emit(fn, OpDupTop)
-				assign2(p, scope, fn, ast.A)
+				assign2(s, scope, fn, ast.A)
 			}
 		}
 	case
@@ -1102,20 +1102,20 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		AstXorAssign,
 		AstOrAssign:
 		{
-			assign1(p, scope, fn, ast.A)
-			visitExpression(p, scope, fn, ast.B)
+			assign1(s, scope, fn, ast.A)
+			visitExpression(s, scope, fn, ast.B)
 			emit(fn, compoundAssignOpcode(ast.Type))
 			emit(fn, OpDupTop)
-			assign2(p, scope, fn, ast.A)
+			assign2(s, scope, fn, ast.A)
 		}
 	case AstTernaryOperation:
 		{
-			visitExpression(p, scope, fn, ast.A)
+			visitExpression(s, scope, fn, ast.A)
 			jumpPos := emitJump(fn, OpPopJmpIfFalse)
-			visitExpression(p, scope, fn, ast.B)
+			visitExpression(s, scope, fn, ast.B)
 			endJump := emitJump(fn, OpJmp)
 			labelJump(fn, jumpPos)
-			visitExpression(p, scope, fn, ast.C)
+			visitExpression(s, scope, fn, ast.C)
 			labelJump(fn, endJump)
 		}
 	default:
@@ -1125,7 +1125,7 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	}
 }
 
-func assign1(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+func assign1(s *State, scope *Scope, fn *Function, ast *Ast) {
 	switch ast.Type {
 	case AstIdentifier:
 		{
@@ -1133,15 +1133,15 @@ func assign1(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		}
 	case AstMemberAccess:
 		{
-			visitExpression(p, scope, fn, ast.A)
+			visitExpression(s, scope, fn, ast.A)
 			emit(fn, OpDupTop)
 			emit(fn, OpGetAttr)
 			emitRunes(fn, ast.B.Value)
 		}
 	case AstIndexAccess:
 		{
-			visitExpression(p, scope, fn, ast.A)
-			visitExpression(p, scope, fn, ast.B)
+			visitExpression(s, scope, fn, ast.A)
+			visitExpression(s, scope, fn, ast.B)
 			emit(fn, OpDup2)
 			emit(fn, OpGetIndex)
 		}
@@ -1152,7 +1152,7 @@ func assign1(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	}
 }
 
-func assign2(p *Parser, scope *Scope, fn *Function, lhs *Ast) {
+func assign2(s *State, scope *Scope, fn *Function, lhs *Ast) {
 	switch lhs.Type {
 	case AstIdentifier:
 		{
@@ -1217,7 +1217,7 @@ func declareLocal(fn *Function, scope *Scope, name string, constant bool, pos Po
 	emitInt(fn, OpStoreLocal, offset)
 }
 
-func visitVarDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+func visitVarDeclaration(s *State, scope *Scope, fn *Function, ast *Ast) {
 	checkDeclKind(fn, scope, ast)
 	constant := ast.Type == AstConst
 
@@ -1226,7 +1226,7 @@ func visitVarDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		valNode := head.B
 
 		if valNode != nil {
-			visitExpression(p, scope, fn, valNode)
+			visitExpression(s, scope, fn, valNode)
 		} else {
 			emit(fn, OpLoadNull)
 		}
@@ -1235,11 +1235,11 @@ func visitVarDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	}
 }
 
-func visitVarArrayDestructDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+func visitVarArrayDestructDeclaration(s *State, scope *Scope, fn *Function, ast *Ast) {
 	checkDeclKind(fn, scope, ast)
 	constant := ast.Type == AstConst
 
-	visitExpression(p, scope, fn, ast.B)
+	visitExpression(s, scope, fn, ast.B)
 
 	size := int32(0)
 	for head := ast.A; head != nil; head = head.Next {
@@ -1253,11 +1253,11 @@ func visitVarArrayDestructDeclaration(p *Parser, scope *Scope, fn *Function, ast
 	}
 }
 
-func visitVarObjectDestructDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+func visitVarObjectDestructDeclaration(s *State, scope *Scope, fn *Function, ast *Ast) {
 	checkDeclKind(fn, scope, ast)
 	constant := ast.Type == AstConst
 
-	visitExpression(p, scope, fn, ast.B)
+	visitExpression(s, scope, fn, ast.B)
 
 	for head := ast.A; head != nil; head = head.Next {
 		name := "[INVALID]"
@@ -1285,20 +1285,20 @@ func visitVarObjectDestructDeclaration(p *Parser, scope *Scope, fn *Function, as
 	emit(fn, OpPopTop)
 }
 
-func visitClassDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+func visitClassDeclaration(s *State, scope *Scope, fn *Function, ast *Ast) {
 	nameNode := ast.A
 	if scope.ExistsLocal(nameNode.Value) {
 		ThrowError(fn.File, "variable is already defined in scope", nameNode.Pos)
 	}
 	offset := scope.GetVarCount()
 	scope.AddLocal(nameNode.Value, Symbol{Name: nameNode.Value, Offset: offset, Pos: nameNode.Pos})
-	funcOffset := compileClassConstructor(p, scope, fn, nameNode.Value, ast.B)
+	funcOffset := compileClassConstructor(s, scope, fn, nameNode.Value, ast.B)
 	emitString(fn, nameNode.Value)
 	emitInt(fn, OpLoadFunction, funcOffset)
-	templateCount := emitClassTemplate(p, scope, fn, nameNode.Value, ast.B)
+	templateCount := emitClassTemplate(s, scope, fn, nameNode.Value, ast.B)
 	emitInt(fn, OpMakeObject, templateCount)
 	if ast.B.A != nil {
-		visitExpression(p, scope, fn, ast.B.A)
+		visitExpression(s, scope, fn, ast.B.A)
 	} else {
 		emit(fn, OpLoadNull)
 	}
@@ -1306,22 +1306,22 @@ func visitClassDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	emitInt(fn, OpStoreLocal, offset)
 }
 
-func visitClassExpression(p *Parser, scope *Scope, fn *Function, ast *Ast, name string) {
+func visitClassExpression(s *State, scope *Scope, fn *Function, ast *Ast, name string) {
 	assert(AstClassExpression, ast)
-	funcOffset := compileClassConstructor(p, scope, fn, name, ast)
+	funcOffset := compileClassConstructor(s, scope, fn, name, ast)
 	emitString(fn, name)
 	emitInt(fn, OpLoadFunction, funcOffset)
-	templateCount := emitClassTemplate(p, scope, fn, name, ast)
+	templateCount := emitClassTemplate(s, scope, fn, name, ast)
 	emitInt(fn, OpMakeObject, templateCount)
 	if ast.A != nil {
-		visitExpression(p, scope, fn, ast.A)
+		visitExpression(s, scope, fn, ast.A)
 	} else {
 		emit(fn, OpLoadNull)
 	}
 	emit(fn, OpMakeClass)
 }
 
-func emitClassTemplate(p *Parser, scope *Scope, fn *Function, name string, classAst *Ast) int32 {
+func emitClassTemplate(s *State, scope *Scope, fn *Function, name string, classAst *Ast) int32 {
 	count := int32(0)
 	for member := classAst.B; member != nil; member = member.Next {
 		// objectKey may run strconv.Unquote, so compute it once per member.
@@ -1331,7 +1331,7 @@ func emitClassTemplate(p *Parser, scope *Scope, fn *Function, name string, class
 			continue
 		}
 		emitString(fn, key)
-		methodOffset := compileFunction(p, scope, fn, name+"."+key,
+		methodOffset := compileFunction(s, scope, fn, name+"."+key,
 			member.B.Type == AstAsyncFunctionExpression, false, true, member.B.A, member.B.B)
 		emitInt(fn, OpLoadFunction, methodOffset)
 		count++
@@ -1339,7 +1339,7 @@ func emitClassTemplate(p *Parser, scope *Scope, fn *Function, name string, class
 	return count
 }
 
-func compileClassConstructor(p *Parser, scope *Scope, parentFn *Function, name string, classAst *Ast) int32 {
+func compileClassConstructor(s *State, scope *Scope, parentFn *Function, name string, classAst *Ast) int32 {
 	var constructor *Ast
 	for member := classAst.B; member != nil; member = member.Next {
 		if objectKey(member.A) == "constructor" {
@@ -1351,7 +1351,7 @@ func compileClassConstructor(p *Parser, scope *Scope, parentFn *Function, name s
 	buf := acquireCodeBuf()
 	function := newFunction(parentFn.File, name, buf)
 	function.ClassConstructor = true
-	funcOffset := p.state.SaveFunction(function)
+	funcOffset := s.SaveFunction(function)
 	localScope := acquireScope(scope)
 	localScope.Type = ScopeTypeFunction
 	function.ClassThisOffset = 0
@@ -1392,7 +1392,7 @@ func compileClassConstructor(p *Parser, scope *Scope, parentFn *Function, name s
 
 	if constructor != nil {
 		for statement := constructor.B; statement != nil; statement = statement.Next {
-			visitDeclarationOrStatement(p, localScope, function, statement)
+			visitDeclarationOrStatement(s, localScope, function, statement)
 		}
 	}
 	emitInt(function, OpLoadVar, thisOffset)
@@ -1404,11 +1404,11 @@ func compileClassConstructor(p *Parser, scope *Scope, parentFn *Function, name s
 		}
 		emitString(function, key)
 		if member.B != nil && (member.B.Type == AstFunctionExpression || member.B.Type == AstAsyncFunctionExpression) {
-			methodOffset := compileFunction(p, localScope, function, name+"."+key,
+			methodOffset := compileFunction(s, localScope, function, name+"."+key,
 				member.B.Type == AstAsyncFunctionExpression, false, false, member.B.A, member.B.B)
 			emitInt(function, OpLoadFunction, methodOffset)
 		} else if member.B != nil {
-			visitExpression(p, localScope, function, member.B)
+			visitExpression(s, localScope, function, member.B)
 		} else {
 			emit(function, OpLoadNull)
 		}
@@ -1424,10 +1424,10 @@ func compileClassConstructor(p *Parser, scope *Scope, parentFn *Function, name s
 	return funcOffset
 }
 
-func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+func visitFunctionDeclaration(s *State, scope *Scope, fn *Function, ast *Ast) {
 	nameNode := ast.A
 
-	funcOffset := compileFunction(p, scope, fn, nameNode.Value,
+	funcOffset := compileFunction(s, scope, fn, nameNode.Value,
 		ast.B.Type == AstAsyncFunctionExpression, false, false, ast.B.A, ast.B.B)
 
 	sym, exists := scope.GetVariable(nameNode.Value)
@@ -1439,25 +1439,25 @@ func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	emitInt(fn, OpStoreLocal, sym.Offset)
 }
 
-func visitIfStatement(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+func visitIfStatement(s *State, scope *Scope, fn *Function, ast *Ast) {
 	condNode := ast.A
 	thenNode := ast.B
 	elseNode := ast.C
 
-	visitExpression(p, scope, fn, condNode)
+	visitExpression(s, scope, fn, condNode)
 
 	jmpIfFalsePos := emitJump(fn, OpPopJmpIfFalse)
-	visitDeclarationOrStatement(p, scope, fn, thenNode)
+	visitDeclarationOrStatement(s, scope, fn, thenNode)
 	endIf := emitJump(fn, OpJmp)
 
 	labelJump(fn, jmpIfFalsePos)
 	if elseNode != nil {
-		visitDeclarationOrStatement(p, scope, fn, elseNode)
+		visitDeclarationOrStatement(s, scope, fn, elseNode)
 	}
 	labelJump(fn, endIf)
 }
 
-func visitWhileStatement(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+func visitWhileStatement(s *State, scope *Scope, fn *Function, ast *Ast) {
 	condNode := ast.A
 	bodyNode := ast.B
 
@@ -1467,10 +1467,10 @@ func visitWhileStatement(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	loopScope.Type = ScopeTypeLoop
 	loopScope.LoopStart = loopStart
 
-	visitExpression(p, scope, fn, condNode)
+	visitExpression(s, scope, fn, condNode)
 	jmpIfFalsePos := emitJump(fn, OpPopJmpIfFalse)
 
-	visitDeclarationOrStatement(p, loopScope, fn, bodyNode)
+	visitDeclarationOrStatement(s, loopScope, fn, bodyNode)
 	emitInt(fn, OpAbsJmp, loopStart)
 
 	labelJump(fn, jmpIfFalsePos)
@@ -1483,18 +1483,18 @@ func visitWhileStatement(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	releaseScope(loopScope)
 }
 
-func visitBlock(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+func visitBlock(s *State, scope *Scope, fn *Function, ast *Ast) {
 	blockScope := acquireScope(scope)
 	blockScope.Type = ScopeTypeBlock
 
 	for statement := ast.A; statement != nil; statement = statement.Next {
-		visitDeclarationOrStatement(p, blockScope, fn, statement)
+		visitDeclarationOrStatement(s, blockScope, fn, statement)
 	}
 
 	releaseScope(blockScope)
 }
 
-func visitBreak(_ *Parser, scope *Scope, fn *Function, ast *Ast) {
+func visitBreak(_ *State, scope *Scope, fn *Function, ast *Ast) {
 	loopScope := scope.GetNearest(ScopeTypeLoop)
 	if loopScope == nil {
 		ThrowError(fn.File, "break statement not within a loop", ast.Pos)
@@ -1503,7 +1503,7 @@ func visitBreak(_ *Parser, scope *Scope, fn *Function, ast *Ast) {
 	loopScope.BreakStart = append(loopScope.BreakStart, jmpSlot)
 }
 
-func visitContinue(_ *Parser, scope *Scope, fn *Function, ast *Ast) {
+func visitContinue(_ *State, scope *Scope, fn *Function, ast *Ast) {
 	loopScope := scope.GetNearest(ScopeTypeLoop)
 	if loopScope == nil {
 		ThrowError(fn.File, "continue statement not within a loop", ast.Pos)
@@ -1511,19 +1511,19 @@ func visitContinue(_ *Parser, scope *Scope, fn *Function, ast *Ast) {
 	emitInt(fn, OpAbsJmp, loopScope.LoopStart)
 }
 
-func visitReturn(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+func visitReturn(s *State, scope *Scope, fn *Function, ast *Ast) {
 	if ast.A != nil {
-		visitExpression(p, scope, fn, ast.A)
+		visitExpression(s, scope, fn, ast.A)
 	} else {
 		emit(fn, OpLoadNull)
 	}
 	emit(fn, OpReturn)
 }
 
-func visitTryCatch(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+func visitTryCatch(s *State, scope *Scope, fn *Function, ast *Ast) {
 	if ast.B == nil {
 		for statement := ast.A; statement != nil; statement = statement.Next {
-			visitDeclarationOrStatement(p, scope, fn, statement)
+			visitDeclarationOrStatement(s, scope, fn, statement)
 		}
 		return
 	}
@@ -1536,7 +1536,7 @@ func visitTryCatch(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	tryScope := acquireScope(scope)
 	tryScope.Type = ScopeTypeBlock
 	for statement := ast.A; statement != nil; statement = statement.Next {
-		visitDeclarationOrStatement(p, tryScope, fn, statement)
+		visitDeclarationOrStatement(s, tryScope, fn, statement)
 	}
 	releaseScope(tryScope)
 
@@ -1560,7 +1560,7 @@ func visitTryCatch(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	fn.TryCatchTable[tableIndex].CatchLocal = offset
 
 	for statement := ast.C; statement != nil; statement = statement.Next {
-		visitDeclarationOrStatement(p, catchScope, fn, statement)
+		visitDeclarationOrStatement(s, catchScope, fn, statement)
 	}
 	releaseScope(catchScope)
 
@@ -1568,66 +1568,66 @@ func visitTryCatch(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	labelJump(fn, endJump)
 }
 
-func visitDeclarationOrStatement(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+func visitDeclarationOrStatement(s *State, scope *Scope, fn *Function, ast *Ast) {
 	emitLine(fn, ast.Pos)
 	switch ast.Type {
 	case AstClass:
 		{
-			visitClassDeclaration(p, scope, fn, ast)
+			visitClassDeclaration(s, scope, fn, ast)
 		}
 	case AstFunction:
 		{
-			visitFunctionDeclaration(p, scope, fn, ast)
+			visitFunctionDeclaration(s, scope, fn, ast)
 		}
 	case AstVar, AstLet, AstConst:
 		{
-			visitVarDeclaration(p, scope, fn, ast)
+			visitVarDeclaration(s, scope, fn, ast)
 		}
 	case AstDestructuringArrayVar, AstDestructuringArrayLet, AstDestructuringArrayConst:
 		{
-			visitVarArrayDestructDeclaration(p, scope, fn, ast)
+			visitVarArrayDestructDeclaration(s, scope, fn, ast)
 		}
 	case AstDestructuringObjectVar, AstDestructuringObjectLet, AstDestructuringObjectConst:
 		{
-			visitVarObjectDestructDeclaration(p, scope, fn, ast)
+			visitVarObjectDestructDeclaration(s, scope, fn, ast)
 		}
 	case AstIfStmt:
 		{
-			visitIfStatement(p, scope, fn, ast)
+			visitIfStatement(s, scope, fn, ast)
 		}
 	case AstWhileLoop:
 		{
-			visitWhileStatement(p, scope, fn, ast)
+			visitWhileStatement(s, scope, fn, ast)
 		}
 	case AstBlock:
 		{
-			visitBlock(p, scope, fn, ast)
+			visitBlock(s, scope, fn, ast)
 		}
 	case AstLogStmt:
 		{
-			visitExpression(p, scope, fn, ast.A)
+			visitExpression(s, scope, fn, ast.A)
 			emit(fn, OpStdWrite)
 		}
 	case AstExpressionStmnt:
 		{
-			visitExpression(p, scope, fn, ast.A)
+			visitExpression(s, scope, fn, ast.A)
 			emit(fn, OpPopTop)
 		}
 	case AstBreakStmt:
 		{
-			visitBreak(p, scope, fn, ast)
+			visitBreak(s, scope, fn, ast)
 		}
 	case AstContinueStmt:
 		{
-			visitContinue(p, scope, fn, ast)
+			visitContinue(s, scope, fn, ast)
 		}
 	case AstReturnStmt:
 		{
-			visitReturn(p, scope, fn, ast)
+			visitReturn(s, scope, fn, ast)
 		}
 	case AstTryCatch:
 		{
-			visitTryCatch(p, scope, fn, ast)
+			visitTryCatch(s, scope, fn, ast)
 		}
 	default:
 		{
@@ -1636,6 +1636,8 @@ func visitDeclarationOrStatement(p *Parser, scope *Scope, fn *Function, ast *Ast
 	}
 }
 
+// compileProgram is the only place that still needs the *Parser: it calls
+// p.Parse() and reads p.File. Everything below it receives just p.state.
 func compileProgram(p *Parser) *Function {
 	defer releaseAstSlab()
 
@@ -1669,7 +1671,7 @@ func compileProgram(p *Parser) *Function {
 	}
 
 	for current := ast.A; current != nil; current = current.Next {
-		visitDeclarationOrStatement(p, scope, program, current)
+		visitDeclarationOrStatement(p.state, scope, program, current)
 	}
 
 	emit(program, OpLoadNull)

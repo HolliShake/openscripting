@@ -1,5 +1,7 @@
 package main
 
+import "sync"
+
 const (
 	AstIdentifier AstType = iota
 	AstNumLit
@@ -82,11 +84,14 @@ const (
 	AstProgram
 )
 
-const astChunk = 256
+const astChunk = 1024
+const maxPooledAstChunks = 4
 
 var (
-	astSlab []Ast
-	astUsed int
+	astSlab     []Ast
+	astSlabs    [][]Ast
+	astUsed     int
+	astSlabPool sync.Pool
 )
 
 type AstType int
@@ -108,7 +113,12 @@ type Ast struct {
 // index avoids reslicing the header on every allocation.
 func newAst(t AstType, pos Position) *Ast {
 	if astUsed >= len(astSlab) {
-		astSlab = make([]Ast, astChunk)
+		if pooled, ok := astSlabPool.Get().([]Ast); ok {
+			astSlab = pooled
+		} else {
+			astSlab = make([]Ast, astChunk)
+		}
+		astSlabs = append(astSlabs, astSlab)
 		astUsed = 0
 	}
 	n := &astSlab[astUsed]
@@ -119,6 +129,14 @@ func newAst(t AstType, pos Position) *Ast {
 }
 
 func releaseAstSlab() {
+	for index, slab := range astSlabs {
+		clear(slab)
+		if index < maxPooledAstChunks {
+			astSlabPool.Put(slab)
+		}
+	}
+	clear(astSlabs)
+	astSlabs = astSlabs[:0]
 	astSlab = nil
 	astUsed = 0
 }
