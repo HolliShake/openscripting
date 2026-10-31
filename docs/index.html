@@ -359,7 +359,8 @@ println(greeting);</code></pre>
                 <p>Strings may use single or double quotes and cannot contain an unescaped line break. Recognized
                     escapes include <code>\a</code>, <code>\b</code>, <code>\f</code>, <code>\n</code>, <code>\r</code>,
                     <code>\t</code>, <code>\v</code>, <code>\0</code>, escaped quotes and backslash, <code>\xNN</code>,
-                    <code>\uNNNN</code>, <code>\UNNNNNNNN</code>, and braced Unicode <code>\u{...}</code>.</p>
+                    <code>\uNNNN</code>, <code>\UNNNNNNNN</code>, and braced Unicode <code>\u{...}</code>.
+                </p>
                 <p>Numeric literals include decimal integers and fractions, exponent notation, and hexadecimal
                     (<code>0x</code>), octal (<code>0o</code>), and binary (<code>0b</code>) prefixes. Underscores are
                     accepted in digit runs.</p>
@@ -398,13 +399,15 @@ println(greeting);</code></pre>
                         <tr>
                             <td>Postfix</td>
                             <td>Call <code>()</code>, member <code>-&gt;</code>, index <code>[]</code>, postfix
-                                <code>++</code> <code>--</code></td>
+                                <code>++</code> <code>--</code>
+                            </td>
                             <td>Left to right</td>
                         </tr>
                         <tr>
                             <td>Unary</td>
                             <td><code>+</code> <code>-</code> <code>!</code> <code>~</code> prefix <code>++</code>
-                                <code>--</code> <code>await</code></td>
+                                <code>--</code> <code>await</code>
+                            </td>
                             <td>Right to left</td>
                         </tr>
                         <tr>
@@ -456,7 +459,8 @@ println(greeting);</code></pre>
                 </table>
                 <p>Compound assignments are <code>*=</code>, <code>/=</code>, <code>%=</code>, <code>+=</code>,
                     <code>-=</code>, <code>&lt;&lt;=</code>, <code>&gt;&gt;=</code>, <code>&amp;=</code>,
-                    <code>^=</code>, and <code>|=</code>.</p>
+                    <code>^=</code>, and <code>|=</code>.
+                </p>
                 <p>Logical operators short-circuit. <code>==</code> and <code>!=</code> use runtime value equality;
                     switch matching uses the runtime's case-equality operation.</p>
                 <pre><code><span class="kw">var</span> score = 8;
@@ -544,7 +548,8 @@ collect(<span class="str">"items"</span>, 2, 3, 4);</code></pre>
 };</code></pre>
                 <p>Arrays support numeric indexing and assignment. Objects support property access with
                     <code>-&gt;</code> or bracket notation, and property assignment. Missing object properties read as
-                    <code>null</code>; array bounds violations are runtime errors.</p>
+                    <code>null</code>; array bounds violations are runtime errors.
+                </p>
                 <pre><code>more[0] = 10;
 profile-&gt;active = <span class="kw">false</span>;
 profile[<span class="str">"name"</span>];</code></pre>
@@ -635,7 +640,8 @@ loop (;;) {
                 <div class="tip"><strong>Control-flow meaning:</strong> <code>break</code> exits the switch.
                     <code>continue</code> skips the rest of the current case and jumps to the following case body; from
                     the final case it exits the switch. A loop nested inside a case handles its own break/continue
-                    first.</div>
+                    first.
+                </div>
                 <h3>Switch expression</h3>
                 <p>Switch expressions produce one value and require a default alternative. Their alternatives use commas
                     and <code>=&gt;</code>; each result is an expression.</p>
@@ -664,7 +670,8 @@ loop (;;) {
             <section id="modules">
                 <h2>Modules and imports</h2>
                 <p>Import a module for its side effects, or import named exports. Named imports may be renamed with
-                    <code>exportName: localName</code>.</p>
+                    <code>exportName: localName</code>.
+                </p>
                 <pre><code><span class="kw">import</span> <span class="str">"./setup.os"</span>;
 <span class="kw">import</span> { println } <span class="kw">from</span> <span class="str">"core:io"</span>;
 <span class="kw">import</span> { isEven: checkEven } <span class="kw">from</span> <span class="str">"lib:number"</span>;</code></pre>
@@ -695,7 +702,8 @@ loop (;;) {
                             <td><code>core:file</code></td>
                             <td><code>readText(path)</code>, <code>writeText(path, text)</code>,
                                 <code>appendText(path, text)</code>, <code>exists(path)</code>,
-                                <code>remove(path)</code></td>
+                                <code>remove(path)</code>
+                            </td>
                             <td>Reads and writes UTF-8/text bytes. Write, append, and remove return booleans on
                                 success; <code>exists</code> returns a boolean. Read and filesystem failures raise
                                 catchable runtime errors.</td>
@@ -705,16 +713,19 @@ loop (;;) {
                             <td><code>PI</code>, <code>E</code>, <code>abs</code>, <code>ceil</code>,
                                 <code>floor</code>, <code>round</code>, <code>sqrt</code>, <code>sin</code>,
                                 <code>cos</code>, <code>tan</code>, <code>logarithm</code>, <code>exp</code>,
-                                <code>pow</code>, <code>min</code>, <code>max</code></td>
+                                <code>pow</code>, <code>min</code>, <code>max</code>
+                            </td>
                             <td>Numeric helpers use radians for trigonometric functions. <code>min</code> and
                                 <code>max</code> accept one or more numbers. Invalid types and non-finite results
-                                raise catchable runtime errors.</td>
+                                raise catchable runtime errors.
+                            </td>
                         </tr>
                         <tr>
                             <td><code>core:path</code></td>
                             <td><code>exists</code>, <code>isFile</code>, <code>isDir</code>, <code>isAbs</code>,
                                 <code>absolute</code>, <code>join</code>, <code>clean</code>, <code>base</code>,
-                                <code>dir</code>, <code>ext</code>, <code>relative</code></td>
+                                <code>dir</code>, <code>ext</code>, <code>relative</code>
+                            </td>
                             <td>Uses the host operating system's path rules. <code>relative(target, base)</code>
                                 returns a path from the base to the target. Existence/type checks return booleans.</td>
                         </tr>
@@ -741,9 +752,11 @@ loop (;;) {
                 <ul>
                     <li><strong>Built-ins:</strong> <code>core:io</code>, <code>core:file</code>,
                         <code>core:math</code>, <code>core:path</code>, and <code>core:json</code> provide I/O,
-                        filesystem, numeric, path, and JSON operations.</li>
+                        filesystem, numeric, path, and JSON operations.
+                    </li>
                     <li><strong>Promises:</strong> async calls return promises. Promise values expose
-                        <code>-&gt;then(fn)</code> and <code>-&gt;catch(fn)</code> chaining.</li>
+                        <code>-&gt;then(fn)</code> and <code>-&gt;catch(fn)</code> chaining.
+                    </li>
                     <li><strong>Closures:</strong> nested functions can capture and mutate variables from enclosing
                         functions.</li>
                     <li><strong>Errors:</strong> parser/compiler errors include source positions; runtime errors can be
@@ -759,7 +772,8 @@ loop (;;) {
                     formal language specification. A few boundaries are especially useful to know:</p>
                 <ul>
                     <li>There are no parser forms for <code>for</code>, <code>while</code>, <code>do</code>,
-                        <code>throw</code>, <code>finally</code>, or labels; looping uses <code>loop</code>.</li>
+                        <code>throw</code>, <code>finally</code>, or labels; looping uses <code>loop</code>.
+                    </li>
                     <li>Named <code>fn</code> and <code>class</code> declarations use top-level <code>name::fn</code> /
                         <code>name::class</code> syntax. Anonymous function and class expressions are also supported.
                     </li>
@@ -767,7 +781,8 @@ loop (;;) {
                     </li>
                     <li>Switch statement matching is performed at dispatch before bodies run. Once a body begins,
                         C-style fall-through applies unless <code>break</code> or the case-specific
-                        <code>continue</code> changes control flow.</li>
+                        <code>continue</code> changes control flow.
+                    </li>
                     <li>Switch expressions require a <code>default</code> and are parsed as comma-separated
                         alternatives.</li>
                     <li>The compiler validates declaration placement, duplicate local names, constant assignment, await
@@ -775,7 +790,8 @@ loop (;;) {
                 </ul>
                 <div class="note"><strong>Version note:</strong> the exact supported syntax is the implementation in
                     <code>main/parser.go</code> and <code>main/compiler.go</code> at the time this reference was
-                    generated. Runtime built-in modules may expose additional APIs beyond syntax covered here.</div>
+                    generated. Runtime built-in modules may expose additional APIs beyond syntax covered here.
+                </div>
             </section>
         </main>
     </div>
