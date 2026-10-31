@@ -1525,35 +1525,34 @@ func (p *Parser) switchStatement() *Ast {
 	p.expect("{")
 
 	var caseHead, caseTail *Ast
+	hasDefault := false
 
-	for p.match(KeyCase) {
-		p.expect(KeyCase)
-		caseExpr := p.listOfExpression(true, false)
-		p.expect(":")
-		caseBlock := p.listOfBlockStatement()
-		caseNode := NewKeyValue(caseExpr.Pos, caseExpr, caseBlock)
+	for p.match(KeyCase) || p.match(KeyDefault) {
+		var caseNode *Ast
+		if p.match(KeyCase) {
+			p.expect(KeyCase)
+			caseExpr := p.listOfExpression(true, false)
+			p.expect(":")
+			caseBlock := p.listOfBlockStatement()
+			caseNode = NewKeyValue(caseExpr.Pos, caseExpr, caseBlock)
+		} else {
+			if hasDefault {
+				ThrowError(p.File, "multiple default cases are not allowed", p.lookahead.Pos)
+			}
+			hasDefault = true
+			defaultPos := p.lookahead.Pos
+			p.expect(KeyDefault)
+			p.expect(":")
+			defaultBlock := p.listOfBlockStatement()
+			caseNode = NewKeyValue(defaultPos, nil, defaultBlock)
+		}
+
 		if caseHead == nil {
 			caseHead = caseNode
 			caseTail = caseNode
 		} else {
 			caseTail.Next = caseNode
 			caseTail = caseTail.Next
-		}
-	}
-
-	if p.match(KeyDefault) {
-		p.expect(KeyDefault)
-		p.expect(":")
-		defaultBlock := p.listOfBlockStatement()
-		defaultNode := NewKeyValue(
-			p.lookahead.Pos,
-			NewTerminalAst(AstNullLit, p.lookahead.Pos, ""),
-			defaultBlock,
-		)
-		if caseHead == nil {
-			caseHead = defaultNode
-		} else {
-			caseTail.Next = defaultNode
 		}
 	}
 

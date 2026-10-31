@@ -107,8 +107,8 @@ func acquireScope(parent *Scope) *Scope {
 	if s == nil {
 		s = &Scope{Variables: make(map[string]Symbol, 8)}
 	}
-	vars, breaks := s.Variables, s.BreakStart[:0]
-	*s = Scope{Parent: parent, Variables: vars, BreakStart: breaks}
+	vars, breaks, continues := s.Variables, s.BreakStart[:0], s.ContinueStart[:0]
+	*s = Scope{Parent: parent, Variables: vars, BreakStart: breaks, ContinueStart: continues}
 	return s
 }
 
@@ -116,7 +116,7 @@ func acquireScope(parent *Scope) *Scope {
 // pooled scope never keeps compile-time data alive. The size check must run
 // BEFORE clear(), otherwise len is always 0 and oversized scopes get pooled.
 func releaseScope(s *Scope) {
-	oversized := len(s.Variables) > maxPooledScopeVars || cap(s.BreakStart) > maxPooledBreaks
+	oversized := len(s.Variables) > maxPooledScopeVars || cap(s.BreakStart) > maxPooledBreaks || cap(s.ContinueStart) > maxPooledBreaks
 	clear(s.Variables)
 	s.Parent = nil
 	if oversized {
@@ -921,6 +921,95 @@ func visitSwitchExpr(s *State, scope *Scope, fn *Function, ast *Ast) {
 	}
 }
 
+func visitSwitchStatement(s *State, scope *Scope, fn *Function, ast *Ast) {
+	type switchCase struct {
+		node       *Ast
+		matchJumps []int
+		bodyJump   int
+		scope      *Scope
+	}
+
+	switchScope := acquireScope(scope)
+	switchScope.Type = ScopeTypeSwitch
+	visitExpression(s, switchScope, fn, ast.A)
+
+	cases := make([]switchCase, 0, 8)
+	defaultIndex := -1
+	for node := ast.B; node != nil; node = node.Next {
+		current := switchCase{node: node}
+		if node.A == nil {
+			defaultIndex = len(cases)
+			cases = append(cases, current)
+			continue
+		}
+
+		for condition := node.A; condition != nil; condition = condition.Next {
+			visitExpression(s, switchScope, fn, condition)
+			emit(fn, OpCaseEqual)
+			current.matchJumps = append(current.matchJumps, emitJump(fn, OpPopJmpIfTrue))
+		}
+		cases = append(cases, current)
+	}
+
+	noMatchJump := emitJump(fn, OpJmp)
+	for index := range cases {
+		current := &cases[index]
+		if index == defaultIndex {
+			continue
+		}
+		for _, jump := range current.matchJumps {
+			labelJump(fn, jump)
+		}
+		emit(fn, OpPopTop)
+		current.bodyJump = emitJump(fn, OpJmp)
+	}
+
+	labelJump(fn, noMatchJump)
+	emit(fn, OpPopTop)
+	var endJump int
+	if defaultIndex >= 0 {
+		cases[defaultIndex].bodyJump = emitJump(fn, OpJmp)
+	} else {
+		endJump = emitJump(fn, OpJmp)
+	}
+
+	caseBodies := make([]int, len(cases))
+	for index := range cases {
+		current := &cases[index]
+		labelJump(fn, current.bodyJump)
+		caseBodies[index] = len(fn.Bytecode)
+		current.scope = acquireScope(switchScope)
+		current.scope.Type = ScopeTypeCase
+		for statement := current.node.B; statement != nil; statement = statement.Next {
+			visitDeclarationOrStatement(s, current.scope, fn, statement)
+		}
+	}
+
+	if endJump != 0 {
+		labelJump(fn, endJump)
+	}
+	for _, jump := range switchScope.BreakStart {
+		labelJump(fn, jump)
+	}
+	for index := range cases {
+		for _, jump := range cases[index].scope.BreakStart {
+			labelJump(fn, jump)
+		}
+	}
+	switchEnd := len(fn.Bytecode)
+	for index := range cases {
+		nextCase := switchEnd
+		if index+1 < len(cases) {
+			nextCase = caseBodies[index+1]
+		}
+		for _, jump := range cases[index].scope.ContinueStart {
+			fn.Bytecode[jump] = int32(nextCase)
+		}
+		releaseScope(cases[index].scope)
+	}
+	releaseScope(switchScope)
+}
+
 func visitExpression(s *State, scope *Scope, fn *Function, ast *Ast) {
 	// Literals and operators on literals are folded here. Literal node types
 	// (number / string / bool) therefore never reach the switch below.
@@ -1484,6 +1573,7 @@ func visitForStatement(s *State, scope *Scope, fn *Function, ast *Ast) {
 
 	if muttNode != nil {
 		visitExpression(s, loopScope, fn, muttNode)
+		emit(fn, OpPopTop)
 	}
 	emitInt(fn, OpAbsJmp, condPos)
 
@@ -1537,20 +1627,30 @@ func visitBlock(s *State, scope *Scope, fn *Function, ast *Ast) {
 }
 
 func visitBreak(_ *State, scope *Scope, fn *Function, ast *Ast) {
-	loopScope := scope.GetNearest(ScopeTypeLoop)
-	if loopScope == nil {
-		ThrowError(fn.File, "break statement not within a loop", ast.Pos)
+	breakScope := scope
+	for breakScope != nil && breakScope.Type != ScopeTypeLoop && breakScope.Type != ScopeTypeSwitch && breakScope.Type != ScopeTypeCase {
+		breakScope = breakScope.Parent
+	}
+	if breakScope == nil {
+		ThrowError(fn.File, "break statement not within a loop or switch", ast.Pos)
 	}
 	jmpSlot := emitJump(fn, OpJmp)
-	loopScope.BreakStart = append(loopScope.BreakStart, jmpSlot)
+	breakScope.BreakStart = append(breakScope.BreakStart, jmpSlot)
 }
 
 func visitContinue(_ *State, scope *Scope, fn *Function, ast *Ast) {
-	loopScope := scope.GetNearest(ScopeTypeLoop)
-	if loopScope == nil {
-		ThrowError(fn.File, "continue statement not within a loop", ast.Pos)
+	continueScope := scope
+	for continueScope != nil && continueScope.Type != ScopeTypeLoop && continueScope.Type != ScopeTypeCase {
+		continueScope = continueScope.Parent
 	}
-	emitInt(fn, OpAbsJmp, loopScope.LoopStart)
+	if continueScope == nil {
+		ThrowError(fn.File, "continue statement not within a loop or switch case", ast.Pos)
+	}
+	if continueScope.Type == ScopeTypeCase {
+		continueScope.ContinueStart = append(continueScope.ContinueStart, emitJump(fn, OpJmp))
+		return
+	}
+	emitInt(fn, OpAbsJmp, continueScope.LoopStart)
 }
 
 func visitReturn(s *State, scope *Scope, fn *Function, ast *Ast) {
@@ -1913,6 +2013,10 @@ func visitDeclarationOrStatement(s *State, scope *Scope, fn *Function, ast *Ast)
 	case AstTryCatch:
 		{
 			visitTryCatch(s, scope, fn, ast)
+		}
+	case AstSwitchStmt:
+		{
+			visitSwitchStatement(s, scope, fn, ast)
 		}
 	case AstImport:
 		{

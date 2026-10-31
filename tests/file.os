@@ -239,9 +239,23 @@ loop (let x = 0;x < 3;x++) {
     println(x);
 }
 
+/*
 loop (;;) {
     println("Hola!");
 }
+*/
 
-
+switch (4) {
+    case 0:
+    case 1, 2, 3, 4: {
+        println("Inside");
+        continue;
+        println("No executed!");
+    }
+    println("Hello");
+    break;
+    default: {
+        println("No val!");
+    }
+}
 
