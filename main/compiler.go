@@ -1078,6 +1078,20 @@ func visitVarObjectDestructDeclaration(p *Parser, scope *Scope, fn *Function, as
 	emit(fn, OpPopTop)
 }
 
+func visitClassDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+	nameNode := ast.A
+	classExp := ast.B
+
+	superNode := classExp.A
+	keyVal := classExp.B
+	for head := keyVal; head != nil; head = head.Next {
+		nameNode := head.A
+		valueNode := head.B
+
+	}
+
+}
+
 func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	nameNode := ast.A
 
@@ -1225,14 +1239,16 @@ func visitTryCatch(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 func visitDeclarationOrStatement(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	emitLine(fn, ast.Pos)
 	switch ast.Type {
+	case AstClass:
+		visitClassDeclaration(p, scope, fn, ast)
+	case AstFunction:
+		visitFunctionDeclaration(p, scope, fn, ast)
 	case AstVar, AstLet, AstConst:
 		visitVarDeclaration(p, scope, fn, ast)
 	case AstDestructuringArrayVar, AstDestructuringArrayLet, AstDestructuringArrayConst:
 		visitVarArrayDestructDeclaration(p, scope, fn, ast)
 	case AstDestructuringObjectVar, AstDestructuringObjectLet, AstDestructuringObjectConst:
 		visitVarObjectDestructDeclaration(p, scope, fn, ast)
-	case AstFunction:
-		visitFunctionDeclaration(p, scope, fn, ast)
 	case AstIfStmt:
 		visitIfStatement(p, scope, fn, ast)
 	case AstWhileLoop:

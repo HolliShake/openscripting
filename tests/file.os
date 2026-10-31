@@ -188,3 +188,15 @@ var item = switch(100) {
 
 log ">>>>";
 log item;
+
+
+
+var Person::class {
+    constructor: fn(name) {
+        this->name = name;
+    },
+
+    getName: fn() {
+
+    }
+};

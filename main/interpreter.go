@@ -13,17 +13,8 @@ var StackSize int32 = 1024
 /******************* Cold-path helpers ***/
 
 // These are kept out of line so that boxing their arguments for fmt does not
-// make locals of the hot interpreter loop escape (the old "funcIndex escapes
-// to heap", "sp escapes to heap", "ip - 1 escapes to heap" lines), and so the
-// *strings.Builder inside OSValue.String is not "moved to heap" in
-// runCoroutine's frame.
-
-// strKey identifies one string literal in the bytecode: the function it lives
-// in plus the position of its length word.
-type strKey struct {
-	fn *Function
-	ip int32
-}
+// make locals of the hot interpreter loop escape, and so the *strings.Builder
+// inside OSValue.String is not "moved to heap" in runCoroutine's frame.
 
 type VM struct {
 	Current *Coroutine
@@ -32,11 +23,30 @@ type VM struct {
 	True    OSValue
 	False   OSValue
 
-	// strs caches decoded string literals. Previously every OpLoadStr /
-	// OpGetAttr executed in a loop built a brand new string on the heap.
+	// pendingHead is the index of the next microtask to run in Pending.
+	// Consuming with an index (instead of Pending = Pending[1:]) avoids
+	// slowly losing the slice's front capacity. Anything that enqueues
+	// should still just append to Pending.
+	pendingHead int
+
+	// strs caches decoded string literals, one table per distinct bytecode
+	// array, indexed by the ip of the literal's length word. It is keyed by
+	// the address of the bytecode (not the *Function) so that Clone()d
+	// closures share a single table instead of allocating a new one each.
 	// Strings are immutable, so sharing is safe. The cache lives and dies
 	// with the VM, so it can never outlive a run.
-	strs map[strKey]string
+	strs map[unsafe.Pointer][]string
+}
+
+// strTable returns the literal cache for the given bytecode.
+func (vm *VM) strTable(bcode []int32) []string {
+	key := unsafe.Pointer(unsafe.SliceData(bcode))
+	t := vm.strs[key]
+	if t == nil {
+		t = make([]string, len(bcode))
+		vm.strs[key] = t
+	}
+	return t
 }
 
 //go:noinline
@@ -66,14 +76,25 @@ func interpreterLoop(state *State, vm *VM) {
 		}
 
 		vm.Current = nil
-		for len(vm.Pending) > 0 {
-			next := vm.Pending[0]
-			vm.Pending[0] = nil
-			vm.Pending = vm.Pending[1:]
+		for vm.pendingHead < len(vm.Pending) {
+			next := vm.Pending[vm.pendingHead]
+			vm.Pending[vm.pendingHead] = nil
+			vm.pendingHead++
 			if next != nil && next.State != CoroutineStateDead && next.Frame.Function != nil {
 				vm.Current = next
 				break
 			}
+		}
+
+		// Reclaim the consumed prefix of the queue.
+		if vm.pendingHead == len(vm.Pending) {
+			vm.Pending = vm.Pending[:0]
+			vm.pendingHead = 0
+		} else if vm.pendingHead >= 1024 && vm.pendingHead*2 >= len(vm.Pending) {
+			n := copy(vm.Pending, vm.Pending[vm.pendingHead:])
+			clear(vm.Pending[n:])
+			vm.Pending = vm.Pending[:n]
+			vm.pendingHead = 0
 		}
 
 		if vm.Current == nil {
@@ -102,6 +123,24 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 	bsize := int32(len(bcode))
 	currentInstruction := ip
 
+	// Literal table for the current bytecode; looked up lazily on the first
+	// string literal executed in a frame, and reset whenever frames switch.
+	var strTab []string
+
+	// reload switches the interpreter to another coroutine without leaving
+	// runCoroutine. The caller is responsible for having saved the state of
+	// the coroutine being left (if it is still alive).
+	reload := func(c *Coroutine) {
+		co = c
+		frame = &c.Frame
+		bcode = frame.Function.Bytecode
+		bsize = int32(len(bcode))
+		ip = frame.Ip
+		sp = c.Sp
+		stack = c.OperandStack
+		strTab = nil
+	}
+
 	readByte := func() int32 {
 		if ip >= bsize {
 			panic("unexpected end of bytecode")
@@ -113,21 +152,20 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 	}
 
 	readString := func() string {
-		key := strKey{frame.Function, ip}
+		at := ip
 		size := readByte()
 
 		if size < 0 || ip+size > bsize {
 			panic("invalid string literal: exceeds bytecode")
 		}
 
-		if s, ok := vm.strs[key]; ok {
-			ip += size
-			return s
+		if strTab == nil {
+			strTab = vm.strTable(bcode)
 		}
 
-		if size == 0 {
-			vm.strs[key] = ""
-			return ""
+		if s := strTab[at]; s != "" || size == 0 {
+			ip += size
+			return s
 		}
 
 		// The bytecode length is a rune count, so size the backing bytes from
@@ -149,7 +187,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 		ip += size
 
 		s := unsafe.String(unsafe.SliceData(buf), byteSize)
-		vm.strs[key] = s
+		strTab[at] = s
 		return s
 	}
 
@@ -204,6 +242,9 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			asyncCaller := co.AsyncCaller
 			co.Release()
 			vm.Current = asyncCaller
+			// The coroutine is dead: stop the dispatch loop. This replaces
+			// the old per-instruction co.State check.
+			ip = bsize
 			return true
 		}
 
@@ -254,9 +295,6 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 	}
 
 	for ip < bsize {
-		if co.State == CoroutineStateDead {
-			return
-		}
 		currentInstruction = ip
 		op := bcode[ip]
 		ip++
@@ -264,13 +302,18 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 		switch op {
 		case OpLoadNum:
 			{
-				a := readByte()
-				b := readByte()
+				a := bcode[ip]
+				b := bcode[ip+1]
+				ip += 2
 
-				push(OSValue{
+				if sp >= int32(len(stack)) {
+					stack = growStack(co)
+				}
+				stack[sp] = OSValue{
 					Type:   OSVNum,
 					Number: CombineFloat(a, b),
-				})
+				}
+				sp++
 			}
 		case OpLoadStr:
 			{
@@ -534,22 +577,30 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			{
 				funcIndex := int(readByte())
 
-				if funcIndex >= len(state.Functions) {
+				if funcIndex < 0 || funcIndex >= len(state.Functions) {
 					panicInt("invalid function index: %d", funcIndex)
 				}
 
 				fn := state.Functions[funcIndex]
-				fn = fn.Clone()
-
-				// Save captured variables from the current environment into the function's capture metadata.
-				env := co.Frame.Env
-				for i := range fn.CaptureMeta {
-					capMeta := &fn.CaptureMeta[i]
-					capMeta.Cell = env[capMeta.Src]
-				}
-
 				if fn == nil {
 					panicInt("function at index %d is nil", funcIndex)
+				}
+
+				// Only functions that capture variables need a per-closure
+				// copy. Everything else can share the single prototype.
+				if len(fn.CaptureMeta) > 0 {
+					fn = fn.Clone()
+					if fn == nil {
+						panicInt("function at index %d is nil", funcIndex)
+					}
+
+					// Save captured variables from the current environment
+					// into the function's capture metadata.
+					env := frame.Env
+					for i := range fn.CaptureMeta {
+						capMeta := &fn.CaptureMeta[i]
+						capMeta.Cell = env[capMeta.Src]
+					}
 				}
 
 				push(OSValue{
@@ -559,49 +610,93 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpLoadVar:
 			{
-				varIndex := int(readByte())
+				varIndex := bcode[ip]
+				ip++
 
-				if varIndex >= len(frame.Env) || frame.Env[varIndex] == nil {
-					panicInt2("invalid local variable index: %d of %d", varIndex, len(frame.Env))
+				env := frame.Env
+				if uint32(varIndex) >= uint32(len(env)) || env[varIndex] == nil {
+					panicInt2("invalid local variable index: %d of %d", int(varIndex), len(env))
 				}
 
-				push(frame.Env[varIndex].Value)
+				if sp >= int32(len(stack)) {
+					stack = growStack(co)
+				}
+				stack[sp] = env[varIndex].Value
+				sp++
 			}
-		case OpInc, OpDec:
+		case OpInc:
 			{
-				value := peek()
-				if !IsNumber(value) {
+				if sp <= 0 {
+					panic("operand stack underflow")
+				}
+
+				top := &stack[sp-1]
+				if !IsNumber(*top) {
+					if throwRuntimeError("increment and decrement require a number") {
+						continue
+					}
+				}
+				top.Number++
+			}
+		case OpDec:
+			{
+				if sp <= 0 {
+					panic("operand stack underflow")
+				}
+
+				top := &stack[sp-1]
+				if !IsNumber(*top) {
+					if throwRuntimeError("increment and decrement require a number") {
+						continue
+					}
+				}
+				top.Number--
+			}
+		case OpPostInc:
+			{
+				if sp <= 0 {
+					panic("operand stack underflow")
+				}
+
+				old := stack[sp-1]
+				if !IsNumber(old) {
 					if throwRuntimeError("increment and decrement require a number") {
 						continue
 					}
 				}
 
-				if op == OpInc {
-					value.Number++
-				} else {
-					value.Number--
+				// [..., v] -> [..., v+1, v]
+				updated := old
+				updated.Number++
+				if sp >= int32(len(stack)) {
+					stack = growStack(co)
 				}
-				stack[sp-1] = value
+				stack[sp-1] = updated
+				stack[sp] = old
+				sp++
 			}
-		case OpPostInc, OpPostDec:
+		case OpPostDec:
 			{
-				value := pop()
-				if !IsNumber(value) {
+				if sp <= 0 {
+					panic("operand stack underflow")
+				}
+
+				old := stack[sp-1]
+				if !IsNumber(old) {
 					if throwRuntimeError("increment and decrement require a number") {
 						continue
 					}
 				}
 
-				old := value
-
-				if op == OpPostInc {
-					value.Number++
-				} else {
-					value.Number--
+				// [..., v] -> [..., v-1, v]
+				updated := old
+				updated.Number--
+				if sp >= int32(len(stack)) {
+					stack = growStack(co)
 				}
-				push(value)
-				push(old)
-
+				stack[sp-1] = updated
+				stack[sp] = old
+				sp++
 			}
 		case OpCall:
 			{
@@ -729,11 +824,23 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					return
 				}
 
+				// Plain call: switch frames in place instead of bouncing
+				// through interpreterLoop and rebuilding every closure.
 				vm.Current = callee
-				return
+				reload(callee)
 			}
 		case OpBinMul:
 			{
+				if sp >= 2 {
+					l, r := stack[sp-2], stack[sp-1]
+					if IsNumber(l) && IsNumber(r) {
+						stack[sp-2] = OSValue{Type: OSVNum, Number: l.Number * r.Number}
+						sp--
+						stack[sp] = OSValue{}
+						continue
+					}
+				}
+
 				rhs := pop()
 				lhs := pop()
 
@@ -750,6 +857,16 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpBinDiv:
 			{
+				if sp >= 2 {
+					l, r := stack[sp-2], stack[sp-1]
+					if IsNumber(l) && IsNumber(r) && r.Number != 0 {
+						stack[sp-2] = OSValue{Type: OSVNum, Number: l.Number / r.Number}
+						sp--
+						stack[sp] = OSValue{}
+						continue
+					}
+				}
+
 				rhs := pop()
 				lhs := pop()
 
@@ -772,6 +889,19 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpBinMod:
 			{
+				if sp >= 2 {
+					l, r := stack[sp-2], stack[sp-1]
+					if IsNumber(l) && IsNumber(r) && r.Number != 0 {
+						stack[sp-2] = OSValue{
+							Type:   OSVNum,
+							Number: l.Number - float64(int64(l.Number/r.Number))*r.Number,
+						}
+						sp--
+						stack[sp] = OSValue{}
+						continue
+					}
+				}
+
 				rhs := pop()
 				lhs := pop()
 
@@ -794,6 +924,16 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpBinAdd:
 			{
+				if sp >= 2 {
+					l, r := stack[sp-2], stack[sp-1]
+					if IsNumber(l) && IsNumber(r) {
+						stack[sp-2] = OSValue{Type: OSVNum, Number: l.Number + r.Number}
+						sp--
+						stack[sp] = OSValue{}
+						continue
+					}
+				}
+
 				rhs := pop()
 				lhs := pop()
 
@@ -819,6 +959,16 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpBinSub:
 			{
+				if sp >= 2 {
+					l, r := stack[sp-2], stack[sp-1]
+					if IsNumber(l) && IsNumber(r) {
+						stack[sp-2] = OSValue{Type: OSVNum, Number: l.Number - r.Number}
+						sp--
+						stack[sp] = OSValue{}
+						continue
+					}
+				}
+
 				rhs := pop()
 				lhs := pop()
 
@@ -867,6 +1017,20 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpBinLess:
 			{
+				if sp >= 2 {
+					l, r := stack[sp-2], stack[sp-1]
+					if IsNumber(l) && IsNumber(r) {
+						if l.Number < r.Number {
+							stack[sp-2] = vm.True
+						} else {
+							stack[sp-2] = vm.False
+						}
+						sp--
+						stack[sp] = OSValue{}
+						continue
+					}
+				}
+
 				rhs := pop()
 				lhs := pop()
 
@@ -884,6 +1048,20 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpBinLessEqual:
 			{
+				if sp >= 2 {
+					l, r := stack[sp-2], stack[sp-1]
+					if IsNumber(l) && IsNumber(r) {
+						if l.Number <= r.Number {
+							stack[sp-2] = vm.True
+						} else {
+							stack[sp-2] = vm.False
+						}
+						sp--
+						stack[sp] = OSValue{}
+						continue
+					}
+				}
+
 				rhs := pop()
 				lhs := pop()
 
@@ -901,6 +1079,20 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpBinGreater:
 			{
+				if sp >= 2 {
+					l, r := stack[sp-2], stack[sp-1]
+					if IsNumber(l) && IsNumber(r) {
+						if l.Number > r.Number {
+							stack[sp-2] = vm.True
+						} else {
+							stack[sp-2] = vm.False
+						}
+						sp--
+						stack[sp] = OSValue{}
+						continue
+					}
+				}
+
 				rhs := pop()
 				lhs := pop()
 
@@ -918,6 +1110,20 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpBinGreaterEqual:
 			{
+				if sp >= 2 {
+					l, r := stack[sp-2], stack[sp-1]
+					if IsNumber(l) && IsNumber(r) {
+						if l.Number >= r.Number {
+							stack[sp-2] = vm.True
+						} else {
+							stack[sp-2] = vm.False
+						}
+						sp--
+						stack[sp] = OSValue{}
+						continue
+					}
+				}
+
 				rhs := pop()
 				lhs := pop()
 
@@ -935,25 +1141,31 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpBinEqual:
 			{
-				rhs := pop()
-				lhs := pop()
-
-				if IsEqual(lhs, rhs) {
-					push(vm.True)
-				} else {
-					push(vm.False)
+				if sp < 2 {
+					panic("operand stack underflow")
 				}
+
+				if IsEqual(stack[sp-2], stack[sp-1]) {
+					stack[sp-2] = vm.True
+				} else {
+					stack[sp-2] = vm.False
+				}
+				sp--
+				stack[sp] = OSValue{}
 			}
 		case OpBinNotEqual:
 			{
-				rhs := pop()
-				lhs := pop()
-
-				if !IsEqual(lhs, rhs) {
-					push(vm.True)
-				} else {
-					push(vm.False)
+				if sp < 2 {
+					panic("operand stack underflow")
 				}
+
+				if !IsEqual(stack[sp-2], stack[sp-1]) {
+					stack[sp-2] = vm.True
+				} else {
+					stack[sp-2] = vm.False
+				}
+				sp--
+				stack[sp] = OSValue{}
 			}
 		case OpCaseEqual:
 			{
@@ -1044,17 +1256,30 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpStoreLocal:
 			{
-				localIndex := int(readByte())
+				localIndex := bcode[ip]
+				ip++
 
-				if localIndex >= len(frame.Env) || frame.Env[localIndex] == nil {
-					panicInt2("invalid local variable index: %d (frame.Env length: %d)", localIndex, len(frame.Env))
+				env := frame.Env
+				if uint32(localIndex) >= uint32(len(env)) || env[localIndex] == nil {
+					panicInt2("invalid local variable index: %d (frame.Env length: %d)", int(localIndex), len(env))
 				}
 
-				frame.Env[localIndex].Value = pop()
+				if sp <= 0 {
+					panic("operand stack underflow")
+				}
+
+				sp--
+				env[localIndex].Value = stack[sp]
+				stack[sp] = OSValue{}
 			}
 		case OpPopTop:
 			{
-				pop()
+				if sp <= 0 {
+					panic("operand stack underflow")
+				}
+
+				sp--
+				stack[sp] = OSValue{}
 			}
 
 		case OpStdWrite:
@@ -1062,48 +1287,72 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				value := pop()
 				writeLog(valueString(value))
 			}
-		case OpJmp:
+		case OpJmp, OpAbsJmp:
 			{
-				offset := int(readByte())
-				ip = int32(offset)
-			}
-		case OpAbsJmp:
-			{
-				offset := int(readByte())
-				ip = int32(offset)
+				ip = bcode[ip]
 			}
 		case OpPopJmpIfFalse:
 			{
-				offset := int(readByte())
-				expval := pop()
-				if !CoerceToBool(expval) {
-					ip = int32(offset)
-				}
-			}
-		case OpPopJmpIfTrue:
-			{
-				offset := int(readByte())
-				expval := pop()
-				if CoerceToBool(expval) {
-					ip = int32(offset)
-				}
-			}
-
-		case OpJmpIfFalseOrPop, OpJmpIfTrueOrPop:
-			{
-				offset := int(readByte())
+				offset := bcode[ip]
+				ip++
 
 				if sp <= 0 {
 					panic("operand stack underflow")
 				}
 
-				expval := peek()
-				truthy := CoerceToBool(expval)
+				sp--
+				expval := stack[sp]
+				stack[sp] = OSValue{}
+				if !CoerceToBool(expval) {
+					ip = offset
+				}
+			}
+		case OpPopJmpIfTrue:
+			{
+				offset := bcode[ip]
+				ip++
 
-				if op == OpJmpIfFalseOrPop && !truthy || op == OpJmpIfTrueOrPop && truthy {
-					ip = int32(offset)
+				if sp <= 0 {
+					panic("operand stack underflow")
+				}
+
+				sp--
+				expval := stack[sp]
+				stack[sp] = OSValue{}
+				if CoerceToBool(expval) {
+					ip = offset
+				}
+			}
+		case OpJmpIfFalseOrPop:
+			{
+				offset := bcode[ip]
+				ip++
+
+				if sp <= 0 {
+					panic("operand stack underflow")
+				}
+
+				if !CoerceToBool(stack[sp-1]) {
+					ip = offset
 				} else {
-					pop()
+					sp--
+					stack[sp] = OSValue{}
+				}
+			}
+		case OpJmpIfTrueOrPop:
+			{
+				offset := bcode[ip]
+				ip++
+
+				if sp <= 0 {
+					panic("operand stack underflow")
+				}
+
+				if CoerceToBool(stack[sp-1]) {
+					ip = offset
+				} else {
+					sp--
+					stack[sp] = OSValue{}
 				}
 			}
 		case OpDupTop:
@@ -1201,11 +1450,24 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				// stack, cells and links so they can be collected.
 				co.Release()
 
-				return
+				// A caller that is waiting to be resumed with a value must go
+				// through the normal entry path.
+				if caller.ResumeReady {
+					return
+				}
+
+				// Otherwise continue directly in the caller.
+				reload(caller)
 			}
 		default:
 			panicInt2("unknown opcode %v at offset %d", int(op), int(ip-1))
 		}
+	}
+
+	// The coroutine was killed inside the loop (e.g. an unhandled error in an
+	// async function rejected its promise); everything is already cleaned up.
+	if co.State == CoroutineStateDead {
+		return
 	}
 
 	// Persist state when bytecode reaches its end without OpReturn.
@@ -1246,7 +1508,7 @@ func Run(state *State, program *Function) {
 		Null:  OSValue{Type: OSVNull},
 		True:  OSValue{Type: OSVBool, Number: 1},
 		False: OSValue{Type: OSVBool, Number: 0},
-		strs:  make(map[strKey]string, 16),
+		strs:  make(map[unsafe.Pointer][]string, 16),
 	}
 
 	main := NewCoroutine(nil, program, InitialStack(0))
