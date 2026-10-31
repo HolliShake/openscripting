@@ -41,8 +41,7 @@ var scopePool sync.Pool
 
 // codeBuf is scratch space used while a function is being compiled. Functions
 // are compiled into pooled, generously sized buffers and then copied ONCE into
-// an exactly sized slice. Previously every function allocated a 256-element
-// buffer, grew it by append, and then allocated again in shrink().
+// an exactly sized slice.
 // Nested functions are compiled while the parent is still in progress, so each
 // in-flight function owns its own codeBuf.
 type codeBuf struct {
@@ -80,11 +79,17 @@ func constEqual(a, b constVal) bool {
 	}
 	switch a.kind {
 	case kNum:
-		return a.num == b.num
+		{
+			return a.num == b.num
+		}
 	case kStr:
-		return a.str == b.str
+		{
+			return a.str == b.str
+		}
 	case kBool:
-		return a.b == b.b
+		{
+			return a.b == b.b
+		}
 	}
 	return false
 }
@@ -93,23 +98,25 @@ func constEqual(a, b constVal) bool {
 
 // acquireScope returns a clean scope. The caller sets Type (and any other
 // fields) afterwards. VarCount starts at 0.
+// Pooled scopes are always cleared by releaseScope, so Variables is empty here.
 func acquireScope(parent *Scope) *Scope {
 	s, _ := scopePool.Get().(*Scope)
 	if s == nil {
 		s = &Scope{Variables: make(map[string]Symbol, 8)}
 	}
 	vars, breaks := s.Variables, s.BreakStart[:0]
-	clear(vars)
 	*s = Scope{Parent: parent, Variables: vars, BreakStart: breaks}
 	return s
 }
 
 // releaseScope drops every reference the scope holds (symbols, parent) so a
-// pooled scope never keeps compile-time data alive.
+// pooled scope never keeps compile-time data alive. The size check must run
+// BEFORE clear(), otherwise len is always 0 and oversized scopes get pooled.
 func releaseScope(s *Scope) {
+	oversized := len(s.Variables) > maxPooledScopeVars || cap(s.BreakStart) > maxPooledBreaks
 	clear(s.Variables)
 	s.Parent = nil
-	if len(s.Variables) > maxPooledScopeVars || cap(s.BreakStart) > maxPooledBreaks {
+	if oversized {
 		return
 	}
 	scopePool.Put(s)
@@ -267,77 +274,139 @@ func emitBool(fn *Function, value bool) {
 func emitConst(fn *Function, c constVal) {
 	switch c.kind {
 	case kNum:
-		emitFloat(fn, c.num)
+		{
+			emitFloat(fn, c.num)
+		}
 	case kStr:
-		emitString(fn, c.str)
+		{
+			emitString(fn, c.str)
+		}
 	case kBool:
-		emitBool(fn, c.b)
+		{
+			emitBool(fn, c.b)
+		}
 	default:
-		panic("unsupported type")
+		{
+			panic("unsupported type")
+		}
 	}
 }
 
 func binaryOpcode(astType AstType) int32 {
 	switch astType {
 	case AstMul:
-		return OpBinMul
+		{
+			return OpBinMul
+		}
 	case AstDiv:
-		return OpBinDiv
+		{
+			return OpBinDiv
+		}
 	case AstMod:
-		return OpBinMod
+		{
+			return OpBinMod
+		}
 	case AstAdd:
-		return OpBinAdd
+		{
+			return OpBinAdd
+		}
 	case AstSub:
-		return OpBinSub
+		{
+			return OpBinSub
+		}
 	case AstShiftLeft:
-		return OpBinShiftLeft
+		{
+			return OpBinShiftLeft
+		}
 	case AstShiftRight:
-		return OpBinShiftRight
+		{
+			return OpBinShiftRight
+		}
 	case AstLess:
-		return OpBinLess
+		{
+			return OpBinLess
+		}
 	case AstLessEqual:
-		return OpBinLessEqual
+		{
+			return OpBinLessEqual
+		}
 	case AstGreater:
-		return OpBinGreater
+		{
+			return OpBinGreater
+		}
 	case AstGreaterEqual:
-		return OpBinGreaterEqual
+		{
+			return OpBinGreaterEqual
+		}
 	case AstEqual:
-		return OpBinEqual
+		{
+			return OpBinEqual
+		}
 	case AstNotEqual:
-		return OpBinNotEqual
+		{
+			return OpBinNotEqual
+		}
 	case AstBitAnd:
-		return OpBinBitAnd
+		{
+			return OpBinBitAnd
+		}
 	case AstBitXor:
-		return OpBinBitXor
+		{
+			return OpBinBitXor
+		}
 	case AstBitOr:
-		return OpBinBitOr
+		{
+			return OpBinBitOr
+		}
 	default:
-		panic("invalid binary operator")
+		{
+			panic("invalid binary operator")
+		}
 	}
 }
 
 func compoundAssignOpcode(astType AstType) int32 {
 	switch astType {
 	case AstMulAssign:
-		return OpBinMul
+		{
+			return OpBinMul
+		}
 	case AstDivAssign:
-		return OpBinDiv
+		{
+			return OpBinDiv
+		}
 	case AstModAssign:
-		return OpBinMod
+		{
+			return OpBinMod
+		}
 	case AstAddAssign:
-		return OpBinAdd
+		{
+			return OpBinAdd
+		}
 	case AstSubAssign:
-		return OpBinSub
+		{
+			return OpBinSub
+		}
 	case AstShiftLeftAssign:
-		return OpBinShiftLeft
+		{
+			return OpBinShiftLeft
+		}
 	case AstShiftRightAssign:
-		return OpBinShiftRight
+		{
+			return OpBinShiftRight
+		}
 	case AstAndAssign:
-		return OpBinBitAnd
+		{
+			return OpBinBitAnd
+		}
 	case AstXorAssign:
-		return OpBinBitXor
+		{
+			return OpBinBitXor
+		}
 	case AstOrAssign:
-		return OpBinBitOr
+		{
+			return OpBinBitOr
+		}
 	}
 	unexpected("invalid assignment operator", astType)
 	return 0
@@ -350,168 +419,257 @@ func compoundAssignOpcode(astType AstType) int32 {
 func tryFold(fn *Function, ast *Ast) constVal {
 	switch ast.Type {
 	case AstNumLit:
-		value, err := strconv.ParseFloat(ast.Value, 64)
-		if err != nil {
-			ThrowError(fn.File, "invalid number format", ast.Pos)
+		{
+			value, err := strconv.ParseFloat(ast.Value, 64)
+			if err != nil {
+				ThrowError(fn.File, "invalid number format", ast.Pos)
+			}
+			return numConst(value)
 		}
-		return numConst(value)
 	case AstStrLit:
-		value, err := strconv.Unquote(ast.Value)
-		if err != nil {
-			ThrowError(fn.File, "invalid string literal", ast.Pos)
+		{
+			value, err := strconv.Unquote(ast.Value)
+			if err != nil {
+				ThrowError(fn.File, "invalid string literal", ast.Pos)
+			}
+			return strConst(value)
 		}
-		return strConst(value)
 	case AstBoolLit:
-		return boolConst(ast.Value == KeyTrue)
-
+		{
+			return boolConst(ast.Value == KeyTrue)
+		}
 	case AstPos, AstNeg, AstNot, AstBitNot:
-		v := tryFold(fn, ast.A)
-		if !v.folded() {
-			return noConst
+		{
+			v := tryFold(fn, ast.A)
+			if !v.folded() {
+				return noConst
+			}
+			switch ast.Type {
+			case AstPos:
+				{
+					if v.isNumber() {
+						return v
+					}
+					ThrowError(fn.File, "invalid operand for unary plus", ast.Pos)
+				}
+			case AstNeg:
+				{
+					if v.isNumber() {
+						return numConst(-v.num)
+					}
+					ThrowError(fn.File, "invalid operand for negation", ast.Pos)
+				}
+			case AstNot:
+				{
+					if v.isBool() {
+						return boolConst(!v.b)
+					}
+					ThrowError(fn.File, "invalid operand for logical not", ast.Pos)
+				}
+			case AstBitNot:
+				{
+					if v.isNumber() {
+						return numConst(float64(^int64(v.num)))
+					}
+					ThrowError(fn.File, "invalid operand for bitwise not", ast.Pos)
+				}
+			}
 		}
-		switch ast.Type {
-		case AstPos:
-			if v.isNumber() {
-				return v
-			}
-			ThrowError(fn.File, "invalid operand for unary plus", ast.Pos)
-		case AstNeg:
-			if v.isNumber() {
-				return numConst(-v.num)
-			}
-			ThrowError(fn.File, "invalid operand for negation", ast.Pos)
-		case AstNot:
-			if v.isBool() {
-				return boolConst(!v.b)
-			}
-			ThrowError(fn.File, "invalid operand for logical not", ast.Pos)
-		case AstBitNot:
-			if v.isNumber() {
-				return numConst(float64(^int64(v.num)))
-			}
-			ThrowError(fn.File, "invalid operand for bitwise not", ast.Pos)
-		}
-
 	case AstMul, AstDiv, AstMod, AstAdd, AstSub:
-		lhs := tryFold(fn, ast.A)
-		if !lhs.folded() {
-			return noConst
-		}
-		rhs := tryFold(fn, ast.B)
-		if !rhs.folded() {
-			return noConst
-		}
-		if ast.Type == AstAdd && lhs.isString() && rhs.isString() {
-			return strConst(lhs.str + rhs.str)
-		}
-		if !lhs.isNumber() || !rhs.isNumber() {
-			ThrowError(fn.File, "invalid operands for arithmetic operation", ast.Pos)
-		}
-		left, right := lhs.num, rhs.num
-		switch ast.Type {
-		case AstMul:
-			return numConst(left * right)
-		case AstDiv:
-			if right == 0 {
-				ThrowError(fn.File, "zero division", ast.Pos)
+		{
+			lhs := tryFold(fn, ast.A)
+			if !lhs.folded() {
+				return noConst
 			}
-			return numConst(left / right)
-		case AstMod:
-			if right == 0 {
-				ThrowError(fn.File, "zero division", ast.Pos)
+			rhs := tryFold(fn, ast.B)
+			if !rhs.folded() {
+				return noConst
 			}
-			return numConst(left - float64(int64(left/right))*right)
-		case AstAdd:
-			return numConst(left + right)
-		case AstSub:
-			return numConst(left - right)
+			if ast.Type == AstAdd && lhs.isString() && rhs.isString() {
+				return strConst(lhs.str + rhs.str)
+			}
+			if !lhs.isNumber() || !rhs.isNumber() {
+				ThrowError(fn.File, "invalid operands for arithmetic operation", ast.Pos)
+			}
+			left, right := lhs.num, rhs.num
+			switch ast.Type {
+			case AstMul:
+				{
+					return numConst(left * right)
+				}
+			case AstDiv:
+				{
+					if right == 0 {
+						ThrowError(fn.File, "zero division", ast.Pos)
+					}
+					return numConst(left / right)
+				}
+			case AstMod:
+				{
+					if right == 0 {
+						ThrowError(fn.File, "zero division", ast.Pos)
+					}
+					return numConst(left - float64(int64(left/right))*right)
+				}
+			case AstAdd:
+				{
+					return numConst(left + right)
+				}
+			case AstSub:
+				{
+					return numConst(left - right)
+				}
+			}
 		}
-
 	case AstLess, AstLessEqual, AstGreater, AstGreaterEqual, AstEqual, AstNotEqual:
-		lhs := tryFold(fn, ast.A)
-		if !lhs.folded() {
-			return noConst
-		}
-		rhs := tryFold(fn, ast.B)
-		if !rhs.folded() {
-			return noConst
-		}
-		comparison := 0
-		if lhs.isNumber() && rhs.isNumber() {
-			if lhs.num < rhs.num {
-				comparison = -1
-			} else if lhs.num > rhs.num {
-				comparison = 1
+		{
+			lhs := tryFold(fn, ast.A)
+			if !lhs.folded() {
+				return noConst
 			}
-		} else if ast.Type != AstEqual && ast.Type != AstNotEqual {
-			ThrowError(fn.File, "invalid operands for comparison", ast.Pos)
+			rhs := tryFold(fn, ast.B)
+			if !rhs.folded() {
+				return noConst
+			}
+			comparison := 0
+			if lhs.isNumber() && rhs.isNumber() {
+				if lhs.num < rhs.num {
+					comparison = -1
+				} else if lhs.num > rhs.num {
+					comparison = 1
+				}
+			} else if ast.Type != AstEqual && ast.Type != AstNotEqual {
+				ThrowError(fn.File, "invalid operands for comparison", ast.Pos)
+			}
+			switch ast.Type {
+			case AstLess:
+				{
+					return boolConst(comparison < 0)
+				}
+			case AstLessEqual:
+				{
+					return boolConst(comparison <= 0)
+				}
+			case AstGreater:
+				{
+					return boolConst(comparison > 0)
+				}
+			case AstGreaterEqual:
+				{
+					return boolConst(comparison >= 0)
+				}
+			case AstEqual:
+				{
+					return boolConst(constEqual(lhs, rhs))
+				}
+			case AstNotEqual:
+				{
+					return boolConst(!constEqual(lhs, rhs))
+				}
+			}
 		}
-		switch ast.Type {
-		case AstLess:
-			return boolConst(comparison < 0)
-		case AstLessEqual:
-			return boolConst(comparison <= 0)
-		case AstGreater:
-			return boolConst(comparison > 0)
-		case AstGreaterEqual:
-			return boolConst(comparison >= 0)
-		case AstEqual:
-			return boolConst(constEqual(lhs, rhs))
-		case AstNotEqual:
-			return boolConst(!constEqual(lhs, rhs))
-		}
-
 	case AstBitAnd, AstBitXor, AstBitOr, AstShiftLeft, AstShiftRight:
-		lhs := tryFold(fn, ast.A)
-		if !lhs.folded() {
-			return noConst
-		}
-		rhs := tryFold(fn, ast.B)
-		if !rhs.folded() {
-			return noConst
-		}
-		if !lhs.isNumber() || !rhs.isNumber() {
-			ThrowError(fn.File, "invalid operands for bitwise operation", ast.Pos)
-		}
-		left, right := int64(lhs.num), int64(rhs.num)
-		switch ast.Type {
-		case AstBitAnd:
-			return numConst(float64(left & right))
-		case AstBitXor:
-			return numConst(float64(left ^ right))
-		case AstBitOr:
-			return numConst(float64(left | right))
-		case AstShiftLeft:
-			return numConst(float64(left << uint(right)))
-		case AstShiftRight:
-			return numConst(float64(left >> uint(right)))
-		}
-
-	case AstAnd, AstOr:
-		lhs := tryFold(fn, ast.A)
-		if !lhs.folded() {
-			return noConst
-		}
-		if !lhs.isBool() {
-			ThrowError(fn.File, "invalid left operand for logical operation", ast.Pos)
-		}
-		if ast.Type == AstAnd {
-			if !lhs.b {
-				return boolConst(false)
+		{
+			lhs := tryFold(fn, ast.A)
+			if !lhs.folded() {
+				return noConst
 			}
-		} else if lhs.b {
-			return boolConst(true)
+			rhs := tryFold(fn, ast.B)
+			if !rhs.folded() {
+				return noConst
+			}
+			if !lhs.isNumber() || !rhs.isNumber() {
+				ThrowError(fn.File, "invalid operands for bitwise operation", ast.Pos)
+			}
+			left, right := int64(lhs.num), int64(rhs.num)
+			switch ast.Type {
+			case AstBitAnd:
+				{
+					return numConst(float64(left & right))
+				}
+			case AstBitXor:
+				{
+					return numConst(float64(left ^ right))
+				}
+			case AstBitOr:
+				{
+					return numConst(float64(left | right))
+				}
+			case AstShiftLeft:
+				{
+					return numConst(float64(left << uint(right)))
+				}
+			case AstShiftRight:
+				{
+					return numConst(float64(left >> uint(right)))
+				}
+			}
 		}
-		rhs := tryFold(fn, ast.B)
-		if !rhs.folded() {
-			return noConst
+	case AstAnd, AstOr:
+		{
+			lhs := tryFold(fn, ast.A)
+			if !lhs.folded() {
+				return noConst
+			}
+			if !lhs.isBool() {
+				ThrowError(fn.File, "invalid left operand for logical operation", ast.Pos)
+			}
+			if ast.Type == AstAnd {
+				if !lhs.b {
+					return boolConst(false)
+				}
+			} else if lhs.b {
+				return boolConst(true)
+			}
+			rhs := tryFold(fn, ast.B)
+			if !rhs.folded() {
+				return noConst
+			}
+			if !rhs.isBool() {
+				ThrowError(fn.File, "invalid right operand for logical operation", ast.Pos)
+			}
+			return rhs
 		}
-		if !rhs.isBool() {
-			ThrowError(fn.File, "invalid right operand for logical operation", ast.Pos)
-		}
-		return rhs
 	}
 	return noConst
+}
+
+/******************* Variable resolution ***/
+
+// resolveVar finds the variable named by an identifier node, registers a
+// capture if it lives in an enclosing function, and returns the local offset
+// to use in this function. It emits no code. Shared by identifier loads and
+// assignment targets (these used to be two identical copies).
+func resolveVar(scope *Scope, fn *Function, ast *Ast) int32 {
+	name := ast.Value
+	if !scope.Exists(name) {
+		ThrowError(fn.File, "undefined variable", ast.Pos)
+	}
+
+	isLocalSymb := scope.ExistsFunction(name)
+	sym, exists := scope.GetVariable(name)
+
+	if exists && !isLocalSymb {
+		// Capture
+		offset := scope.GetVarCount()
+
+		scope.AddLocal(name, Symbol{
+			Name:    name,
+			Offset:  offset,
+			Const:   sym.Const,
+			Capture: true,
+			Pos:     ast.Pos,
+		})
+
+		fn.CaptureMeta = append(fn.CaptureMeta, CaptureMeta{
+			Name: name,
+			Cell: nil,
+			Src:  sym.Offset,
+			Dst:  offset,
+		})
+		return offset
+	}
+	return sym.Offset
 }
 
 /******************* Visitors ***/
@@ -603,6 +761,163 @@ func compileFunction(p *Parser, scope *Scope, fn *Function, name string, async b
 	return funcOffset
 }
 
+// Array / object / switch live in their own functions so their locals do not
+// inflate the stack frame of the deeply recursive visitExpression.
+
+func visitArrayLiteral(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+	count, hasSpread := int32(0), false
+	for head := ast.A; head != nil; head = head.Next {
+		if head.Type == AstSpread {
+			hasSpread = true
+		} else {
+			count++
+		}
+	}
+
+	// Fast path: no spread, so push the items and build the array in one op
+	// instead of MakeArray 0 + MakeArray n + ExtendArray.
+	if !hasSpread {
+		for head := ast.A; head != nil; head = head.Next {
+			visitExpression(p, scope, fn, head)
+		}
+		emitInt(fn, OpMakeArray, count)
+		return
+	}
+
+	emitInt(fn, OpMakeArray, 0)
+	size := int32(0)
+
+	for head := ast.A; head != nil; head = head.Next {
+		if head.Type == AstSpread {
+			if size > 0 {
+				emitInt(fn, OpMakeArray, size)
+				emit(fn, OpExtendArray)
+				size = 0
+			}
+
+			visitExpression(p, scope, fn, head.A)
+			emit(fn, OpExtendArray)
+			continue
+		}
+
+		visitExpression(p, scope, fn, head)
+		size++
+	}
+
+	if size > 0 {
+		emitInt(fn, OpMakeArray, size)
+		emit(fn, OpExtendArray)
+	}
+}
+
+func emitObjectKey(p *Parser, scope *Scope, fn *Function, key *Ast) {
+	if key.Type == AstIdentifier || key.Type == AstStrLit {
+		emitString(fn, objectKey(key))
+	} else {
+		visitExpression(p, scope, fn, key)
+	}
+}
+
+func visitObjectLiteral(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+	count, hasSpread := int32(0), false
+	for head := ast.A; head != nil; head = head.Next {
+		if head.Type == AstSpread {
+			hasSpread = true
+		} else {
+			count++
+		}
+	}
+
+	// Fast path: no spread, build the object in one op.
+	if !hasSpread {
+		for head := ast.A; head != nil; head = head.Next {
+			emitObjectKey(p, scope, fn, head.A)
+			visitExpression(p, scope, fn, head.B)
+		}
+		emitInt(fn, OpMakeObject, count)
+		return
+	}
+
+	emitInt(fn, OpMakeObject, 0)
+	size := int32(0)
+
+	for head := ast.A; head != nil; head = head.Next {
+		if head.Type == AstSpread {
+			if size > 0 {
+				emitInt(fn, OpMakeObject, size)
+				emit(fn, OpExtendObject)
+				size = 0
+			}
+
+			visitExpression(p, scope, fn, head.A)
+			emit(fn, OpExtendObject)
+			continue
+		}
+
+		emitObjectKey(p, scope, fn, head.A)
+		visitExpression(p, scope, fn, head.B)
+		size++
+	}
+
+	if size > 0 {
+		emitInt(fn, OpMakeObject, size)
+		emit(fn, OpExtendObject)
+	}
+}
+
+func visitSwitchExpr(p *Parser, scope *Scope, fn *Function, ast *Ast) {
+	visitExpression(p, scope, fn, ast.A)
+
+	// Stack buffers: typical switches fit without touching the heap.
+	var endBuf [8]int32
+	var defBuf [2]*Ast
+	var exprBuf [8]int32
+	jumpEnds := endBuf[:0]
+	defaults := defBuf[:0]
+
+	for head := ast.B; head != nil; head = head.Next {
+		if head.Type != AstKeyValue {
+			// Default
+			defaults = append(defaults, head)
+			continue
+		}
+
+		// Consumed (labelled) before the next case, so one buffer is reused.
+		jumpExpr := exprBuf[:0]
+		for condition := head.A; condition != nil; condition = condition.Next {
+			visitExpression(p, scope, fn, condition)
+			emit(fn, OpCaseEqual)
+			jumpExpr = append(jumpExpr, emitJump(fn, OpPopJmpIfTrue))
+		}
+
+		// If none of the conditions matched, go to the next case
+		toNextCase := emitJump(fn, OpJmp)
+
+		// Label the jumps to the value
+		for _, jump := range jumpExpr {
+			labelJump(fn, jump)
+		}
+
+		// Jump to value immediately without evaluating other conditions
+		emit(fn, OpPopTop)
+		visitExpression(p, scope, fn, head.B)
+
+		jumpEnds = append(jumpEnds, emitJump(fn, OpJmp))
+
+		labelJump(fn, toNextCase)
+	}
+
+	// Handle default cases
+	for _, def := range defaults {
+		emit(fn, OpPopTop)
+		visitExpression(p, scope, fn, def)
+	}
+
+	for _, jump := range jumpEnds {
+		labelJump(fn, jump)
+	}
+}
+
 func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	// Literals and operators on literals are folded here. Literal node types
 	// (number / string / bool) therefore never reach the switch below.
@@ -617,37 +932,7 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	switch ast.Type {
 	case AstIdentifier:
 		{
-			name := ast.Value
-			if !scope.Exists(name) {
-				ThrowError(fn.File, "undefined variable", ast.Pos)
-			}
-
-			isLocalSymb := scope.ExistsFunction(name)
-			sym, exists := scope.GetVariable(name)
-
-			if exists && !isLocalSymb {
-				// Capture
-				offset := scope.GetVarCount()
-
-				scope.AddLocal(name, Symbol{
-					Name:    name,
-					Offset:  offset,
-					Const:   sym.Const,
-					Capture: true,
-					Pos:     ast.Pos,
-				})
-
-				fn.CaptureMeta = append(fn.CaptureMeta, CaptureMeta{
-					Name: name,
-					Cell: nil,
-					Src:  sym.Offset,
-					Dst:  offset,
-				})
-
-				emitInt(fn, OpLoadVar, offset)
-			} else {
-				emitInt(fn, OpLoadVar, sym.Offset)
-			}
+			emitInt(fn, OpLoadVar, resolveVar(scope, fn, ast))
 		}
 	case AstNullLit:
 		{
@@ -655,62 +940,11 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		}
 	case AstArray:
 		{
-			emitInt(fn, OpMakeArray, 0)
-			size := int32(0)
-
-			for head := ast.A; head != nil; head = head.Next {
-				if head.Type == AstSpread {
-					if size > 0 {
-						emitInt(fn, OpMakeArray, size)
-						emit(fn, OpExtendArray)
-						size = 0
-					}
-
-					visitExpression(p, scope, fn, head.A)
-					emit(fn, OpExtendArray)
-					continue
-				}
-
-				visitExpression(p, scope, fn, head)
-				size++
-			}
-
-			if size > 0 {
-				emitInt(fn, OpMakeArray, size)
-				emit(fn, OpExtendArray)
-			}
+			visitArrayLiteral(p, scope, fn, ast)
 		}
 	case AstObject:
 		{
-			emitInt(fn, OpMakeObject, 0)
-			size := int32(0)
-
-			for head := ast.A; head != nil; head = head.Next {
-				if head.Type == AstSpread {
-					if size > 0 {
-						emitInt(fn, OpMakeObject, size)
-						emit(fn, OpExtendObject)
-						size = 0
-					}
-
-					visitExpression(p, scope, fn, head.A)
-					emit(fn, OpExtendObject)
-					continue
-				}
-
-				if head.A.Type == AstIdentifier || head.A.Type == AstStrLit {
-					emitString(fn, objectKey(head.A))
-				} else {
-					visitExpression(p, scope, fn, head.A)
-				}
-				visitExpression(p, scope, fn, head.B)
-				size++
-			}
-
-			if size > 0 {
-				emitInt(fn, OpMakeObject, size)
-				emit(fn, OpExtendObject)
-			}
+			visitObjectLiteral(p, scope, fn, ast)
 		}
 	case AstClassExpression:
 		{
@@ -724,56 +958,7 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		}
 	case AstSwitchExpr:
 		{
-			visitExpression(p, scope, fn, ast.A)
-
-			caseHead := ast.B
-			jumpEnds := []int32{}
-			defaults := []*Ast{}
-
-			for head := caseHead; head != nil; head = head.Next {
-				if head.Type != AstKeyValue {
-					// Default
-					defaults = append(defaults, head)
-					continue
-				}
-
-				conditionHead := head.A
-				conditionExpr := head.B
-
-				jumpExpr := []int32{}
-				for condition := conditionHead; condition != nil; condition = condition.Next {
-					visitExpression(p, scope, fn, condition)
-					emit(fn, OpCaseEqual)
-					jumptToValue := emitJump(fn, OpPopJmpIfTrue)
-					jumpExpr = append(jumpExpr, jumptToValue)
-				}
-
-				// If none of the conditions matched, pop the top of the stack
-				toNextCase := emitJump(fn, OpJmp)
-
-				// Label the Jump to value
-				for _, jump := range jumpExpr {
-					labelJump(fn, jump)
-				}
-
-				// Jump to value immediately without evaluating other
-				emit(fn, OpPopTop)
-				visitExpression(p, scope, fn, conditionExpr)
-
-				jumpEnds = append(jumpEnds, emitJump(fn, OpJmp))
-
-				labelJump(fn, toNextCase)
-			}
-
-			// Handle default cases
-			for _, def := range defaults {
-				emit(fn, OpPopTop)
-				visitExpression(p, scope, fn, def)
-			}
-
-			for _, jump := range jumpEnds {
-				labelJump(fn, jump)
-			}
+			visitSwitchExpr(p, scope, fn, ast)
 		}
 	case AstMemberAccess:
 		{
@@ -838,7 +1023,6 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 			emit(fn, OpInc)
 			emit(fn, OpDupTop)
 			assign2(p, scope, fn, ast.A)
-
 		}
 	case AstDec:
 		{
@@ -883,11 +1067,28 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 		}
 	case AstAssign:
 		{
-			assign1(p, scope, fn, ast.A)
-			emit(fn, OpPopTop)
-			visitExpression(p, scope, fn, ast.B)
-			emit(fn, OpDupTop)
-			assign2(p, scope, fn, ast.A)
+			if ast.A.Type == AstIdentifier {
+				// Plain `x = expr`: no need to load the old value, pop it and
+				// rotate. Only the capture registration of resolveVar is needed.
+				// (Rot2 on [v, v] was a no-op for identifiers.)
+				resolveVar(scope, fn, ast.A)
+				visitExpression(p, scope, fn, ast.B)
+				emit(fn, OpDupTop)
+				symb, exists := scope.GetVariable(ast.A.Value)
+				if !exists {
+					ThrowError(fn.File, "variable not defined", ast.A.Pos)
+				}
+				if symb.Const {
+					ThrowError(fn.File, "cannot assign to constant variable", ast.A.Pos)
+				}
+				emitInt(fn, OpStoreLocal, symb.Offset)
+			} else {
+				assign1(p, scope, fn, ast.A)
+				emit(fn, OpPopTop)
+				visitExpression(p, scope, fn, ast.B)
+				emit(fn, OpDupTop)
+				assign2(p, scope, fn, ast.A)
+			}
 		}
 	case
 		AstMulAssign,
@@ -928,37 +1129,7 @@ func assign1(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	switch ast.Type {
 	case AstIdentifier:
 		{
-			name := ast.Value
-			if !scope.Exists(name) {
-				ThrowError(fn.File, "undefined variable", ast.Pos)
-			}
-
-			isLocalSymb := scope.ExistsFunction(name)
-			sym, exists := scope.GetVariable(name)
-
-			if exists && !isLocalSymb {
-				// Capture
-				offset := scope.GetVarCount()
-
-				scope.AddLocal(name, Symbol{
-					Name:    name,
-					Offset:  offset,
-					Const:   sym.Const,
-					Capture: true,
-					Pos:     ast.Pos,
-				})
-
-				fn.CaptureMeta = append(fn.CaptureMeta, CaptureMeta{
-					Name: name,
-					Cell: nil,
-					Src:  sym.Offset,
-					Dst:  offset,
-				})
-
-				emitInt(fn, OpLoadVar, offset)
-			} else {
-				emitInt(fn, OpLoadVar, sym.Offset)
-			}
+			emitInt(fn, OpLoadVar, resolveVar(scope, fn, ast))
 		}
 	case AstMemberAccess:
 		{
@@ -975,7 +1146,9 @@ func assign1(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 			emit(fn, OpGetIndex)
 		}
 	default:
-		ThrowError(fn.File, "invalid left-hand operand", ast.Pos)
+		{
+			ThrowError(fn.File, "invalid left-hand operand", ast.Pos)
+		}
 	}
 }
 
@@ -1005,7 +1178,9 @@ func assign2(p *Parser, scope *Scope, fn *Function, lhs *Ast) {
 			emit(fn, OpSetIndex)
 		}
 	default:
-		ThrowError(fn.File, "invalid left-hand operand", lhs.Pos)
+		{
+			ThrowError(fn.File, "invalid left-hand operand", lhs.Pos)
+		}
 	}
 }
 
@@ -1014,9 +1189,13 @@ func checkDeclKind(fn *Function, scope *Scope, ast *Ast) {
 	isGlobal := scope.Type == ScopeTypeGlobal
 	switch {
 	case ast.Type == AstVar && !isGlobal:
-		ThrowError(fn.File, "var declarations are not allowed in non-global scope", ast.Pos)
+		{
+			ThrowError(fn.File, "var declarations are not allowed in non-global scope", ast.Pos)
+		}
 	case ast.Type == AstLet && isGlobal:
-		ThrowError(fn.File, "let declarations are not allowed in global scope", ast.Pos)
+		{
+			ThrowError(fn.File, "let declarations are not allowed in global scope", ast.Pos)
+		}
 	}
 }
 
@@ -1145,12 +1324,14 @@ func visitClassExpression(p *Parser, scope *Scope, fn *Function, ast *Ast, name 
 func emitClassTemplate(p *Parser, scope *Scope, fn *Function, name string, classAst *Ast) int32 {
 	count := int32(0)
 	for member := classAst.B; member != nil; member = member.Next {
-		if objectKey(member.A) == "constructor" || member.B == nil ||
+		// objectKey may run strconv.Unquote, so compute it once per member.
+		key := objectKey(member.A)
+		if key == "constructor" || member.B == nil ||
 			(member.B.Type != AstFunctionExpression && member.B.Type != AstAsyncFunctionExpression) {
 			continue
 		}
-		emitString(fn, objectKey(member.A))
-		methodOffset := compileFunction(p, scope, fn, name+"."+objectKey(member.A),
+		emitString(fn, key)
+		methodOffset := compileFunction(p, scope, fn, name+"."+key,
 			member.B.Type == AstAsyncFunctionExpression, false, true, member.B.A, member.B.B)
 		emitInt(fn, OpLoadFunction, methodOffset)
 		count++
@@ -1217,12 +1398,13 @@ func compileClassConstructor(p *Parser, scope *Scope, parentFn *Function, name s
 	emitInt(function, OpLoadVar, thisOffset)
 	methodCount := int32(0)
 	for member := classAst.B; member != nil; member = member.Next {
-		if objectKey(member.A) == "constructor" {
+		key := objectKey(member.A) // once per member, not three times
+		if key == "constructor" {
 			continue
 		}
-		emitString(function, objectKey(member.A))
+		emitString(function, key)
 		if member.B != nil && (member.B.Type == AstFunctionExpression || member.B.Type == AstAsyncFunctionExpression) {
-			methodOffset := compileFunction(p, localScope, function, name+"."+objectKey(member.A),
+			methodOffset := compileFunction(p, localScope, function, name+"."+key,
 				member.B.Type == AstAsyncFunctionExpression, false, false, member.B.A, member.B.B)
 			emitInt(function, OpLoadFunction, methodOffset)
 		} else if member.B != nil {
@@ -1390,37 +1572,67 @@ func visitDeclarationOrStatement(p *Parser, scope *Scope, fn *Function, ast *Ast
 	emitLine(fn, ast.Pos)
 	switch ast.Type {
 	case AstClass:
-		visitClassDeclaration(p, scope, fn, ast)
+		{
+			visitClassDeclaration(p, scope, fn, ast)
+		}
 	case AstFunction:
-		visitFunctionDeclaration(p, scope, fn, ast)
+		{
+			visitFunctionDeclaration(p, scope, fn, ast)
+		}
 	case AstVar, AstLet, AstConst:
-		visitVarDeclaration(p, scope, fn, ast)
+		{
+			visitVarDeclaration(p, scope, fn, ast)
+		}
 	case AstDestructuringArrayVar, AstDestructuringArrayLet, AstDestructuringArrayConst:
-		visitVarArrayDestructDeclaration(p, scope, fn, ast)
+		{
+			visitVarArrayDestructDeclaration(p, scope, fn, ast)
+		}
 	case AstDestructuringObjectVar, AstDestructuringObjectLet, AstDestructuringObjectConst:
-		visitVarObjectDestructDeclaration(p, scope, fn, ast)
+		{
+			visitVarObjectDestructDeclaration(p, scope, fn, ast)
+		}
 	case AstIfStmt:
-		visitIfStatement(p, scope, fn, ast)
+		{
+			visitIfStatement(p, scope, fn, ast)
+		}
 	case AstWhileLoop:
-		visitWhileStatement(p, scope, fn, ast)
+		{
+			visitWhileStatement(p, scope, fn, ast)
+		}
 	case AstBlock:
-		visitBlock(p, scope, fn, ast)
+		{
+			visitBlock(p, scope, fn, ast)
+		}
 	case AstLogStmt:
-		visitExpression(p, scope, fn, ast.A)
-		emit(fn, OpStdWrite)
+		{
+			visitExpression(p, scope, fn, ast.A)
+			emit(fn, OpStdWrite)
+		}
 	case AstExpressionStmnt:
-		visitExpression(p, scope, fn, ast.A)
-		emit(fn, OpPopTop)
+		{
+			visitExpression(p, scope, fn, ast.A)
+			emit(fn, OpPopTop)
+		}
 	case AstBreakStmt:
-		visitBreak(p, scope, fn, ast)
+		{
+			visitBreak(p, scope, fn, ast)
+		}
 	case AstContinueStmt:
-		visitContinue(p, scope, fn, ast)
+		{
+			visitContinue(p, scope, fn, ast)
+		}
 	case AstReturnStmt:
-		visitReturn(p, scope, fn, ast)
+		{
+			visitReturn(p, scope, fn, ast)
+		}
 	case AstTryCatch:
-		visitTryCatch(p, scope, fn, ast)
+		{
+			visitTryCatch(p, scope, fn, ast)
+		}
 	default:
-		unexpected("visitDeclarationOrStatement", ast.Type)
+		{
+			unexpected("visitDeclarationOrStatement", ast.Type)
+		}
 	}
 }
 
