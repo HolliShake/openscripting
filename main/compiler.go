@@ -1713,10 +1713,14 @@ func visitTryCatch(s *State, scope *Scope, fn *Function, ast *Ast) {
 
 	catchScope := acquireScope(scope)
 	catchScope.Type = ScopeTypeBlock
-	catchScope.VarCount = 1
 
 	catchVarName := ast.B.Value
-	offset := catchScope.GetVarCount()
+	ownerScope := scope
+	for ownerScope.Parent != nil && ownerScope.Type != ScopeTypeFunction && ownerScope.Type != ScopeTypeGlobal && ownerScope.Type != ScopeTypeModule {
+		ownerScope = ownerScope.Parent
+	}
+	offset := ownerScope.VarCount
+	ownerScope.VarCount++
 
 	catchScope.AddLocal(catchVarName, Symbol{
 		Name:   catchVarName,

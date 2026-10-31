@@ -259,3 +259,7 @@ switch (4) {
     }
 }
 
+var lmnop = "asdasd";
+
+
+lmnop + 2;

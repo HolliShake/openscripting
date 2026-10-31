@@ -218,6 +218,13 @@ func readString(vm *VM, bcode []int32, ip, bsize int, strTab []string) (string, 
 //go:noinline
 func raise(vm *VM, co *Coroutine, instruction int, stack []OSValue, sp int, message string) (newIp, newSp int, dead bool) {
 	frame := &co.Frame
+	line := 0
+	for _, sourceLine := range frame.Function.Lines {
+		if sourceLine.Index > instruction {
+			break
+		}
+		line = sourceLine.Line
+	}
 	handlers := frame.Function.TryCatchTable
 	for index := len(handlers) - 1; index >= 0; index-- {
 		handler := handlers[index]
@@ -226,11 +233,7 @@ func raise(vm *VM, co *Coroutine, instruction int, stack []OSValue, sp int, mess
 		}
 
 		if handler.CatchLocal >= 0 && int(handler.CatchLocal) < len(frame.Env) && frame.Env[handler.CatchLocal] != nil {
-			frame.Env[handler.CatchLocal].Value = OSValue{
-				Type:   OSVString,
-				Number: float64(len(message)),
-				Opaque: unsafe.Pointer(unsafe.StringData(message)),
-			}
+			frame.Env[handler.CatchLocal].Value = newErrorValue(message, int64(line+1))
 		}
 		clear(stack[:sp])
 		return handler.CatchStart, 0, false
@@ -238,11 +241,7 @@ func raise(vm *VM, co *Coroutine, instruction int, stack []OSValue, sp int, mess
 
 	if promise := co.AsyncResult; promise != nil {
 		promise.StringRoot = message
-		rejectPromise(vm, promise, OSValue{
-			Type:   OSVString,
-			Number: float64(len(message)),
-			Opaque: unsafe.Pointer(unsafe.StringData(message)),
-		})
+		rejectPromise(vm, promise, newErrorValue(message, int64(line+1)))
 		co.State = CoroutineStateDead
 		asyncCaller := co.AsyncCaller
 		co.Release()
@@ -250,13 +249,6 @@ func raise(vm *VM, co *Coroutine, instruction int, stack []OSValue, sp int, mess
 		return 0, 0, true
 	}
 
-	line := 0
-	for _, sourceLine := range frame.Function.Lines {
-		if sourceLine.Index > instruction {
-			break
-		}
-		line = sourceLine.Line
-	}
 	ThrowError(frame.Function.File, message, Position{Line: int(line), Column: 1})
 	panic(message)
 }
@@ -345,7 +337,11 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 		co.ResumeReady = false
 		co.ResumeReject = false
 		if rejected {
-			nip, nsp, dead := raise(vm, co, currentInstruction, stack, sp, value.StringValue())
+			message := value.StringValue()
+			if errorText, isError := errorMessage(value); isError {
+				message = errorText
+			}
+			nip, nsp, dead := raise(vm, co, currentInstruction, stack, sp, message)
 			if dead {
 				return
 			}
@@ -556,7 +552,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				clear(stack[sp-4 : sp])
 				sp -= 4
 
-				if name.Type != OSVString || constructor.Type != OSVFunction || constructor.Opaque == nil ||
+				if name.Type != OSVString || (constructor.Type != OSVFunction && constructor.Type != OSVNativeFunction) || constructor.Opaque == nil ||
 					templateValue.Type != OSVObject || templateValue.Opaque == nil ||
 					(superValue.Type != OSVNull && (superValue.Type != OSVClass || superValue.Opaque == nil)) {
 					panic("invalid class definition")
@@ -585,8 +581,15 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				// in place: no pop, clear and push.
 				top := stack[sp-1]
 				if top.Type == OSVObject && top.Opaque != nil {
-					if value, exists := (*Object)(top.Opaque).Values[attr]; exists {
+					object := (*Object)(top.Opaque)
+					if value, exists := object.Values[attr]; exists {
 						stack[sp-1] = value
+					} else if object.Class != nil {
+						if value, exists := object.Class.Template[attr]; exists {
+							stack[sp-1] = value
+						} else {
+							stack[sp-1] = vm.Null
+						}
 					} else {
 						stack[sp-1] = vm.Null
 					}
@@ -1064,14 +1067,15 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 						goto throwError
 					}
 					class := (*Class)(fnValue.Opaque)
-					if class.Constructor.Type != OSVFunction || class.Constructor.Opaque == nil {
+					if (class.Constructor.Type != OSVFunction && class.Constructor.Type != OSVNativeFunction) || class.Constructor.Opaque == nil {
 						errMsg = "class has an invalid constructor"
 						goto throwError
 					}
-					constructor := (*Function)(class.Constructor.Opaque)
-					if constructor.ClassConstructor {
+					constructorIsScript := class.Constructor.Type == OSVFunction
+					if constructorIsScript && (*Function)(class.Constructor.Opaque).ClassConstructor {
 						instance := OSValue{Type: OSVObject, Opaque: unsafe.Pointer(&Object{
 							ClassName: class.Name,
+							Class:     class,
 							Values:    make(map[string]OSValue),
 						})}
 						for sp+2 > len(stack) {
@@ -1410,6 +1414,20 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 						Number: float64(len(value)),
 						Opaque: unsafe.Pointer(unsafe.StringData(value)),
 					}
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
+				if message, isError := errorMessage(r); IsString(l) && isError {
+					value := l.StringValue() + message
+					stack[sp-2] = OSValue{Type: OSVString, Number: float64(len(value)), Opaque: unsafe.Pointer(unsafe.StringData(value))}
+					sp--
+					stack[sp] = OSValue{}
+					continue
+				}
+				if message, isError := errorMessage(l); isError && IsString(r) {
+					value := message + r.StringValue()
+					stack[sp-2] = OSValue{Type: OSVString, Number: float64(len(value)), Opaque: unsafe.Pointer(unsafe.StringData(value))}
 					sp--
 					stack[sp] = OSValue{}
 					continue
