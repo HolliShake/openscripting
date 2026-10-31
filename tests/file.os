@@ -1,6 +1,9 @@
 import { println } from "core:io";
 import { isEven:IsEven } from "lib:number";
 
+import "./test.os";
+
+
 var fact::fn(n) {
     if (n <= 1) {
         return 1;
