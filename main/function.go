@@ -7,11 +7,11 @@ type Function struct {
 	Name             string
 	Async            bool
 	ClassConstructor bool
-	ClassThisOffset  int32
-	ClassSuperOffset int32
-	ParamCount       int32
-	LocalCount       int32
-	VarArgIndex      int32 // -1 for non vararg functions
+	ClassThisOffset  int
+	ClassSuperOffset int
+	ParamCount       int
+	LocalCount       int
+	VarArgIndex      int // -1 for non vararg functions
 	Module           *Import
 	Bytecode         []int32
 	TryCatchTable    []TryCatchTable

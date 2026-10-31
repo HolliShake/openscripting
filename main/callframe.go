@@ -3,6 +3,6 @@ package main
 type CallFrame struct {
 	Caller   *CallFrame
 	Function *Function
-	Ip       int32 // Instruction pointer
+	Ip       int // Instruction pointer
 	Env      []*Cell
 }

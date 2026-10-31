@@ -7,8 +7,8 @@ type State struct {
 	Functions   []*Function
 }
 
-func (s *State) SaveFunction(f *Function) int32 {
-	offset := int32(len(s.Functions))
+func (s *State) SaveFunction(f *Function) int {
+	offset := len(s.Functions)
 	s.Functions = append(s.Functions, f)
 	return offset
 }

@@ -8,14 +8,14 @@ const (
 	CoroutineStateDead
 )
 
-type CoroutineState int32
+type CoroutineState int
 
 type Coroutine struct {
 	Parent       *Coroutine
 	Caller       *Coroutine
 	State        CoroutineState
 	Frame        CallFrame
-	Sp           int32
+	Sp           int
 	OperandStack []OSValue
 	Transfer     OSValue
 	AsyncResult  *Promise
@@ -40,7 +40,7 @@ func (co *Coroutine) Release() {
 	co.ResumeReject = false
 	co.Frame = CallFrame{}
 }
-func NewCoroutine(parent *Coroutine, fn *Function, stackSize int32) *Coroutine {
+func NewCoroutine(parent *Coroutine, fn *Function, stackSize int) *Coroutine {
 	if stackSize <= 0 {
 		stackSize = minOperandStack
 	}
@@ -69,7 +69,7 @@ func NewCoroutine(parent *Coroutine, fn *Function, stackSize int32) *Coroutine {
 
 // InitialStack sizes a new operand stack from the argument count; it grows on
 // demand up to StackSize (see growStack).
-func InitialStack(argCount int32) int32 {
+func InitialStack(argCount int) int {
 	size := argCount + minOperandStack
 	if size > StackSize && argCount < StackSize {
 		size = StackSize
@@ -93,7 +93,7 @@ func SnapshotLexicalChain(parent *Coroutine) *Coroutine {
 
 // growStack doubles co's operand stack (bounded by StackSize) and returns it.
 func growStack(co *Coroutine) []OSValue {
-	current := int32(len(co.OperandStack))
+	current := len(co.OperandStack)
 	if current >= StackSize {
 		panic("operand stack overflow")
 	}

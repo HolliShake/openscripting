@@ -10,7 +10,7 @@ import (
 	"unsafe"
 )
 
-var StackSize int32 = 1024
+var StackSize int = 1024
 
 const (
 	msgUnderflow   = "operand stack underflow"
@@ -75,7 +75,7 @@ func (vm *VM) strTable(bcode []int32) []string {
 func valueString(v OSValue) string { return v.String() }
 
 //go:noinline
-func argcMessage(expected, got int32) string {
+func argcMessage(expected, got int) string {
 	return fmt.Sprintf("function expects %d arguments, got %d", expected, got)
 }
 
@@ -90,11 +90,11 @@ func writeLog(s string) {
 }
 
 // operand reads the operand word at ip (the caller advances ip).
-func operand(bcode []int32, ip, bsize int32) int32 {
+func operand(bcode []int32, ip, bsize int) int {
 	if ip >= bsize {
 		panic("unexpected end of bytecode")
 	}
-	return bcode[ip]
+	return int(bcode[ip])
 }
 
 // decodeRunes turns a rune-per-word literal into a string with exactly one
@@ -139,13 +139,13 @@ func decodeRunes(runes []int32) string {
 // readString reads the string literal whose length word is at ip. It returns
 // the string, the (possibly newly looked up) literal table and the ip after
 // the literal.
-func readString(vm *VM, bcode []int32, ip, bsize int32, strTab []string) (string, []string, int32) {
+func readString(vm *VM, bcode []int32, ip, bsize int, strTab []string) (string, []string, int) {
 	if ip >= bsize {
 		panic("unexpected end of bytecode")
 	}
 
 	at := ip
-	size := bcode[ip]
+	size := int(bcode[ip])
 	ip++
 
 	if size < 0 || ip+size > bsize {
@@ -172,7 +172,7 @@ func readString(vm *VM, bcode []int32, ip, bsize int32, strTab []string) (string
 // error it panics through ThrowError.
 //
 //go:noinline
-func raise(vm *VM, co *Coroutine, instruction int32, stack []OSValue, sp int32, message string) (newIp, newSp int32, dead bool) {
+func raise(vm *VM, co *Coroutine, instruction int, stack []OSValue, sp int, message string) (newIp, newSp int, dead bool) {
 	frame := &co.Frame
 	handlers := frame.Function.TryCatchTable
 	for index := len(handlers) - 1; index >= 0; index-- {
@@ -206,7 +206,7 @@ func raise(vm *VM, co *Coroutine, instruction int32, stack []OSValue, sp int32, 
 		return 0, 0, true
 	}
 
-	line := int32(0)
+	line := 0
 	for _, sourceLine := range frame.Function.Lines {
 		if sourceLine.Index > instruction {
 			break
@@ -276,7 +276,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 	ip := frame.Ip
 	sp := co.Sp
 	stack := co.OperandStack
-	bsize := int32(len(bcode))
+	bsize := len(bcode)
 	currentInstruction := ip
 
 	// Literal table for the current bytecode; looked up lazily on the first
@@ -299,7 +299,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 			ip, sp = nip, nsp
 		} else {
-			if sp >= int32(len(stack)) {
+			if sp >= len(stack) {
 				stack = growStack(co)
 			}
 			stack[sp] = value
@@ -319,7 +319,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				b := bcode[ip+1]
 				ip += 2
 
-				if sp >= int32(len(stack)) {
+				if sp >= len(stack) {
 					stack = growStack(co)
 				}
 				stack[sp] = OSValue{
@@ -333,7 +333,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				var value string
 				value, strTab, ip = readString(vm, bcode, ip, bsize, strTab)
 
-				if sp >= int32(len(stack)) {
+				if sp >= len(stack) {
 					stack = growStack(co)
 				}
 				stack[sp] = OSValue{
@@ -345,7 +345,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpLoadTrue:
 			{
-				if sp >= int32(len(stack)) {
+				if sp >= len(stack) {
 					stack = growStack(co)
 				}
 				stack[sp] = vm.True
@@ -353,7 +353,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpLoadFalse:
 			{
-				if sp >= int32(len(stack)) {
+				if sp >= len(stack) {
 					stack = growStack(co)
 				}
 				stack[sp] = vm.False
@@ -361,7 +361,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpLoadNull:
 			{
-				if sp >= int32(len(stack)) {
+				if sp >= len(stack) {
 					stack = growStack(co)
 				}
 				stack[sp] = vm.Null
@@ -407,7 +407,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				clear(stack[sp-size : sp])
 				sp -= size
 
-				if sp >= int32(len(stack)) {
+				if sp >= len(stack) {
 					stack = growStack(co)
 				}
 				stack[sp] = OSValue{
@@ -458,7 +458,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				obj := &Object{Values: make(map[string]OSValue, size)}
 				// Reserve key capacity once instead of growing per Set.
 				obj.Keys = slices.Grow(obj.Keys, int(size))
-				for i := int32(0); i < size; i++ {
+				for i := 0; i < size; i++ {
 					key := stack[base+2*i]
 					if key.Type != OSVString {
 						panic("object keys must be strings")
@@ -468,7 +468,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				clear(stack[base:sp])
 				sp = base
 
-				if sp >= int32(len(stack)) {
+				if sp >= len(stack) {
 					stack = growStack(co)
 				}
 				stack[sp] = OSValue{
@@ -595,8 +595,8 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				// Fast path: array[number].
 				if obj.Type == OSVArray && obj.Opaque != nil && idx.Type == OSVNum {
 					arr := (*Array)(obj.Opaque)
-					i := int32(CoerceToNumber(idx))
-					if i >= 0 && i < int32(len(arr.Elements)) {
+					i := int(CoerceToNumber(idx))
+					if i >= 0 && i < len(arr.Elements) {
 						stack[sp-1] = OSValue{}
 						sp--
 						stack[sp-1] = arr.Elements[i]
@@ -656,8 +656,8 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					goto throwError
 				}
 
-				i := int32(CoerceToNumber(idx))
-				if i < 0 || i >= int32(len(arr.Elements)) {
+				i := int(CoerceToNumber(idx))
+				if i < 0 || i >= len(arr.Elements) {
 					errMsg = msgIndexBounds
 					goto throwError
 				}
@@ -730,7 +730,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					}
 				}
 
-				if sp >= int32(len(stack)) {
+				if sp >= len(stack) {
 					stack = growStack(co)
 				}
 				stack[sp] = OSValue{
@@ -757,7 +757,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				if !exists {
 					panic("unknown builtin export: " + exportName)
 				}
-				if sp >= int32(len(stack)) {
+				if sp >= len(stack) {
 					stack = growStack(co)
 				}
 				stack[sp] = value
@@ -765,15 +765,15 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpLoadVar:
 			{
-				varIndex := bcode[ip]
+				varIndex := int(bcode[ip])
 				ip++
 
 				env := frame.Env
-				if uint32(varIndex) >= uint32(len(env)) || env[varIndex] == nil {
-					panic("invalid local variable index: " + strconv.Itoa(int(varIndex)) + " of " + strconv.Itoa(len(env)))
+				if varIndex < 0 || varIndex >= len(env) || env[varIndex] == nil {
+					panic("invalid local variable index: " + strconv.Itoa(varIndex) + " of " + strconv.Itoa(len(env)))
 				}
 
-				if sp >= int32(len(stack)) {
+				if sp >= len(stack) {
 					stack = growStack(co)
 				}
 				stack[sp] = env[varIndex].Value
@@ -820,7 +820,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				// [..., v] -> [..., v+1, v]
 				updated := old
 				updated.Number++
-				if sp >= int32(len(stack)) {
+				if sp >= len(stack) {
 					stack = growStack(co)
 				}
 				stack[sp-1] = updated
@@ -842,7 +842,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				// [..., v] -> [..., v-1, v]
 				updated := old
 				updated.Number--
-				if sp >= int32(len(stack)) {
+				if sp >= len(stack) {
 					stack = growStack(co)
 				}
 				stack[sp-1] = updated
@@ -854,8 +854,8 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				argCount := operand(bcode, ip, bsize)
 				ip++
 
-				if !frame.Function.ClassConstructor || int(frame.Function.ClassSuperOffset) >= len(frame.Env) ||
-					int(frame.Function.ClassThisOffset) >= len(frame.Env) {
+				if !frame.Function.ClassConstructor || frame.Function.ClassSuperOffset >= len(frame.Env) ||
+					frame.Function.ClassThisOffset >= len(frame.Env) {
 					errMsg = "super constructor call outside a class constructor"
 					goto throwError
 				}
@@ -876,7 +876,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					goto throwError
 				}
 
-				for sp+3 > int32(len(stack)) {
+				for sp+3 > len(stack) {
 					stack = growStack(co)
 				}
 				argStart := sp - argCount
@@ -917,7 +917,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 							ClassName: class.Name,
 							Values:    make(map[string]OSValue),
 						})}
-						for sp+2 > int32(len(stack)) {
+						for sp+2 > len(stack) {
 							stack = growStack(co)
 						}
 						argStart := sp - argCount
@@ -951,7 +951,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 						result := nativeMethod.Callable(nativeMethod.This, vm, stack[argStart:sp])
 						clear(stack[argStart:sp])
 						sp = argStart
-						if sp >= int32(len(stack)) {
+						if sp >= len(stack) {
 							stack = growStack(co)
 						}
 						stack[sp] = result
@@ -982,7 +982,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 						result := native.Callable(vm, stack[argStart:sp])
 						clear(stack[argStart:sp])
 						sp = argStart
-						if sp >= int32(len(stack)) {
+						if sp >= len(stack) {
 							stack = growStack(co)
 						}
 						stack[sp] = result
@@ -1010,7 +1010,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 								errMsg = "invalid module initializer argument count"
 								goto throwError
 							}
-							if sp >= int32(len(stack)) {
+							if sp >= len(stack) {
 								stack = growStack(co)
 							}
 							stack[sp] = module.Value
@@ -1035,7 +1035,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 						if callee == nil {
 							panic("failed to create coroutine")
 						}
-						if int32(len(callee.OperandStack)) < argCount {
+						if len(callee.OperandStack) < argCount {
 							panic("callee operand stack is too small for arguments")
 						}
 
@@ -1066,7 +1066,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 							callee.Caller = nil
 							callee.AsyncCaller = caller
 							callee.AsyncResult = promise
-							if sp >= int32(len(stack)) {
+							if sp >= len(stack) {
 								stack = growStack(co)
 							}
 							stack[sp] = OSValue{Type: OSVPromise, Opaque: unsafe.Pointer(promise)}
@@ -1081,7 +1081,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 						co = callee
 						frame = &callee.Frame
 						bcode = frame.Function.Bytecode
-						bsize = int32(len(bcode))
+						bsize = len(bcode)
 						ip = frame.Ip
 						sp = callee.Sp
 						stack = callee.OperandStack
@@ -1411,7 +1411,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 
 				// Make room once instead of checking per element.
-				for sp+int32(size) > int32(len(stack)) {
+				for sp+size > len(stack) {
 					stack = growStack(co)
 				}
 				for i := size - 1; i >= 0; i-- {
@@ -1421,12 +1421,12 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpStoreLocal:
 			{
-				localIndex := bcode[ip]
+				localIndex := int(bcode[ip])
 				ip++
 
 				env := frame.Env
-				if uint32(localIndex) >= uint32(len(env)) || env[localIndex] == nil {
-					panic("invalid local variable index: " + strconv.Itoa(int(localIndex)) + " (frame.Env length: " + strconv.Itoa(len(env)) + ")")
+				if localIndex < 0 || localIndex >= len(env) || env[localIndex] == nil {
+					panic("invalid local variable index: " + strconv.Itoa(localIndex) + " (frame.Env length: " + strconv.Itoa(len(env)) + ")")
 				}
 
 				if sp <= 0 {
@@ -1459,11 +1459,11 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpJmp, OpAbsJmp:
 			{
-				ip = bcode[ip]
+				ip = int(bcode[ip])
 			}
 		case OpPopJmpIfFalse:
 			{
-				offset := bcode[ip]
+				offset := int(bcode[ip])
 				ip++
 
 				if sp <= 0 {
@@ -1479,7 +1479,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpPopJmpIfTrue:
 			{
-				offset := bcode[ip]
+				offset := int(bcode[ip])
 				ip++
 
 				if sp <= 0 {
@@ -1495,7 +1495,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpJmpIfFalseOrPop:
 			{
-				offset := bcode[ip]
+				offset := int(bcode[ip])
 				ip++
 
 				if sp <= 0 {
@@ -1511,7 +1511,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpJmpIfTrueOrPop:
 			{
-				offset := bcode[ip]
+				offset := int(bcode[ip])
 				ip++
 
 				if sp <= 0 {
@@ -1530,7 +1530,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				if sp <= 0 {
 					panic(msgUnderflow)
 				}
-				if sp >= int32(len(stack)) {
+				if sp >= len(stack) {
 					stack = growStack(co)
 				}
 				stack[sp] = stack[sp-1]
@@ -1539,7 +1539,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 		case OpDup2:
 			{
 				// [..., a, b] -> [..., a, b, a, b]
-				for sp+2 > int32(len(stack)) {
+				for sp+2 > len(stack) {
 					stack = growStack(co)
 				}
 				stack[sp] = stack[sp-2]
@@ -1595,7 +1595,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					returnValue = vm.Null
 				}
 				if sp != 0 {
-					panic("stack not empty on return (stack pointer: " + strconv.Itoa(int(sp)) + ")")
+					panic("stack not empty on return (stack pointer: " + strconv.Itoa(sp) + ")")
 				}
 
 				if module := frame.Function.Module; module != nil {
@@ -1634,7 +1634,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				if caller.Sp < 0 {
 					panic("invalid caller stack pointer on return")
 				}
-				if caller.Sp >= int32(len(caller.OperandStack)) {
+				if caller.Sp >= len(caller.OperandStack) {
 					growStack(caller)
 				}
 
@@ -1655,7 +1655,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				co = caller
 				frame = &caller.Frame
 				bcode = frame.Function.Bytecode
-				bsize = int32(len(bcode))
+				bsize = len(bcode)
 				ip = frame.Ip
 				sp = caller.Sp
 				stack = caller.OperandStack
@@ -1663,7 +1663,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		default:
 			{
-				panic("unknown opcode " + strconv.Itoa(int(op)) + " at offset " + strconv.Itoa(int(ip-1)))
+				panic("unknown opcode " + strconv.Itoa(int(op)) + " at offset " + strconv.Itoa(ip-1))
 			}
 		}
 		continue
@@ -1706,7 +1706,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 		vm.Current = nil
 		return
 	}
-	if parent.Sp >= int32(len(parent.OperandStack)) {
+	if parent.Sp >= len(parent.OperandStack) {
 		growStack(parent)
 	}
 	parent.OperandStack[parent.Sp] = returnValue

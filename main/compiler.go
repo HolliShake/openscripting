@@ -197,8 +197,8 @@ func unexpected(where string, t AstType) {
 }
 
 func emitLine(fn *Function, line Position) {
-	idx := int32(len(fn.Bytecode))
-	ln := int32(line.Line)
+	idx := len(fn.Bytecode)
+	ln := line.Line
 	if n := len(fn.Lines); n > 0 {
 		last := &fn.Lines[n-1]
 		if last.Index == idx { // previous node emitted no code
@@ -212,12 +212,12 @@ func emitLine(fn *Function, line Position) {
 	fn.Lines = append(fn.Lines, Line{Index: idx, Line: ln})
 }
 
-func emitJump(fn *Function, op int32) int32 {
+func emitJump(fn *Function, op int32) int {
 	fn.Bytecode = append(fn.Bytecode, op, 0) // opcode + reserved offset
-	return int32(len(fn.Bytecode)) - 1
+	return len(fn.Bytecode) - 1
 }
 
-func labelJump(fn *Function, pos int32) {
+func labelJump(fn *Function, pos int) {
 	fn.Bytecode[pos] = int32(len(fn.Bytecode))
 }
 
@@ -225,8 +225,8 @@ func emit(fn *Function, op int32) {
 	fn.Bytecode = append(fn.Bytecode, op)
 }
 
-func emitInt(fn *Function, op int32, value int32) {
-	fn.Bytecode = append(fn.Bytecode, op, value)
+func emitInt(fn *Function, op int32, value int) {
+	fn.Bytecode = append(fn.Bytecode, op, int32(value))
 }
 
 func emitFloat(fn *Function, value float64) {
@@ -643,7 +643,7 @@ func tryFold(fn *Function, ast *Ast) constVal {
 // capture if it lives in an enclosing function, and returns the local offset
 // to use in this function together with the variable's constness. It emits no
 // code. Returning the constness lets callers skip a second scope-chain walk.
-func resolveVar(scope *Scope, fn *Function, ast *Ast) (offset int32, isConst bool) {
+func resolveVar(scope *Scope, fn *Function, ast *Ast) (offset int, isConst bool) {
 	name := ast.Value
 	if !scope.Exists(name) {
 		ThrowError(fn.File, "undefined variable", ast.Pos)
@@ -680,14 +680,14 @@ func resolveVar(scope *Scope, fn *Function, ast *Ast) (offset int32, isConst boo
 // compileFunction compiles a function (declaration or expression) into a new
 // Function saved in the parser state and returns its offset. Shared by both
 // visitors, which used to carry identical copies of this code.
-func compileFunction(s *State, scope *Scope, fn *Function, name string, async bool, implicitThis, staticThis bool, parmNode, bodyNode *Ast) int32 {
+func compileFunction(s *State, scope *Scope, fn *Function, name string, async bool, implicitThis, staticThis bool, parmNode, bodyNode *Ast) int {
 	buf := acquireCodeBuf()
 	function := newFunction(fn.File, name, buf)
 	funcOffset := s.SaveFunction(function)
 
 	localScope := acquireScope(scope)
 	localScope.Type = ScopeTypeFunction
-	staticThisOffset := int32(-1)
+	staticThisOffset := -1
 	if staticThis {
 		if localScope.ExistsLocal(KeyThis) {
 			ThrowError(fn.File, "this is reserved in class methods", parmNode.Pos)
@@ -697,7 +697,7 @@ func compileFunction(s *State, scope *Scope, fn *Function, name string, async bo
 	}
 
 	// Stays on the stack for up to 8 parameters; only larger lists spill.
-	var paramBuf [8]int32
+	var paramBuf [8]int
 	reverse := paramBuf[:0]
 	if implicitThis {
 		if localScope.ExistsLocal(KeyThis) {
@@ -734,8 +734,8 @@ func compileFunction(s *State, scope *Scope, fn *Function, name string, async bo
 	}
 
 	function.Async = async
-	function.VarArgIndex = int32(vaIndex)
-	function.ParamCount = int32(len(reverse))
+	function.VarArgIndex = vaIndex
+	function.ParamCount = len(reverse)
 
 	for i := len(reverse) - 1; i >= 0; i-- {
 		emitInt(function, OpStoreLocal, reverse[i])
@@ -768,7 +768,7 @@ func compileFunction(s *State, scope *Scope, fn *Function, name string, async bo
 // inflate the stack frame of the deeply recursive visitExpression.
 
 func visitArrayLiteral(s *State, scope *Scope, fn *Function, ast *Ast) {
-	count, hasSpread := int32(0), false
+	count, hasSpread := 0, false
 	for head := ast.A; head != nil; head = head.Next {
 		if head.Type == AstSpread {
 			hasSpread = true
@@ -788,7 +788,7 @@ func visitArrayLiteral(s *State, scope *Scope, fn *Function, ast *Ast) {
 	}
 
 	emitInt(fn, OpMakeArray, 0)
-	size := int32(0)
+	size := 0
 
 	for head := ast.A; head != nil; head = head.Next {
 		if head.Type == AstSpread {
@@ -822,7 +822,7 @@ func emitObjectKey(s *State, scope *Scope, fn *Function, key *Ast) {
 }
 
 func visitObjectLiteral(s *State, scope *Scope, fn *Function, ast *Ast) {
-	count, hasSpread := int32(0), false
+	count, hasSpread := 0, false
 	for head := ast.A; head != nil; head = head.Next {
 		if head.Type == AstSpread {
 			hasSpread = true
@@ -842,7 +842,7 @@ func visitObjectLiteral(s *State, scope *Scope, fn *Function, ast *Ast) {
 	}
 
 	emitInt(fn, OpMakeObject, 0)
-	size := int32(0)
+	size := 0
 
 	for head := ast.A; head != nil; head = head.Next {
 		if head.Type == AstSpread {
@@ -872,9 +872,9 @@ func visitSwitchExpr(s *State, scope *Scope, fn *Function, ast *Ast) {
 	visitExpression(s, scope, fn, ast.A)
 
 	// Stack buffers: typical switches fit without touching the heap.
-	var endBuf [8]int32
+	var endBuf [8]int
 	var defBuf [2]*Ast
-	var exprBuf [8]int32
+	var exprBuf [8]int
 	jumpEnds := endBuf[:0]
 	defaults := defBuf[:0]
 
@@ -978,7 +978,7 @@ func visitExpression(s *State, scope *Scope, fn *Function, ast *Ast) {
 		}
 	case AstCall:
 		{
-			argCount := int32(0)
+			argCount := 0
 
 			for arg := ast.B; arg != nil; arg = arg.Next {
 				visitExpression(s, scope, fn, arg)
@@ -1060,7 +1060,7 @@ func visitExpression(s *State, scope *Scope, fn *Function, ast *Ast) {
 	case AstAnd, AstOr:
 		{
 			visitExpression(s, scope, fn, ast.A)
-			var jumpPos int32
+			var jumpPos int
 			if ast.Type == AstAnd {
 				jumpPos = emitJump(fn, OpJmpIfFalseOrPop)
 			} else {
@@ -1241,7 +1241,7 @@ func visitVarArrayDestructDeclaration(s *State, scope *Scope, fn *Function, ast 
 
 	visitExpression(s, scope, fn, ast.B)
 
-	size := int32(0)
+	size := 0
 	for head := ast.A; head != nil; head = head.Next {
 		size++
 	}
@@ -1321,8 +1321,8 @@ func visitClassExpression(s *State, scope *Scope, fn *Function, ast *Ast, name s
 	emit(fn, OpMakeClass)
 }
 
-func emitClassTemplate(s *State, scope *Scope, fn *Function, name string, classAst *Ast) int32 {
-	count := int32(0)
+func emitClassTemplate(s *State, scope *Scope, fn *Function, name string, classAst *Ast) int {
+	count := 0
 	for member := classAst.B; member != nil; member = member.Next {
 		// objectKey may run strconv.Unquote, so compute it once per member.
 		key := objectKey(member.A)
@@ -1339,7 +1339,7 @@ func emitClassTemplate(s *State, scope *Scope, fn *Function, name string, classA
 	return count
 }
 
-func compileClassConstructor(s *State, scope *Scope, parentFn *Function, name string, classAst *Ast) int32 {
+func compileClassConstructor(s *State, scope *Scope, parentFn *Function, name string, classAst *Ast) int {
 	var constructor *Ast
 	for member := classAst.B; member != nil; member = member.Next {
 		if objectKey(member.A) == "constructor" {
@@ -1359,13 +1359,13 @@ func compileClassConstructor(s *State, scope *Scope, parentFn *Function, name st
 	localScope.AddLocal("$classThis", Symbol{Name: "$classThis", Offset: 0})
 	localScope.AddLocal("$classSuper", Symbol{Name: "$classSuper", Offset: 1})
 
-	var paramBuf [8]int32
+	var paramBuf [8]int
 	parameters := paramBuf[:0]
 	if constructor != nil {
 		for parameter := constructor.A; parameter != nil; parameter = parameter.Next {
 			if parameter.Type == AstSpread {
 				parameter = parameter.A
-				function.VarArgIndex = int32(len(parameters)) + 2
+				function.VarArgIndex = len(parameters) + 2
 			}
 			if localScope.ExistsLocal(parameter.Value) {
 				ThrowError(parentFn.File, "variable is already defined in scope", parameter.Pos)
@@ -1375,7 +1375,7 @@ func compileClassConstructor(s *State, scope *Scope, parentFn *Function, name st
 			parameters = append(parameters, offset)
 		}
 	}
-	function.ParamCount = int32(len(parameters)) + 2
+	function.ParamCount = len(parameters) + 2
 	for index := len(parameters) - 1; index >= 0; index-- {
 		emitInt(function, OpStoreLocal, parameters[index])
 	}
@@ -1396,7 +1396,7 @@ func compileClassConstructor(s *State, scope *Scope, parentFn *Function, name st
 		}
 	}
 	emitInt(function, OpLoadVar, thisOffset)
-	methodCount := int32(0)
+	methodCount := 0
 	for member := classAst.B; member != nil; member = member.Next {
 		key := objectKey(member.A) // once per member, not three times
 		if key == "constructor" {
@@ -1463,7 +1463,7 @@ func visitForStatement(s *State, scope *Scope, fn *Function, ast *Ast) {
 	muttNode := ast.C
 	bodyNode := ast.D
 
-	loopStart := int32(len(fn.Bytecode))
+	loopStart := len(fn.Bytecode)
 
 	loopScope := acquireScope(scope)
 	loopScope.Type = ScopeTypeLoop
@@ -1473,8 +1473,8 @@ func visitForStatement(s *State, scope *Scope, fn *Function, ast *Ast) {
 		visitDeclarationOrStatement(s, loopScope, fn, initNode)
 	}
 
-	condPos := int32(len(fn.Bytecode))
-	var jmpIfFalsePos int32
+	condPos := len(fn.Bytecode)
+	var jmpIfFalsePos int
 	if condNode != nil {
 		visitExpression(s, loopScope, fn, condNode)
 		jmpIfFalsePos = emitJump(fn, OpPopJmpIfFalse)
@@ -1503,7 +1503,7 @@ func visitWhileStatement(s *State, scope *Scope, fn *Function, ast *Ast) {
 	condNode := ast.A
 	bodyNode := ast.B
 
-	loopStart := int32(len(fn.Bytecode))
+	loopStart := len(fn.Bytecode)
 
 	loopScope := acquireScope(scope)
 	loopScope.Type = ScopeTypeLoop
@@ -1573,7 +1573,7 @@ func visitTryCatch(s *State, scope *Scope, fn *Function, ast *Ast) {
 	// Index (not pointer) into the table: nested try/catch may grow the slice.
 	tableIndex := len(fn.TryCatchTable)
 	fn.TryCatchTable = append(fn.TryCatchTable, TryCatchTable{CatchLocal: -1})
-	fn.TryCatchTable[tableIndex].TryStart = int32(len(fn.Bytecode))
+	fn.TryCatchTable[tableIndex].TryStart = len(fn.Bytecode)
 
 	tryScope := acquireScope(scope)
 	tryScope.Type = ScopeTypeBlock
@@ -1582,9 +1582,9 @@ func visitTryCatch(s *State, scope *Scope, fn *Function, ast *Ast) {
 	}
 	releaseScope(tryScope)
 
-	fn.TryCatchTable[tableIndex].TryEnd = int32(len(fn.Bytecode))
+	fn.TryCatchTable[tableIndex].TryEnd = len(fn.Bytecode)
 	endJump := emitJump(fn, OpJmp)
-	fn.TryCatchTable[tableIndex].CatchStart = int32(len(fn.Bytecode))
+	fn.TryCatchTable[tableIndex].CatchStart = len(fn.Bytecode)
 
 	catchScope := acquireScope(scope)
 	catchScope.Type = ScopeTypeBlock
@@ -1606,7 +1606,7 @@ func visitTryCatch(s *State, scope *Scope, fn *Function, ast *Ast) {
 	}
 	releaseScope(catchScope)
 
-	fn.TryCatchTable[tableIndex].CatchEnd = int32(len(fn.Bytecode))
+	fn.TryCatchTable[tableIndex].CatchEnd = len(fn.Bytecode)
 	labelJump(fn, endJump)
 }
 
@@ -1733,13 +1733,13 @@ func compileImportedModule(s *State, fn *Function, ast *Ast, path string) *Impor
 		if _, dup := module.Exports[name]; dup {
 			continue
 		}
-		if symbol, exists := moduleScope.Variables[name]; exists {
+				if symbol, exists := moduleScope.Variables[name]; exists {
 			emitString(moduleFunction, name)
 			emitInt(moduleFunction, OpLoadVar, symbol.Offset)
 			module.Exports[name] = struct{}{}
 		}
 	}
-	emitInt(moduleFunction, OpMakeObject, int32(len(module.Exports)))
+	emitInt(moduleFunction, OpMakeObject, len(module.Exports))
 	emit(moduleFunction, OpReturn)
 	moduleFunction.LocalCount = moduleScope.VarCount
 	finalizeFunction(moduleFunction, buf)

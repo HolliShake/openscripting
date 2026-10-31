@@ -7,7 +7,7 @@ type Import struct {
 	Initialized bool
 	Path        string
 	FileInfo    os.FileInfo
-	Function    int32
+	Function    int
 	Value       OSValue
 	Exports     map[string]struct{}
 }

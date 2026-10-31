@@ -14,9 +14,9 @@ type Scope struct {
 	Type       ScopeType
 	Parent     *Scope
 	Variables  map[string]Symbol
-	VarCount   int32
-	LoopStart  int32   // Opcode index for the start of the loop, used in loop scopes
-	BreakStart []int32 // Opcode index for the start of the break, used in loop scopes
+	VarCount   int
+	LoopStart  int   // Opcode index for the start of the loop, used in loop scopes
+	BreakStart []int // Opcode index for the start of the break, used in loop scopes
 }
 
 func (s *Scope) ExistsFunction(name string) bool {
@@ -74,7 +74,7 @@ func (s *Scope) GetVariable(name string) (sym Symbol, exists bool) {
 	return Symbol{}, false
 }
 
-func (s *Scope) GetVarCount() int32 {
+func (s *Scope) GetVarCount() int {
 	return s.VarCount
 }
 
