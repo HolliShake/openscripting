@@ -17,8 +17,8 @@ const (
 	OSVFunction
 	OSVNativeFunction
 	OSVNativeMethod // bind
-	OSVMethod       // bind
 	OSVPromise
+	OSVClass
 )
 
 type OSValueType byte
@@ -36,29 +36,49 @@ func (v OSValue) StringValue() string {
 	return unsafe.String((*byte)(v.Opaque), int(v.Number))
 }
 
+func promiseState(value OSValue) string {
+	if value.Opaque == nil {
+		return "Pending"
+	}
+	promise := (*Promise)(value.Opaque)
+	if !promise.Resolved {
+		return "Pending"
+	}
+	if promise.Rejected {
+		return "Rejected"
+	}
+	return "Fulfilled"
+}
+
 func (v OSValue) String() string {
 	// Scalars never need a builder or the cycle-detection map.
 	switch v.Type {
 	case OSVNull:
-		return "null"
+		return KeyNull
 	case OSVInt:
 		return strconv.FormatInt(int64(v.Number), 10)
 	case OSVNum:
 		return strconv.FormatFloat(v.Number, 'f', -1, 64)
 	case OSVBool:
 		if v.Number != 0 {
-			return "true"
+			return KeyTrue
 		}
-		return "false"
+		return KeyFalse
 	case OSVString:
 		return v.StringValue()
 	case OSVFunction:
 		return "<function>"
+	case OSVClass:
+		if v.Opaque == nil || (*Class)(v.Opaque).Name == "" {
+			return "<class>"
+		}
+		return "<class " + (*Class)(v.Opaque).Name + ">"
 	case OSVPromise:
-		return "<promise>"
-	case OSVArray, OSVObject:
+		return "<promise " + promiseState(v) + ">"
 	default:
-		return "<unknown>"
+		if v.Type != OSVArray && v.Type != OSVObject {
+			return "<unknown>"
+		}
 	}
 
 	var builder strings.Builder
@@ -69,7 +89,7 @@ func (v OSValue) String() string {
 func (v OSValue) writeString(builder *strings.Builder, active map[unsafe.Pointer]bool) {
 	switch v.Type {
 	case OSVNull:
-		builder.WriteString("null")
+		builder.WriteString(KeyNull)
 	case OSVInt:
 		var tmp [24]byte
 		builder.Write(strconv.AppendInt(tmp[:0], int64(v.Number), 10))
@@ -79,9 +99,9 @@ func (v OSValue) writeString(builder *strings.Builder, active map[unsafe.Pointer
 	case OSVBool:
 		{
 			if v.Number != 0 {
-				builder.WriteString("true")
+				builder.WriteString(KeyTrue)
 			} else {
-				builder.WriteString("false")
+				builder.WriteString(KeyFalse)
 			}
 		}
 	case OSVString:
@@ -117,6 +137,10 @@ func (v OSValue) writeString(builder *strings.Builder, active map[unsafe.Pointer
 			active[v.Opaque] = true
 
 			obj := (*Object)(v.Opaque)
+			if obj.ClassName != "" {
+				builder.WriteString(obj.ClassName)
+				builder.WriteByte(' ')
+			}
 			builder.WriteByte('{')
 			for index, key := range obj.Keys {
 				if index > 0 {
@@ -132,8 +156,18 @@ func (v OSValue) writeString(builder *strings.Builder, active map[unsafe.Pointer
 		}
 	case OSVFunction:
 		builder.WriteString("<function>")
+	case OSVClass:
+		if v.Opaque == nil || (*Class)(v.Opaque).Name == "" {
+			builder.WriteString("<class>")
+		} else {
+			builder.WriteString("<class ")
+			builder.WriteString((*Class)(v.Opaque).Name)
+			builder.WriteByte('>')
+		}
 	case OSVPromise:
-		builder.WriteString("<promise>")
+		builder.WriteString("<promise ")
+		builder.WriteString(promiseState(v))
+		builder.WriteByte('>')
 	default:
 		builder.WriteString("<unknown>")
 	}
@@ -175,6 +209,8 @@ func IsEqual(a, b OSValue) bool {
 		return a.StringValue() == b.StringValue()
 	case OSVFunction:
 		return a.Opaque == b.Opaque
+	case OSVClass:
+		return a.Opaque == b.Opaque
 	case OSVPromise:
 		return a.Opaque == b.Opaque
 	default:
@@ -192,7 +228,7 @@ func CoerceToBool(v OSValue) bool {
 		return v.Number != 0
 	case OSVString:
 		return v.Number != 0
-	case OSVFunction, OSVPromise:
+	case OSVFunction, OSVPromise, OSVClass:
 		return v.Opaque != nil
 	default:
 		return false

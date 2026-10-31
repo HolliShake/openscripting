@@ -550,6 +550,9 @@ func (p *Parser) terminal() *Ast {
 			p.expectType(KEY)
 			return ast
 		}
+		if p.lookahead.Value == KeyThis || p.lookahead.Value == KeySuper {
+			return p.identifierOrKeyword(true)
+		}
 	}
 	return nil
 }
@@ -1403,13 +1406,23 @@ func (p *Parser) classExpression() *Ast {
 	head := NewKeyValue(k.Pos, k, v)
 	tail := head
 
-	for tail != nil && p.match(",") {
-		p.expect(",")
+	for tail != nil && (p.match(",") || p.match(";")) {
+		if p.match(",") {
+			p.expect(",")
+		} else {
+			p.expect(";")
+		}
+		if p.match("}") {
+			break
+		}
 		k = p.identifier(true)
 		p.expect(":")
 		v = p.expression(true)
 		tail.Next = NewKeyValue(k.Pos, k, v)
 		tail = tail.Next
+	}
+	if p.match(";") {
+		p.expect(";")
 	}
 
 	p.expect("}")

@@ -3,16 +3,19 @@ package main
 import "slices"
 
 type Function struct {
-	File          *File
-	Name          string
-	Async         bool
-	ParamCount    int32
-	LocalCount    int32
-	VarArgIndex   int32 // -1 for non vararg functions
-	Bytecode      []int32
-	TryCatchTable []TryCatchTable
-	Lines         []Line
-	CaptureMeta   []CaptureMeta
+	File             *File
+	Name             string
+	Async            bool
+	ClassConstructor bool
+	ClassThisOffset  int32
+	ClassSuperOffset int32
+	ParamCount       int32
+	LocalCount       int32
+	VarArgIndex      int32 // -1 for non vararg functions
+	Bytecode         []int32
+	TryCatchTable    []TryCatchTable
+	Lines            []Line
+	CaptureMeta      []CaptureMeta
 }
 
 func (fn *Function) Clone() *Function {

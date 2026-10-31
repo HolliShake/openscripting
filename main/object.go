@@ -1,8 +1,9 @@
 package main
 
 type Object struct {
-	Keys   []string
-	Values map[string]OSValue
+	ClassName string
+	Keys      []string
+	Values    map[string]OSValue
 }
 
 func (obj *Object) Set(key string, value OSValue) {

@@ -62,4 +62,5 @@ const (
 	OpStdWrite
 	OpReturn
 	OpAwait
+	OpCallSuper
 )

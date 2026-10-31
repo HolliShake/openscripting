@@ -422,6 +422,25 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					Opaque: unsafe.Pointer(obj),
 				})
 			}
+		case OpMakeClass:
+			{
+				superValue := pop()
+				templateValue := pop()
+				constructor := pop()
+				name := pop()
+				if name.Type != OSVString || constructor.Type != OSVFunction || constructor.Opaque == nil ||
+					templateValue.Type != OSVObject || templateValue.Opaque == nil ||
+					(superValue.Type != OSVNull && (superValue.Type != OSVClass || superValue.Opaque == nil)) {
+					panic("invalid class definition")
+				}
+				class := &Class{
+					Name:        name.StringValue(),
+					Super:       (*Class)(superValue.Opaque),
+					Template:    (*Object)(templateValue.Opaque).Values,
+					Constructor: constructor,
+				}
+				push(OSValue{Type: OSVClass, Opaque: unsafe.Pointer(class)})
+			}
 		case OpGetAttr:
 			{
 				top := pop()
@@ -437,19 +456,32 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 						continue
 					}
 				}
+				if top.Type == OSVClass && top.Opaque != nil {
+					class := (*Class)(top.Opaque)
+					for current := class; current != nil; current = current.Super {
+						if value, exists := current.Template[attr]; exists {
+							push(value)
+							goto classAttrResolved
+						}
+					}
+					push(vm.Null)
+				classAttrResolved:
+					continue
+				}
 
+				if top.Type == OSVObject && top.Opaque != nil {
+					obj := (*Object)(top.Opaque)
+					if value, exists := obj.Values[attr]; exists {
+						push(value)
+						continue
+					}
+					push(vm.Null)
+					continue
+				}
 				if top.Type != OSVObject || top.Opaque == nil {
 					if throwRuntimeError("attempted to get attribute of a non-object value " + valueString(top)) {
 						continue
 					}
-				}
-
-				obj := (*Object)(top.Opaque)
-
-				if value, exists := obj.Values[attr]; exists {
-					push(value)
-				} else {
-					push(vm.Null)
 				}
 			}
 		case OpSetAttr:
@@ -698,6 +730,46 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				stack[sp] = old
 				sp++
 			}
+		case OpCallSuper:
+			{
+				argCount := readByte()
+				if !frame.Function.ClassConstructor || int(frame.Function.ClassSuperOffset) >= len(frame.Env) ||
+					int(frame.Function.ClassThisOffset) >= len(frame.Env) {
+					if throwRuntimeError("super constructor call outside a class constructor") {
+						continue
+					}
+				}
+				if argCount < 0 || argCount > sp {
+					if throwRuntimeError("invalid superclass constructor argument count") {
+						continue
+					}
+				}
+
+				superValue := frame.Env[frame.Function.ClassSuperOffset].Value
+				if superValue.Type != OSVClass || superValue.Opaque == nil {
+					if throwRuntimeError("class has no superclass constructor") {
+						continue
+					}
+				}
+				superClass := (*Class)(superValue.Opaque)
+				constructor := superClass.Constructor
+				if constructor.Type != OSVFunction || constructor.Opaque == nil {
+					if throwRuntimeError("superclass has an invalid constructor") {
+						continue
+					}
+				}
+
+				for sp+3 > int32(len(stack)) {
+					stack = growStack(co)
+				}
+				argStart := sp - argCount
+				copy(stack[argStart+2:sp+2], stack[argStart:sp])
+				stack[argStart] = frame.Env[frame.Function.ClassThisOffset].Value
+				stack[argStart+1] = OSValue{Type: OSVClass, Opaque: unsafe.Pointer(superClass.Super)}
+				sp += 2
+				stack[sp] = constructor
+				sp++
+			}
 		case OpCall:
 			{
 				argCount := int32(readByte())
@@ -705,6 +777,36 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				// Expected stack layout:
 				// [..., arg1, arg2, ..., argN, function]
 				fnValue := pop()
+				if fnValue.Type == OSVClass {
+					if fnValue.Opaque == nil {
+						if throwRuntimeError("attempted to call an invalid class") {
+							continue
+						}
+					}
+					class := (*Class)(fnValue.Opaque)
+					if class.Constructor.Type != OSVFunction || class.Constructor.Opaque == nil {
+						if throwRuntimeError("class has an invalid constructor") {
+							continue
+						}
+					}
+					constructor := (*Function)(class.Constructor.Opaque)
+					if constructor.ClassConstructor {
+						instance := OSValue{Type: OSVObject, Opaque: unsafe.Pointer(&Object{
+							ClassName: class.Name,
+							Values:    make(map[string]OSValue),
+						})}
+						if sp+2 > int32(len(stack)) {
+							stack = growStack(co)
+						}
+						argStart := sp - argCount
+						copy(stack[argStart+2:sp+2], stack[argStart:sp])
+						stack[argStart] = instance
+						stack[argStart+1] = OSValue{Type: OSVClass, Opaque: unsafe.Pointer(class.Super)}
+						sp += 2
+						argCount += 2
+					}
+					fnValue = class.Constructor
+				}
 
 				if fnValue.Type == OSVNativeMethod {
 					// Handle native method binding here if necessary.
@@ -1404,7 +1506,6 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				} else {
 					returnValue = vm.Null
 				}
-
 				if sp != 0 {
 					panicInt("stack not empty on return (stack pointer: %d)", int(sp))
 				}

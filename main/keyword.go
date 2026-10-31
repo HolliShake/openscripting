@@ -25,6 +25,8 @@ const (
 	KeyTrue     = "true"
 	KeyFalse    = "false"
 	KeyNull     = "null"
+	KeyThis     = "this"
+	KeySuper    = "super"
 )
 
 func isKeyword(value string) bool {
@@ -32,7 +34,7 @@ func isKeyword(value string) bool {
 	case KeyImport, KeyFrom, KeyVar, KeyLet, KeyConst, KeyLog, KeyAsync, KeyClass,
 		KeyFn, KeyLoop, KeyTry, KeyCatch, KeySwitch, KeyCase, KeyDefault,
 		KeyIf, KeyElse, KeyContinue, KeyBreak, KeyReturn, KeyAwait,
-		KeyTrue, KeyFalse, KeyNull:
+		KeyTrue, KeyFalse, KeyNull, KeyThis, KeySuper:
 		return true
 	default:
 		return false

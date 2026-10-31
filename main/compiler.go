@@ -519,17 +519,32 @@ func tryFold(fn *Function, ast *Ast) constVal {
 // compileFunction compiles a function (declaration or expression) into a new
 // Function saved in the parser state and returns its offset. Shared by both
 // visitors, which used to carry identical copies of this code.
-func compileFunction(p *Parser, scope *Scope, fn *Function, name string, async bool, parmNode, bodyNode *Ast) int32 {
+func compileFunction(p *Parser, scope *Scope, fn *Function, name string, async bool, implicitThis, staticThis bool, parmNode, bodyNode *Ast) int32 {
 	buf := acquireCodeBuf()
 	function := newFunction(fn.File, name, buf)
 	funcOffset := p.state.SaveFunction(function)
 
 	localScope := acquireScope(scope)
 	localScope.Type = ScopeTypeFunction
+	staticThisOffset := int32(-1)
+	if staticThis {
+		if localScope.ExistsLocal(KeyThis) {
+			ThrowError(fn.File, "this is reserved in class methods", parmNode.Pos)
+		}
+		staticThisOffset = localScope.GetVarCount()
+		localScope.AddLocal(KeyThis, Symbol{Name: KeyThis, Offset: staticThisOffset})
+	}
 
 	// Stays on the stack for up to 8 parameters; only larger lists spill.
 	var paramBuf [8]int32
 	reverse := paramBuf[:0]
+	if implicitThis {
+		if localScope.ExistsLocal(KeyThis) {
+			ThrowError(fn.File, "this is reserved in class methods", parmNode.Pos)
+		}
+		localScope.AddLocal(KeyThis, Symbol{Name: KeyThis, Offset: 0})
+		reverse = append(reverse, 0)
+	}
 
 	vaIndex := -1
 	for ; parmNode != nil; parmNode = parmNode.Next {
@@ -563,6 +578,10 @@ func compileFunction(p *Parser, scope *Scope, fn *Function, name string, async b
 
 	for i := len(reverse) - 1; i >= 0; i-- {
 		emitInt(function, OpStoreLocal, reverse[i])
+	}
+	if staticThis {
+		emit(function, OpLoadNull)
+		emitInt(function, OpStoreLocal, staticThisOffset)
 	}
 
 	visibleReturn := false
@@ -693,10 +712,14 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 				emit(fn, OpExtendObject)
 			}
 		}
+	case AstClassExpression:
+		{
+			visitClassExpression(p, scope, fn, ast, "<anon/>")
+		}
 	case AstFunctionExpression, AstAsyncFunctionExpression:
 		{
 			funcOffset := compileFunction(p, scope, fn, "<anon/>",
-				ast.Type == AstAsyncFunctionExpression, ast.A, ast.B)
+				ast.Type == AstAsyncFunctionExpression, false, false, ast.A, ast.B)
 			emitInt(fn, OpLoadFunction, funcOffset)
 		}
 	case AstSwitchExpr:
@@ -773,8 +796,13 @@ func visitExpression(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 				argCount++
 			}
 
-			visitExpression(p, scope, fn, ast.A)
-			emitInt(fn, OpCall, argCount)
+			if ast.A.Type == AstIdentifier && ast.A.Value == KeySuper {
+				emitInt(fn, OpCallSuper, argCount)
+				emitInt(fn, OpCall, argCount+2)
+			} else {
+				visitExpression(p, scope, fn, ast.A)
+				emitInt(fn, OpCall, argCount)
+			}
 		}
 	case AstAwait:
 		{
@@ -1080,23 +1108,145 @@ func visitVarObjectDestructDeclaration(p *Parser, scope *Scope, fn *Function, as
 
 func visitClassDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	nameNode := ast.A
-	classExp := ast.B
+	if scope.ExistsLocal(nameNode.Value) {
+		ThrowError(fn.File, "variable is already defined in scope", nameNode.Pos)
+	}
+	offset := scope.GetVarCount()
+	scope.AddLocal(nameNode.Value, Symbol{Name: nameNode.Value, Offset: offset, Pos: nameNode.Pos})
+	funcOffset := compileClassConstructor(p, scope, fn, nameNode.Value, ast.B)
+	emitString(fn, nameNode.Value)
+	emitInt(fn, OpLoadFunction, funcOffset)
+	templateCount := emitClassTemplate(p, scope, fn, nameNode.Value, ast.B)
+	emitInt(fn, OpMakeObject, templateCount)
+	if ast.B.A != nil {
+		visitExpression(p, scope, fn, ast.B.A)
+	} else {
+		emit(fn, OpLoadNull)
+	}
+	emit(fn, OpMakeClass)
+	emitInt(fn, OpStoreLocal, offset)
+}
 
-	superNode := classExp.A
-	keyVal := classExp.B
-	for head := keyVal; head != nil; head = head.Next {
-		nameNode := head.A
-		valueNode := head.B
+func visitClassExpression(p *Parser, scope *Scope, fn *Function, ast *Ast, name string) {
+	assert(AstClassExpression, ast)
+	funcOffset := compileClassConstructor(p, scope, fn, name, ast)
+	emitString(fn, name)
+	emitInt(fn, OpLoadFunction, funcOffset)
+	templateCount := emitClassTemplate(p, scope, fn, name, ast)
+	emitInt(fn, OpMakeObject, templateCount)
+	if ast.A != nil {
+		visitExpression(p, scope, fn, ast.A)
+	} else {
+		emit(fn, OpLoadNull)
+	}
+	emit(fn, OpMakeClass)
+}
 
+func emitClassTemplate(p *Parser, scope *Scope, fn *Function, name string, classAst *Ast) int32 {
+	count := int32(0)
+	for member := classAst.B; member != nil; member = member.Next {
+		if objectKey(member.A) == "constructor" || member.B == nil ||
+			(member.B.Type != AstFunctionExpression && member.B.Type != AstAsyncFunctionExpression) {
+			continue
+		}
+		emitString(fn, objectKey(member.A))
+		methodOffset := compileFunction(p, scope, fn, name+"."+objectKey(member.A),
+			member.B.Type == AstAsyncFunctionExpression, false, true, member.B.A, member.B.B)
+		emitInt(fn, OpLoadFunction, methodOffset)
+		count++
+	}
+	return count
+}
+
+func compileClassConstructor(p *Parser, scope *Scope, parentFn *Function, name string, classAst *Ast) int32 {
+	var constructor *Ast
+	for member := classAst.B; member != nil; member = member.Next {
+		if objectKey(member.A) == "constructor" {
+			constructor = member.B
+			break
+		}
 	}
 
+	buf := acquireCodeBuf()
+	function := newFunction(parentFn.File, name, buf)
+	function.ClassConstructor = true
+	funcOffset := p.state.SaveFunction(function)
+	localScope := acquireScope(scope)
+	localScope.Type = ScopeTypeFunction
+	function.ClassThisOffset = 0
+	function.ClassSuperOffset = 1
+	localScope.AddLocal("$classThis", Symbol{Name: "$classThis", Offset: 0})
+	localScope.AddLocal("$classSuper", Symbol{Name: "$classSuper", Offset: 1})
+
+	var paramBuf [8]int32
+	parameters := paramBuf[:0]
+	if constructor != nil {
+		for parameter := constructor.A; parameter != nil; parameter = parameter.Next {
+			if parameter.Type == AstSpread {
+				parameter = parameter.A
+				function.VarArgIndex = int32(len(parameters)) + 2
+			}
+			if localScope.ExistsLocal(parameter.Value) {
+				ThrowError(parentFn.File, "variable is already defined in scope", parameter.Pos)
+			}
+			offset := localScope.GetVarCount()
+			localScope.AddLocal(parameter.Value, Symbol{Name: parameter.Value, Offset: offset, Pos: parameter.Pos})
+			parameters = append(parameters, offset)
+		}
+	}
+	function.ParamCount = int32(len(parameters)) + 2
+	for index := len(parameters) - 1; index >= 0; index-- {
+		emitInt(function, OpStoreLocal, parameters[index])
+	}
+	emitInt(function, OpStoreLocal, function.ClassSuperOffset)
+	emitInt(function, OpStoreLocal, function.ClassThisOffset)
+
+	if localScope.ExistsLocal(KeyThis) {
+		ThrowError(parentFn.File, "this is reserved in class constructors", classAst.Pos)
+	}
+	thisOffset := localScope.GetVarCount()
+	localScope.AddLocal(KeyThis, Symbol{Name: KeyThis, Offset: thisOffset, Pos: classAst.Pos})
+	emitInt(function, OpLoadVar, function.ClassThisOffset)
+	emitInt(function, OpStoreLocal, thisOffset)
+
+	if constructor != nil {
+		for statement := constructor.B; statement != nil; statement = statement.Next {
+			visitDeclarationOrStatement(p, localScope, function, statement)
+		}
+	}
+	emitInt(function, OpLoadVar, thisOffset)
+	methodCount := int32(0)
+	for member := classAst.B; member != nil; member = member.Next {
+		if objectKey(member.A) == "constructor" {
+			continue
+		}
+		emitString(function, objectKey(member.A))
+		if member.B != nil && (member.B.Type == AstFunctionExpression || member.B.Type == AstAsyncFunctionExpression) {
+			methodOffset := compileFunction(p, localScope, function, name+"."+objectKey(member.A),
+				member.B.Type == AstAsyncFunctionExpression, false, false, member.B.A, member.B.B)
+			emitInt(function, OpLoadFunction, methodOffset)
+		} else if member.B != nil {
+			visitExpression(p, localScope, function, member.B)
+		} else {
+			emit(function, OpLoadNull)
+		}
+		methodCount++
+	}
+	emitInt(function, OpMakeObject, methodCount)
+	emit(function, OpExtendObject)
+	emit(function, OpReturn)
+
+	function.LocalCount = localScope.VarCount
+	finalizeFunction(function, buf)
+	releaseScope(localScope)
+	return funcOffset
 }
 
 func visitFunctionDeclaration(p *Parser, scope *Scope, fn *Function, ast *Ast) {
 	nameNode := ast.A
 
 	funcOffset := compileFunction(p, scope, fn, nameNode.Value,
-		ast.B.Type == AstAsyncFunctionExpression, ast.B.A, ast.B.B)
+		ast.B.Type == AstAsyncFunctionExpression, false, false, ast.B.A, ast.B.B)
 
 	sym, exists := scope.GetVariable(nameNode.Value)
 	if !exists {
