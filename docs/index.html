@@ -1,183 +1,465 @@
 <!doctype html>
 <html lang="en">
+
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Language syntax and feature reference for OpenScript, based on its parser and compiler implementation.">
-  <title>OpenScript Language Reference</title>
-  <style>
-    :root {
-      color-scheme: light;
-      --ink: #202a35;
-      --muted: #596774;
-      --paper: #f7f8f5;
-      --panel: #ffffff;
-      --line: #d7dedb;
-      --green: #176b55;
-      --green-soft: #e4f2eb;
-      --coral: #bd4d38;
-      --yellow: #f1c968;
-      --code: #17252a;
-      --code-ink: #e9f2ee;
-      --serif: Georgia, "Times New Roman", serif;
-      --sans: "Segoe UI", "Trebuchet MS", sans-serif;
-      --mono: "Cascadia Code", Consolas, monospace;
-    }
-    * { box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
-    body {
-      margin: 0;
-      color: var(--ink);
-      background: var(--paper);
-      font-family: var(--sans);
-      line-height: 1.65;
-    }
-    a { color: var(--green); text-decoration-thickness: 1px; text-underline-offset: 3px; }
-    a:hover { color: var(--coral); }
-    .masthead {
-      min-height: 250px;
-      padding: 48px max(24px, calc((100vw - 1180px) / 2));
-      color: #f6f7ee;
-      background-color: #174e43;
-      background-image: repeating-linear-gradient(135deg, transparent 0 22px, rgba(255,255,255,.035) 22px 23px), linear-gradient(110deg, #173f38, #216955 65%, #a34a37);
-      border-bottom: 7px solid var(--yellow);
-    }
-    .eyebrow { margin: 0 0 12px; color: #f3d37e; font-size: .78rem; font-weight: 700; text-transform: uppercase; }
-    h1 { max-width: 760px; margin: 0; font: 500 clamp(2.4rem, 5vw, 4.2rem)/1.05 var(--serif); }
-    .masthead p:last-child { max-width: 680px; margin: 18px 0 0; color: #e2eee8; font-size: 1.05rem; }
-    .layout { display: grid; grid-template-columns: 248px minmax(0, 800px); gap: 48px; max-width: 1180px; margin: 0 auto; padding: 42px 24px 90px; }
-    nav {
-      position: sticky; top: 20px; align-self: start; max-height: calc(100vh - 40px); overflow: auto;
-      padding: 18px 16px; border-left: 3px solid var(--green); background: #edf1ed;
-    }
-    nav h2 { margin: 0 0 10px; font-size: .8rem; letter-spacing: 0; text-transform: uppercase; color: var(--muted); }
-    nav ol { margin: 0; padding-left: 20px; }
-    nav li { margin: 3px 0; font-size: .88rem; }
-    nav a { text-decoration: none; }
-    main { min-width: 0; }
-    section { padding: 0 0 34px; margin: 0 0 34px; border-bottom: 1px solid var(--line); scroll-margin-top: 24px; }
-    h2 { margin: 0 0 14px; font: 500 2rem/1.2 var(--serif); }
-    h3 { margin: 24px 0 8px; font-size: 1.12rem; }
-    p { margin: 10px 0; }
-    .lede { color: var(--muted); font-size: 1.08rem; }
-    .note { margin: 18px 0; padding: 12px 16px; border-left: 4px solid var(--coral); background: #faeee9; }
-    .tip { margin: 18px 0; padding: 12px 16px; border-left: 4px solid var(--green); background: var(--green-soft); }
-    code, pre { font-family: var(--mono); }
-    :not(pre) > code { padding: .12em .35em; color: #174e43; background: #e8eeea; border-radius: 3px; font-size: .92em; }
-    pre { overflow: auto; margin: 14px 0; padding: 18px 20px; color: var(--code-ink); background: var(--code); border-top: 3px solid var(--yellow); font-size: .88rem; line-height: 1.58; tab-size: 4; }
-    .kw { color: #82d5b3; }
-    .str { color: #f1cb75; }
-    .com { color: #a3b6ad; }
-    .op { color: #ef987d; }
-    table { width: 100%; margin: 14px 0; border-collapse: collapse; background: var(--panel); font-size: .92rem; }
-    th, td { padding: 9px 11px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
-    th { color: #174e43; background: #e9efea; }
-    td:first-child { white-space: nowrap; }
-    .tag { display: inline-block; margin: 2px 3px 2px 0; padding: 2px 7px; color: #164b40; background: #e4f2eb; font: .8rem var(--mono); }
-    footer { padding: 24px; color: #e7eee9; background: #173f38; text-align: center; font-size: .86rem; }
-    @media (max-width: 820px) {
-      .masthead { min-height: 0; padding: 38px 22px; }
-      .layout { display: block; padding: 24px 18px 60px; }
-      nav { position: static; max-height: none; margin-bottom: 36px; }
-      nav ol { columns: 2; column-gap: 24px; }
-      nav li { break-inside: avoid; }
-    }
-    @media (max-width: 480px) {
-      nav ol { columns: 1; }
-      pre { margin-left: -4px; margin-right: -4px; padding: 14px; font-size: .8rem; }
-      th, td { padding: 7px; }
-      td:first-child { white-space: normal; }
-    }
-  </style>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description"
+        content="Language syntax and feature reference for OpenScript, based on its parser and compiler implementation.">
+    <title>OpenScript Language Reference</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --ink: #202a35;
+            --muted: #596774;
+            --paper: #f7f8f5;
+            --panel: #ffffff;
+            --line: #d7dedb;
+            --green: #176b55;
+            --green-soft: #e4f2eb;
+            --coral: #bd4d38;
+            --yellow: #f1c968;
+            --code: #17252a;
+            --code-ink: #e9f2ee;
+            --serif: Georgia, "Times New Roman", serif;
+            --sans: "Segoe UI", "Trebuchet MS", sans-serif;
+            --mono: "Cascadia Code", Consolas, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            margin: 0;
+            color: var(--ink);
+            background: var(--paper);
+            font-family: var(--sans);
+            line-height: 1.65;
+        }
+
+        a {
+            color: var(--green);
+            text-decoration-thickness: 1px;
+            text-underline-offset: 3px;
+        }
+
+        a:hover {
+            color: var(--coral);
+        }
+
+        .masthead {
+            min-height: 250px;
+            padding: 48px max(24px, calc((100vw - 1180px) / 2));
+            color: #f6f7ee;
+            background-color: #174e43;
+            background-image: repeating-linear-gradient(135deg, transparent 0 22px, rgba(255, 255, 255, .035) 22px 23px), linear-gradient(110deg, #173f38, #216955 65%, #a34a37);
+            border-bottom: 7px solid var(--yellow);
+        }
+
+        .eyebrow {
+            margin: 0 0 12px;
+            color: #f3d37e;
+            font-size: .78rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            max-width: 760px;
+            margin: 0;
+            font: 500 clamp(2.4rem, 5vw, 4.2rem)/1.05 var(--serif);
+        }
+
+        .masthead p:last-child {
+            max-width: 680px;
+            margin: 18px 0 0;
+            color: #e2eee8;
+            font-size: 1.05rem;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 248px minmax(0, 800px);
+            gap: 48px;
+            max-width: 1180px;
+            margin: 0 auto;
+            padding: 42px 24px 90px;
+        }
+
+        nav {
+            position: sticky;
+            top: 20px;
+            align-self: start;
+            max-height: calc(100vh - 40px);
+            overflow: auto;
+            padding: 18px 16px;
+            border-left: 3px solid var(--green);
+            background: #edf1ed;
+        }
+
+        nav h2 {
+            margin: 0 0 10px;
+            font-size: .8rem;
+            letter-spacing: 0;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        nav ol {
+            margin: 0;
+            padding-left: 20px;
+        }
+
+        nav li {
+            margin: 3px 0;
+            font-size: .88rem;
+        }
+
+        nav a {
+            text-decoration: none;
+        }
+
+        main {
+            min-width: 0;
+        }
+
+        section {
+            padding: 0 0 34px;
+            margin: 0 0 34px;
+            border-bottom: 1px solid var(--line);
+            scroll-margin-top: 24px;
+        }
+
+        h2 {
+            margin: 0 0 14px;
+            font: 500 2rem/1.2 var(--serif);
+        }
+
+        h3 {
+            margin: 24px 0 8px;
+            font-size: 1.12rem;
+        }
+
+        p {
+            margin: 10px 0;
+        }
+
+        .lede {
+            color: var(--muted);
+            font-size: 1.08rem;
+        }
+
+        .note {
+            margin: 18px 0;
+            padding: 12px 16px;
+            border-left: 4px solid var(--coral);
+            background: #faeee9;
+        }
+
+        .tip {
+            margin: 18px 0;
+            padding: 12px 16px;
+            border-left: 4px solid var(--green);
+            background: var(--green-soft);
+        }
+
+        code,
+        pre {
+            font-family: var(--mono);
+        }
+
+        :not(pre)>code {
+            padding: .12em .35em;
+            color: #174e43;
+            background: #e8eeea;
+            border-radius: 3px;
+            font-size: .92em;
+        }
+
+        pre {
+            overflow: auto;
+            margin: 14px 0;
+            padding: 18px 20px;
+            color: var(--code-ink);
+            background: var(--code);
+            border-top: 3px solid var(--yellow);
+            font-size: .88rem;
+            line-height: 1.58;
+            tab-size: 4;
+        }
+
+        .kw {
+            color: #82d5b3;
+        }
+
+        .str {
+            color: #f1cb75;
+        }
+
+        .com {
+            color: #a3b6ad;
+        }
+
+        .op {
+            color: #ef987d;
+        }
+
+        table {
+            width: 100%;
+            margin: 14px 0;
+            border-collapse: collapse;
+            background: var(--panel);
+            font-size: .92rem;
+        }
+
+        th,
+        td {
+            padding: 9px 11px;
+            border: 1px solid var(--line);
+            text-align: left;
+            vertical-align: top;
+        }
+
+        th {
+            color: #174e43;
+            background: #e9efea;
+        }
+
+        td:first-child {
+            white-space: nowrap;
+        }
+
+        .tag {
+            display: inline-block;
+            margin: 2px 3px 2px 0;
+            padding: 2px 7px;
+            color: #164b40;
+            background: #e4f2eb;
+            font: .8rem var(--mono);
+        }
+
+        footer {
+            padding: 24px;
+            color: #e7eee9;
+            background: #173f38;
+            text-align: center;
+            font-size: .86rem;
+        }
+
+        @media (max-width: 820px) {
+            .masthead {
+                min-height: 0;
+                padding: 38px 22px;
+            }
+
+            .layout {
+                display: block;
+                padding: 24px 18px 60px;
+            }
+
+            nav {
+                position: static;
+                max-height: none;
+                margin-bottom: 36px;
+            }
+
+            nav ol {
+                columns: 2;
+                column-gap: 24px;
+            }
+
+            nav li {
+                break-inside: avoid;
+            }
+        }
+
+        @media (max-width: 480px) {
+            nav ol {
+                columns: 1;
+            }
+
+            pre {
+                margin-left: -4px;
+                margin-right: -4px;
+                padding: 14px;
+                font-size: .8rem;
+            }
+
+            th,
+            td {
+                padding: 7px;
+            }
+
+            td:first-child {
+                white-space: normal;
+            }
+        }
+    </style>
 </head>
+
 <body>
-  <header class="masthead">
-    <p class="eyebrow">Language reference · implementation guide</p>
-    <h1>OpenScript</h1>
-    <p>Syntax and features currently implemented by the parser, compiler, and bytecode runtime. Examples use the language's own syntax; feature notes describe implementation behavior rather than aspirations.</p>
-  </header>
-  <div class="layout">
-    <nav aria-label="Table of contents">
-      <h2>On this page</h2>
-      <ol>
-        <li><a href="#quick-start">Quick start</a></li>
-        <li><a href="#lexical">Lexical rules</a></li>
-        <li><a href="#values">Values and literals</a></li>
-        <li><a href="#expressions">Expressions</a></li>
-        <li><a href="#variables">Variables and patterns</a></li>
-        <li><a href="#functions">Functions</a></li>
-        <li><a href="#arrays-objects">Arrays and objects</a></li>
-        <li><a href="#classes">Classes</a></li>
-        <li><a href="#control">Control flow</a></li>
-        <li><a href="#switch">Switch</a></li>
-        <li><a href="#exceptions">Exceptions</a></li>
-        <li><a href="#modules">Modules and imports</a></li>
-        <li><a href="#runtime">Runtime features</a></li>
-        <li><a href="#limits">Implementation notes</a></li>
-      </ol>
-    </nav>
-    <main>
-      <section id="quick-start">
-        <h2>Quick start</h2>
-        <p>Scripts use the <code>.os</code> extension. The executable accepts a script path with <code>-f</code> or <code>-file</code>. The built-in I/O module provides <code>println</code>.</p>
-        <pre><code><span class="kw">import</span> { println } <span class="kw">from</span> <span class="str">"core:io"</span>;
+    <header class="masthead">
+        <p class="eyebrow">Language reference · implementation guide</p>
+        <h1>OpenScript</h1>
+        <p>Syntax and features currently implemented by the parser, compiler, and bytecode runtime. Examples use the
+            language's own syntax; feature notes describe implementation behavior rather than aspirations.</p>
+    </header>
+    <div class="layout">
+        <nav aria-label="Table of contents">
+            <h2>On this page</h2>
+            <ol>
+                <li><a href="#quick-start">Quick start</a></li>
+                <li><a href="#lexical">Lexical rules</a></li>
+                <li><a href="#values">Values and literals</a></li>
+                <li><a href="#expressions">Expressions</a></li>
+                <li><a href="#variables">Variables and patterns</a></li>
+                <li><a href="#functions">Functions</a></li>
+                <li><a href="#arrays-objects">Arrays and objects</a></li>
+                <li><a href="#classes">Classes</a></li>
+                <li><a href="#control">Control flow</a></li>
+                <li><a href="#switch">Switch</a></li>
+                <li><a href="#exceptions">Exceptions</a></li>
+                <li><a href="#modules">Modules and imports</a></li>
+                <li><a href="#runtime">Runtime features</a></li>
+                <li><a href="#limits">Implementation notes</a></li>
+            </ol>
+        </nav>
+        <main>
+            <section id="quick-start">
+                <h2>Quick start</h2>
+                <p>Scripts use the <code>.os</code> extension. The executable accepts a script path with <code>-f</code>
+                    or <code>-file</code>. The built-in I/O module provides <code>println</code>.</p>
+                <pre><code><span class="kw">import</span> { println } <span class="kw">from</span> <span class="str">"core:io"</span>;
 
 <span class="kw">const</span> greeting = <span class="str">"Hello, OpenScript!"</span>;
 println(greeting);</code></pre>
-        <p>Statements generally end in semicolons. Blocks use braces. Whitespace and comments separate tokens but are otherwise insignificant.</p>
-      </section>
+                <p>Statements generally end in semicolons. Blocks use braces. Whitespace and comments separate tokens
+                    but are otherwise insignificant.</p>
+            </section>
 
-      <section id="lexical">
-        <h2>Lexical rules</h2>
-        <h3>Identifiers</h3>
-        <p>Identifiers may use Unicode letters, letter numbers, combining marks, decimal digits after the first character, connector punctuation, and underscore. Keywords are reserved unless a construct explicitly accepts a keyword name, such as a member accessed with <code>-&gt;</code>.</p>
-        <h3>Comments and whitespace</h3>
-        <pre><code><span class="com">// Line comment</span>
+            <section id="lexical">
+                <h2>Lexical rules</h2>
+                <h3>Identifiers</h3>
+                <p>Identifiers may use Unicode letters, letter numbers, combining marks, decimal digits after the first
+                    character, connector punctuation, and underscore. Keywords are reserved unless a construct
+                    explicitly accepts a keyword name, such as a member accessed with <code>-&gt;</code>.</p>
+                <h3>Comments and whitespace</h3>
+                <pre><code><span class="com">// Line comment</span>
 
 <span class="com">/* Block comment
    may span lines */</span></code></pre>
-        <p>Unicode whitespace and common Unicode line separators are recognized. Line breaks are not statement terminators; semicolons are used explicitly.</p>
-        <h3>Strings and numbers</h3>
-        <p>Strings may use single or double quotes and cannot contain an unescaped line break. Recognized escapes include <code>\a</code>, <code>\b</code>, <code>\f</code>, <code>\n</code>, <code>\r</code>, <code>\t</code>, <code>\v</code>, <code>\0</code>, escaped quotes and backslash, <code>\xNN</code>, <code>\uNNNN</code>, <code>\UNNNNNNNN</code>, and braced Unicode <code>\u{...}</code>.</p>
-        <p>Numeric literals include decimal integers and fractions, exponent notation, and hexadecimal (<code>0x</code>), octal (<code>0o</code>), and binary (<code>0b</code>) prefixes. Underscores are accepted in digit runs.</p>
-      </section>
+                <p>Unicode whitespace and common Unicode line separators are recognized. Line breaks are not statement
+                    terminators; semicolons are used explicitly.</p>
+                <h3>Strings and numbers</h3>
+                <p>Strings may use single or double quotes and cannot contain an unescaped line break. Recognized
+                    escapes include <code>\a</code>, <code>\b</code>, <code>\f</code>, <code>\n</code>, <code>\r</code>,
+                    <code>\t</code>, <code>\v</code>, <code>\0</code>, escaped quotes and backslash, <code>\xNN</code>,
+                    <code>\uNNNN</code>, <code>\UNNNNNNNN</code>, and braced Unicode <code>\u{...}</code>.</p>
+                <p>Numeric literals include decimal integers and fractions, exponent notation, and hexadecimal
+                    (<code>0x</code>), octal (<code>0o</code>), and binary (<code>0b</code>) prefixes. Underscores are
+                    accepted in digit runs.</p>
+            </section>
 
-      <section id="values">
-        <h2>Values and literals</h2>
-        <p>The language includes number, string, boolean, null, array, object, function, class, and promise values. Boolean and null literals are <code>true</code>, <code>false</code>, and <code>null</code>.</p>
-        <pre><code><span class="kw">var</span> enabled = <span class="kw">true</span>;
+            <section id="values">
+                <h2>Values and literals</h2>
+                <p>The language includes number, string, boolean, null, array, object, function, class, and promise
+                    values. Boolean and null literals are <code>true</code>, <code>false</code>, and <code>null</code>.
+                </p>
+                <pre><code><span class="kw">var</span> enabled = <span class="kw">true</span>;
 <span class="kw">var</span> absent = <span class="kw">null</span>;
 <span class="kw">var</span> ratio = 12.5e-2;
 <span class="kw">var</span> mask = 0xff;</code></pre>
-        <p>Arrays use square brackets. Objects use braces and string or identifier keys:</p>
-        <pre><code><span class="kw">var</span> colors = [<span class="str">"red"</span>, <span class="str">"green"</span>, <span class="str">"blue"</span>];
+                <p>Arrays use square brackets. Objects use braces and string or identifier keys:</p>
+                <pre><code><span class="kw">var</span> colors = [<span class="str">"red"</span>, <span class="str">"green"</span>, <span class="str">"blue"</span>];
 <span class="kw">var</span> person = { name: <span class="str">"Ada"</span>, <span class="str">"role"</span>: <span class="str">"engineer"</span> };</code></pre>
-      </section>
+            </section>
 
-      <section id="expressions">
-        <h2>Expressions</h2>
-        <p>Expressions support literals, identifiers, grouping, function and class expressions, calls, property/index access, unary and binary operators, assignments, ternaries, await, and switch expressions.</p>
-        <h3>Operator precedence</h3>
-        <p>From highest to lowest, according to the parser's expression chain:</p>
-        <table>
-          <thead><tr><th>Level</th><th>Operators / forms</th><th>Associativity</th></tr></thead>
-          <tbody>
-            <tr><td>Postfix</td><td>Call <code>()</code>, member <code>-&gt;</code>, index <code>[]</code>, postfix <code>++</code> <code>--</code></td><td>Left to right</td></tr>
-            <tr><td>Unary</td><td><code>+</code> <code>-</code> <code>!</code> <code>~</code> prefix <code>++</code> <code>--</code> <code>await</code></td><td>Right to left</td></tr>
-            <tr><td>Multiplicative</td><td><code>*</code> <code>/</code> <code>%</code></td><td>Left to right</td></tr>
-            <tr><td>Additive</td><td><code>+</code> <code>-</code></td><td>Left to right</td></tr>
-            <tr><td>Shift</td><td><code>&lt;&lt;</code> <code>&gt;&gt;</code></td><td>Left to right</td></tr>
-            <tr><td>Relational</td><td><code>&lt;</code> <code>&lt;=</code> <code>&gt;</code> <code>&gt;=</code></td><td>Left to right</td></tr>
-            <tr><td>Equality</td><td><code>==</code> <code>!=</code></td><td>Left to right</td></tr>
-            <tr><td>Bitwise AND / XOR / OR</td><td><code>&amp;</code> then <code>^</code> then <code>|</code></td><td>Left to right</td></tr>
-            <tr><td>Logical AND / OR</td><td><code>&amp;&amp;</code> then <code>||</code></td><td>Left to right</td></tr>
-            <tr><td>Assignment</td><td><code>=</code>, compound assignment operators</td><td>Right to left</td></tr>
-            <tr><td>Ternary</td><td><code>condition ? thenExpr : elseExpr</code></td><td>Right-associative branches</td></tr>
-          </tbody>
-        </table>
-        <p>Compound assignments are <code>*=</code>, <code>/=</code>, <code>%=</code>, <code>+=</code>, <code>-=</code>, <code>&lt;&lt;=</code>, <code>&gt;&gt;=</code>, <code>&amp;=</code>, <code>^=</code>, and <code>|=</code>.</p>
-        <p>Logical operators short-circuit. <code>==</code> and <code>!=</code> use runtime value equality; switch matching uses the runtime's case-equality operation.</p>
-        <pre><code><span class="kw">var</span> score = 8;
+            <section id="expressions">
+                <h2>Expressions</h2>
+                <p>Expressions support literals, identifiers, grouping, function and class expressions, calls,
+                    property/index access, unary and binary operators, assignments, ternaries, await, and switch
+                    expressions.</p>
+                <h3>Operator precedence</h3>
+                <p>From highest to lowest, according to the parser's expression chain:</p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Level</th>
+                            <th>Operators / forms</th>
+                            <th>Associativity</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Postfix</td>
+                            <td>Call <code>()</code>, member <code>-&gt;</code>, index <code>[]</code>, postfix
+                                <code>++</code> <code>--</code></td>
+                            <td>Left to right</td>
+                        </tr>
+                        <tr>
+                            <td>Unary</td>
+                            <td><code>+</code> <code>-</code> <code>!</code> <code>~</code> prefix <code>++</code>
+                                <code>--</code> <code>await</code></td>
+                            <td>Right to left</td>
+                        </tr>
+                        <tr>
+                            <td>Multiplicative</td>
+                            <td><code>*</code> <code>/</code> <code>%</code></td>
+                            <td>Left to right</td>
+                        </tr>
+                        <tr>
+                            <td>Additive</td>
+                            <td><code>+</code> <code>-</code></td>
+                            <td>Left to right</td>
+                        </tr>
+                        <tr>
+                            <td>Shift</td>
+                            <td><code>&lt;&lt;</code> <code>&gt;&gt;</code></td>
+                            <td>Left to right</td>
+                        </tr>
+                        <tr>
+                            <td>Relational</td>
+                            <td><code>&lt;</code> <code>&lt;=</code> <code>&gt;</code> <code>&gt;=</code></td>
+                            <td>Left to right</td>
+                        </tr>
+                        <tr>
+                            <td>Equality</td>
+                            <td><code>==</code> <code>!=</code></td>
+                            <td>Left to right</td>
+                        </tr>
+                        <tr>
+                            <td>Bitwise AND / XOR / OR</td>
+                            <td><code>&amp;</code> then <code>^</code> then <code>|</code></td>
+                            <td>Left to right</td>
+                        </tr>
+                        <tr>
+                            <td>Logical AND / OR</td>
+                            <td><code>&amp;&amp;</code> then <code>||</code></td>
+                            <td>Left to right</td>
+                        </tr>
+                        <tr>
+                            <td>Assignment</td>
+                            <td><code>=</code>, compound assignment operators</td>
+                            <td>Right to left</td>
+                        </tr>
+                        <tr>
+                            <td>Ternary</td>
+                            <td><code>condition ? thenExpr : elseExpr</code></td>
+                            <td>Right-associative branches</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p>Compound assignments are <code>*=</code>, <code>/=</code>, <code>%=</code>, <code>+=</code>,
+                    <code>-=</code>, <code>&lt;&lt;=</code>, <code>&gt;&gt;=</code>, <code>&amp;=</code>,
+                    <code>^=</code>, and <code>|=</code>.</p>
+                <p>Logical operators short-circuit. <code>==</code> and <code>!=</code> use runtime value equality;
+                    switch matching uses the runtime's case-equality operation.</p>
+                <pre><code><span class="kw">var</span> score = 8;
 <span class="kw">var</span> message = score &gt;= 6 &amp;&amp; score &lt; 10
     ? <span class="str">"pass"</span>
     : <span class="str">"retry"</span>;
@@ -185,33 +467,40 @@ println(greeting);</code></pre>
 score += 1;
 score++;
 <span class="kw">var</span> next = score--;</code></pre>
-        <h3>Access and calls</h3>
-        <pre><code>person-&gt;name = <span class="str">"Grace"</span>;
+                <h3>Access and calls</h3>
+                <pre><code>person-&gt;name = <span class="str">"Grace"</span>;
 person[<span class="str">"name"</span>];
 colors[0] = <span class="str">"amber"</span>;
 printValue(person-&gt;name);</code></pre>
-        <p>Property access uses <code>-&gt;</code>; bracket access accepts an expression as a key/index. Calls use parenthesized comma-separated arguments.</p>
-      </section>
+                <p>Property access uses <code>-&gt;</code>; bracket access accepts an expression as a key/index. Calls
+                    use parenthesized comma-separated arguments.</p>
+            </section>
 
-      <section id="variables">
-        <h2>Variables and patterns</h2>
-        <h3>Declarations</h3>
-        <pre><code><span class="kw">var</span> globalCount = 0;
+            <section id="variables">
+                <h2>Variables and patterns</h2>
+                <h3>Declarations</h3>
+                <pre><code><span class="kw">var</span> globalCount = 0;
 <span class="kw">let</span> localName = <span class="str">"Ada"</span>;
 <span class="kw">const</span> limit = 100;
 <span class="kw">var</span> first = 1, second = 2;</code></pre>
-        <p><code>var</code> is restricted to global/module scopes. <code>let</code> is not allowed at global scope. <code>const</code> is supported at both. Compiler checks also reject duplicate names in the same scope and assignment to constants.</p>
-        <h3>Array destructuring</h3>
-        <pre><code><span class="kw">const</span> [red, green, blue] = colors;</code></pre>
-        <h3>Object destructuring</h3>
-        <pre><code><span class="kw">const</span> { name, role: jobTitle } = person;</code></pre>
-        <p>Object patterns may bind a property under its original name or rename it with <code>property: localName</code>. Destructuring is available with <code>var</code>, <code>let</code>, and <code>const</code>, subject to the same scope rules as ordinary declarations.</p>
-      </section>
+                <p><code>var</code> is restricted to global/module scopes. <code>let</code> is not allowed at global
+                    scope. <code>const</code> is supported at both. Compiler checks also reject duplicate names in the
+                    same scope and assignment to constants.</p>
+                <h3>Array destructuring</h3>
+                <pre><code><span class="kw">const</span> [red, green, blue] = colors;</code></pre>
+                <h3>Object destructuring</h3>
+                <pre><code><span class="kw">const</span> { name, role: jobTitle } = person;</code></pre>
+                <p>Object patterns may bind a property under its original name or rename it with
+                    <code>property: localName</code>. Destructuring is available with <code>var</code>,
+                    <code>let</code>, and <code>const</code>, subject to the same scope rules as ordinary declarations.
+                </p>
+            </section>
 
-      <section id="functions">
-        <h2>Functions</h2>
-        <p>Function expressions use <code>fn</code>. Named function declarations use the top-level declaration form with <code>::</code>.</p>
-        <pre><code><span class="kw">var</span> add::fn(left, right) {
+            <section id="functions">
+                <h2>Functions</h2>
+                <p>Function expressions use <code>fn</code>. Named function declarations use the top-level declaration
+                    form with <code>::</code>.</p>
+                <pre><code><span class="kw">var</span> add::fn(left, right) {
     <span class="kw">return</span> left + right;
 };
 
@@ -222,42 +511,50 @@ printValue(person-&gt;name);</code></pre>
 <span class="kw">var</span> anonymous = fn() {
     <span class="kw">return</span> <span class="kw">null</span>;
 };</code></pre>
-        <p>Functions support positional parameters, return statements, closures over outer variables, and variadic parameters marked with <code>...</code>. A variadic parameter collects remaining arguments into an array.</p>
-        <pre><code><span class="kw">var</span> collect::fn(prefix, values...) {
+                <p>Functions support positional parameters, return statements, closures over outer variables, and
+                    variadic parameters marked with <code>...</code>. A variadic parameter collects remaining arguments
+                    into an array.</p>
+                <pre><code><span class="kw">var</span> collect::fn(prefix, values...) {
     println(prefix);
     println(values);
 };
 
 collect(<span class="str">"items"</span>, 2, 3, 4);</code></pre>
-        <p>A function without a returned value yields <code>null</code>. A return may omit its expression, which also returns <code>null</code>.</p>
-        <h3>Async functions and await</h3>
-        <pre><code><span class="kw">var</span> fetchValue = fn() <span class="kw">async</span> {
+                <p>A function without a returned value yields <code>null</code>. A return may omit its expression, which
+                    also returns <code>null</code>.</p>
+                <h3>Async functions and await</h3>
+                <pre><code><span class="kw">var</span> fetchValue = fn() <span class="kw">async</span> {
     <span class="kw">return</span> 42;
 };
 
 <span class="kw">var</span> result = <span class="kw">await</span> fetchValue();</code></pre>
-        <p>Calling an async function produces a promise. <code>await</code> is accepted only inside an async function and suspends until the awaited promise settles.</p>
-      </section>
+                <p>Calling an async function produces a promise. <code>await</code> is accepted only inside an async
+                    function and suspends until the awaited promise settles.</p>
+            </section>
 
-      <section id="arrays-objects">
-        <h2>Arrays and objects</h2>
-        <p>Array literals accept expressions and spread elements. Object literals accept key/value entries and object spread.</p>
-        <pre><code><span class="kw">var</span> more = [0, ...colors, <span class="str">"violet"</span>];
+            <section id="arrays-objects">
+                <h2>Arrays and objects</h2>
+                <p>Array literals accept expressions and spread elements. Object literals accept key/value entries and
+                    object spread.</p>
+                <pre><code><span class="kw">var</span> more = [0, ...colors, <span class="str">"violet"</span>];
 <span class="kw">var</span> profile = {
     name: <span class="str">"Ada"</span>,
     ...person,
     active: <span class="kw">true</span>
 };</code></pre>
-        <p>Arrays support numeric indexing and assignment. Objects support property access with <code>-&gt;</code> or bracket notation, and property assignment. Missing object properties read as <code>null</code>; array bounds violations are runtime errors.</p>
-        <pre><code>more[0] = 10;
+                <p>Arrays support numeric indexing and assignment. Objects support property access with
+                    <code>-&gt;</code> or bracket notation, and property assignment. Missing object properties read as
+                    <code>null</code>; array bounds violations are runtime errors.</p>
+                <pre><code>more[0] = 10;
 profile-&gt;active = <span class="kw">false</span>;
 profile[<span class="str">"name"</span>];</code></pre>
-      </section>
+            </section>
 
-      <section id="classes">
-        <h2>Classes</h2>
-        <p>Classes have a required <code>constructor</code> member and may define methods. A class can extend one named base class. Instances are created by calling the class name.</p>
-        <pre><code><span class="kw">var</span> Animal::class {
+            <section id="classes">
+                <h2>Classes</h2>
+                <p>Classes have a required <code>constructor</code> member and may define methods. A class can extend
+                    one named base class. Instances are created by calling the class name.</p>
+                <pre><code><span class="kw">var</span> Animal::class {
     constructor: fn(name) {
         <span class="kw">this</span>-&gt;name = name;
     },
@@ -278,23 +575,28 @@ profile[<span class="str">"name"</span>];</code></pre>
 
 <span class="kw">var</span> pet = Dog(<span class="str">"Milo"</span>);
 pet-&gt;speak();</code></pre>
-        <p><code>this</code> refers to the instance inside a constructor or method. <code>super(...)</code> invokes the base constructor. Methods are inherited through the base-class chain; instance fields are assigned through <code>this-&gt;field</code>.</p>
-      </section>
+                <p><code>this</code> refers to the instance inside a constructor or method. <code>super(...)</code>
+                    invokes the base constructor. Methods are inherited through the base-class chain; instance fields
+                    are assigned through <code>this-&gt;field</code>.</p>
+            </section>
 
-      <section id="control">
-        <h2>Control flow</h2>
-        <h3>Conditional statements</h3>
-        <pre><code><span class="kw">if</span> (ready) {
+            <section id="control">
+                <h2>Control flow</h2>
+                <h3>Conditional statements</h3>
+                <pre><code><span class="kw">if</span> (ready) {
     start();
 } <span class="kw">else</span> {
     wait();
 }</code></pre>
-        <p>The body may be a braced block or a single block-level statement.</p>
-        <p><code>log expression;</code> is a dedicated statement that writes the expression through the runtime's standard output path.</p>
-        <pre><code><span class="kw">log</span> <span class="str">"diagnostic value"</span>;</code></pre>
-        <h3>Loops</h3>
-        <p><code>loop</code> supports a while-style condition and a three-part for-style form. The for-style initializer may be a declaration or expression; its condition and update are separated by semicolons.</p>
-        <pre><code><span class="kw">var</span> index = 0;
+                <p>The body may be a braced block or a single block-level statement.</p>
+                <p><code>log expression;</code> is a dedicated statement that writes the expression through the
+                    runtime's standard output path.</p>
+                <pre><code><span class="kw">log</span> <span class="str">"diagnostic value"</span>;</code></pre>
+                <h3>Loops</h3>
+                <p><code>loop</code> supports a while-style condition and a three-part for-style form. The for-style
+                    initializer may be a declaration or expression; its condition and update are separated by
+                    semicolons.</p>
+                <pre><code><span class="kw">var</span> index = 0;
 loop (index &lt; 3) {
     println(index);
     index++;
@@ -307,14 +609,19 @@ loop (let i = 0; i &lt; 3; i++) {
 loop (;;) {
     <span class="kw">break</span>;
 }</code></pre>
-        <p>An omitted for-style condition is treated as an unconditional loop. <code>break;</code> exits the nearest loop or switch. <code>continue;</code> inside a loop starts its next iteration. Inside a switch case, continue advances to the next case body; a nested loop takes precedence.</p>
-      </section>
+                <p>An omitted for-style condition is treated as an unconditional loop. <code>break;</code> exits the
+                    nearest loop or switch. <code>continue;</code> inside a loop starts its next iteration. Inside a
+                    switch case, continue advances to the next case body; a nested loop takes precedence.</p>
+            </section>
 
-      <section id="switch">
-        <h2>Switch</h2>
-        <h3>Statement switch</h3>
-        <p>A statement switch compares its selector to each label, supports multiple comma-separated values per case, and permits one optional <code>default</code> in any position. Cases execute in source order after dispatch: they do not automatically break. Empty cases and ordinary case completion fall through. Use <code>break;</code> to exit the switch.</p>
-        <pre><code><span class="kw">switch</span> (value) {
+            <section id="switch">
+                <h2>Switch</h2>
+                <h3>Statement switch</h3>
+                <p>A statement switch compares its selector to each label, supports multiple comma-separated values per
+                    case, and permits one optional <code>default</code> in any position. Cases execute in source order
+                    after dispatch: they do not automatically break. Empty cases and ordinary case completion fall
+                    through. Use <code>break;</code> to exit the switch.</p>
+                <pre><code><span class="kw">switch</span> (value) {
     <span class="kw">case</span> 0:
     <span class="kw">case</span> 1, 2, 3:
         println(<span class="str">"small"</span>);
@@ -325,64 +632,154 @@ loop (;;) {
     <span class="kw">default</span>:
         println(<span class="str">"other"</span>);
 }</code></pre>
-        <div class="tip"><strong>Control-flow meaning:</strong> <code>break</code> exits the switch. <code>continue</code> skips the rest of the current case and jumps to the following case body; from the final case it exits the switch. A loop nested inside a case handles its own break/continue first.</div>
-        <h3>Switch expression</h3>
-        <p>Switch expressions produce one value and require a default alternative. Their alternatives use commas and <code>=&gt;</code>; each result is an expression.</p>
-        <pre><code><span class="kw">var</span> label = <span class="kw">switch</span> (status) {
+                <div class="tip"><strong>Control-flow meaning:</strong> <code>break</code> exits the switch.
+                    <code>continue</code> skips the rest of the current case and jumps to the following case body; from
+                    the final case it exits the switch. A loop nested inside a case handles its own break/continue
+                    first.</div>
+                <h3>Switch expression</h3>
+                <p>Switch expressions produce one value and require a default alternative. Their alternatives use commas
+                    and <code>=&gt;</code>; each result is an expression.</p>
+                <pre><code><span class="kw">var</span> label = <span class="kw">switch</span> (status) {
     200, 201 =&gt; <span class="str">"success"</span>,
     404 =&gt; <span class="str">"missing"</span>,
     <span class="kw">default</span> =&gt; <span class="str">"other"</span>
 };</code></pre>
-        <p>Unlike statement switches, switch expressions do not have case bodies with statements or fall-through.</p>
-      </section>
+                <p>Unlike statement switches, switch expressions do not have case bodies with statements or
+                    fall-through.</p>
+            </section>
 
-      <section id="exceptions">
-        <h2>Exceptions</h2>
-        <p><code>try</code> wraps a block. An optional <code>catch(name)</code> handles a thrown runtime error and binds it to a local name.</p>
-        <pre><code><span class="kw">try</span> {
+            <section id="exceptions">
+                <h2>Exceptions</h2>
+                <p><code>try</code> wraps a block. An optional <code>catch(name)</code> handles a thrown runtime error
+                    and binds it to a local name.</p>
+                <pre><code><span class="kw">try</span> {
     riskyOperation();
 } <span class="kw">catch</span> (err) {
     println(err);
 }</code></pre>
-        <p>A try without a catch is accepted and executes its body normally. There is no <code>finally</code> syntax in the current parser.</p>
-      </section>
+                <p>A try without a catch is accepted and executes its body normally. There is no <code>finally</code>
+                    syntax in the current parser.</p>
+            </section>
 
-      <section id="modules">
-        <h2>Modules and imports</h2>
-        <p>Import a module for its side effects, or import named exports. Named imports may be renamed with <code>exportName: localName</code>.</p>
-        <pre><code><span class="kw">import</span> <span class="str">"./setup.os"</span>;
+            <section id="modules">
+                <h2>Modules and imports</h2>
+                <p>Import a module for its side effects, or import named exports. Named imports may be renamed with
+                    <code>exportName: localName</code>.</p>
+                <pre><code><span class="kw">import</span> <span class="str">"./setup.os"</span>;
 <span class="kw">import</span> { println } <span class="kw">from</span> <span class="str">"core:io"</span>;
 <span class="kw">import</span> { isEven: checkEven } <span class="kw">from</span> <span class="str">"lib:number"</span>;</code></pre>
-        <p>Built-in module imports require named imports. Relative module paths resolve from the importing file. Library imports use <code>lib:name</code> and resolve under the executable's <code>lib</code> directory; path traversal outside that directory is rejected. Circular imports are detected and reported.</p>
-        <p>Top-level declarations are made available as module exports. Use the import form supported by the target module; built-ins validate requested export names.</p>
-      </section>
+                <p>Built-in module imports require named imports. Relative module paths resolve from the importing file.
+                    Library imports use <code>lib:name</code> and resolve under the executable's <code>lib</code>
+                    directory; path traversal outside that directory is rejected. Circular imports are detected and
+                    reported.</p>
+                <p>Top-level declarations are made available as module exports. Use the import form supported by the
+                    target module; built-ins validate requested export names.</p>
+                <h3>Core modules</h3>
+                <p>Core modules are imported by name and expose only named exports.</p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Module</th>
+                            <th>Exports</th>
+                            <th>Behavior</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>core:io</code></td>
+                            <td><code>println(...values)</code></td>
+                            <td>Writes values separated by spaces, followed by a newline. No arguments prints a
+                                newline.</td>
+                        </tr>
+                        <tr>
+                            <td><code>core:file</code></td>
+                            <td><code>readText(path)</code>, <code>writeText(path, text)</code>,
+                                <code>appendText(path, text)</code>, <code>exists(path)</code>,
+                                <code>remove(path)</code></td>
+                            <td>Reads and writes UTF-8/text bytes. Write, append, and remove return booleans on
+                                success; <code>exists</code> returns a boolean. Read and filesystem failures raise
+                                catchable runtime errors.</td>
+                        </tr>
+                        <tr>
+                            <td><code>core:math</code></td>
+                            <td><code>PI</code>, <code>E</code>, <code>abs</code>, <code>ceil</code>,
+                                <code>floor</code>, <code>round</code>, <code>sqrt</code>, <code>sin</code>,
+                                <code>cos</code>, <code>tan</code>, <code>logarithm</code>, <code>exp</code>,
+                                <code>pow</code>, <code>min</code>, <code>max</code></td>
+                            <td>Numeric helpers use radians for trigonometric functions. <code>min</code> and
+                                <code>max</code> accept one or more numbers. Invalid types and non-finite results
+                                raise catchable runtime errors.</td>
+                        </tr>
+                        <tr>
+                            <td><code>core:path</code></td>
+                            <td><code>exists</code>, <code>isFile</code>, <code>isDir</code>, <code>isAbs</code>,
+                                <code>absolute</code>, <code>join</code>, <code>clean</code>, <code>base</code>,
+                                <code>dir</code>, <code>ext</code>, <code>relative</code></td>
+                            <td>Uses the host operating system's path rules. <code>relative(target, base)</code>
+                                returns a path from the base to the target. Existence/type checks return booleans.</td>
+                        </tr>
+                        <tr>
+                            <td><code>core:json</code></td>
+                            <td><code>parse(text)</code>, <code>stringify(value)</code></td>
+                            <td>Converts JSON values to and from OpenScript values. Object properties that lead to
+                                an active cycle are omitted during serialization; cycles elsewhere and unsupported
+                                values raise catchable runtime errors.</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <pre><code><span class="kw">import</span> { parse, stringify } <span class="kw">from</span> <span class="str">"core:json"</span>;
+<span class="kw">import</span> { join, absolute } <span class="kw">from</span> <span class="str">"core:path"</span>;
+<span class="kw">import</span> { sqrt, PI } <span class="kw">from</span> <span class="str">"core:math"</span>;
+<span class="kw">import</span> { readText } <span class="kw">from</span> <span class="str">"core:file"</span>;
 
-      <section id="runtime">
-        <h2>Runtime features</h2>
-        <ul>
-          <li><strong>Built-ins:</strong> modules such as <code>core:io</code> expose runtime functions; <code>println</code> writes values followed by a line break.</li>
-          <li><strong>Promises:</strong> async calls return promises. Promise values expose <code>-&gt;then(fn)</code> and <code>-&gt;catch(fn)</code> chaining.</li>
-          <li><strong>Closures:</strong> nested functions can capture and mutate variables from enclosing functions.</li>
-          <li><strong>Errors:</strong> parser/compiler errors include source positions; runtime errors can be handled with <code>try/catch</code>.</li>
-          <li><strong>Line mapping:</strong> generated bytecode retains source line information for runtime diagnostics.</li>
-        </ul>
-      </section>
+<span class="kw">var</span> configPath = absolute(join(<span class="str">"config"</span>, <span class="str">"settings.json"</span>));
+<span class="kw">var</span> config = parse(readText(configPath));</code></pre>
+            </section>
 
-      <section id="limits">
-        <h2>Implementation notes</h2>
-        <p>This page documents syntax and behavior visible in the parser/compiler implementation, not a complete formal language specification. A few boundaries are especially useful to know:</p>
-        <ul>
-          <li>There are no parser forms for <code>for</code>, <code>while</code>, <code>do</code>, <code>throw</code>, <code>finally</code>, or labels; looping uses <code>loop</code>.</li>
-          <li>Named <code>fn</code> and <code>class</code> declarations use top-level <code>name::fn</code> / <code>name::class</code> syntax. Anonymous function and class expressions are also supported.</li>
-          <li>Class declarations require a constructor member; class expressions follow the same class parser.</li>
-          <li>Switch statement matching is performed at dispatch before bodies run. Once a body begins, C-style fall-through applies unless <code>break</code> or the case-specific <code>continue</code> changes control flow.</li>
-          <li>Switch expressions require a <code>default</code> and are parsed as comma-separated alternatives.</li>
-          <li>The compiler validates declaration placement, duplicate local names, constant assignment, await context, and break/continue context.</li>
-        </ul>
-        <div class="note"><strong>Version note:</strong> the exact supported syntax is the implementation in <code>main/parser.go</code> and <code>main/compiler.go</code> at the time this reference was generated. Runtime built-in modules may expose additional APIs beyond syntax covered here.</div>
-      </section>
-    </main>
-  </div>
-  <footer>OpenScript · language reference generated from the current parser/compiler implementation</footer>
+            <section id="runtime">
+                <h2>Runtime features</h2>
+                <ul>
+                    <li><strong>Built-ins:</strong> <code>core:io</code>, <code>core:file</code>,
+                        <code>core:math</code>, <code>core:path</code>, and <code>core:json</code> provide I/O,
+                        filesystem, numeric, path, and JSON operations.</li>
+                    <li><strong>Promises:</strong> async calls return promises. Promise values expose
+                        <code>-&gt;then(fn)</code> and <code>-&gt;catch(fn)</code> chaining.</li>
+                    <li><strong>Closures:</strong> nested functions can capture and mutate variables from enclosing
+                        functions.</li>
+                    <li><strong>Errors:</strong> parser/compiler errors include source positions; runtime errors can be
+                        handled with <code>try/catch</code>.</li>
+                    <li><strong>Line mapping:</strong> generated bytecode retains source line information for runtime
+                        diagnostics.</li>
+                </ul>
+            </section>
+
+            <section id="limits">
+                <h2>Implementation notes</h2>
+                <p>This page documents syntax and behavior visible in the parser/compiler implementation, not a complete
+                    formal language specification. A few boundaries are especially useful to know:</p>
+                <ul>
+                    <li>There are no parser forms for <code>for</code>, <code>while</code>, <code>do</code>,
+                        <code>throw</code>, <code>finally</code>, or labels; looping uses <code>loop</code>.</li>
+                    <li>Named <code>fn</code> and <code>class</code> declarations use top-level <code>name::fn</code> /
+                        <code>name::class</code> syntax. Anonymous function and class expressions are also supported.
+                    </li>
+                    <li>Class declarations require a constructor member; class expressions follow the same class parser.
+                    </li>
+                    <li>Switch statement matching is performed at dispatch before bodies run. Once a body begins,
+                        C-style fall-through applies unless <code>break</code> or the case-specific
+                        <code>continue</code> changes control flow.</li>
+                    <li>Switch expressions require a <code>default</code> and are parsed as comma-separated
+                        alternatives.</li>
+                    <li>The compiler validates declaration placement, duplicate local names, constant assignment, await
+                        context, and break/continue context.</li>
+                </ul>
+                <div class="note"><strong>Version note:</strong> the exact supported syntax is the implementation in
+                    <code>main/parser.go</code> and <code>main/compiler.go</code> at the time this reference was
+                    generated. Runtime built-in modules may expose additional APIs beyond syntax covered here.</div>
+            </section>
+        </main>
+    </div>
+    <footer>OpenScript · language reference generated from the current parser/compiler implementation</footer>
 </body>
+
 </html>
