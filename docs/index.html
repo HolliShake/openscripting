@@ -325,6 +325,23 @@
             font-size: .88rem;
         }
 
+        .behavior-list {
+            margin: 0;
+            padding-left: 1.1em;
+        }
+
+        .behavior-list li {
+            margin: 0 0 6px;
+        }
+
+        .behavior-list li:last-child {
+            margin-bottom: 0;
+        }
+
+        .behavior-list li::marker {
+            color: #555;
+        }
+
         footer {
             padding: 24px;
             color: #888;
@@ -822,9 +839,9 @@ loop (;;) {
                     <li><strong>Built-ins:</strong> <code>core:io</code>, <code>core:file</code>,
                         <code>core:math</code>, <code>core:number</code>, <code>core:unicode</code>,
                         <code>core:sys</code>, <code>core:path</code>, <code>core:json</code>,
-                        <code>core:error</code>, <code>core:http</code>, and <code>core:socket</code> provide I/O,
-                        filesystem, numeric, Unicode, host-system, path, JSON, error, HTTP, and loopback TCP
-                        operations.
+                        <code>core:regex</code>, <code>core:error</code>, <code>core:http</code>, and
+                        <code>core:socket</code> provide I/O, filesystem, numeric, Unicode, host-system, path, JSON,
+                        regular-expression, error, HTTP, and loopback TCP operations.
                     </li>
                     <li><strong>Collections:</strong> arrays provide indexed access and mutation plus
                         <code>map</code>, <code>filter</code>, and <code>find</code> methods with script callbacks.
@@ -878,26 +895,30 @@ loop (;;) {
          * To document a new module, append ONE object to `coreModules`:
          *
          *   {
-         *     name:     "core:foo",                 // required. Table row + tab label.
-         *     exports:  ["bar(x)", "BAZ"],          // required. Each renders as <code>.
-         *     behavior: `HTML string…`,             // required. May contain <code>, etc.
-         *     example: {                            // optional. Omit => no tab is created.
-         *       code: `import … ;`,                 //   required if example is present
-         *       note: "Short caveat under snippet"  //   optional
+         *     name:    "core:foo",                    // required. Table row + tab label.
+         *     exports: ["bar(x)", "BAZ"],             // required. Quick-glance list, each as <code>.
+         *     behavior: [                             // required. Rendered as a bullet list.
+         *       { name: "bar(x)", doc: `HTML…` },     //   one bullet per function / method / constant
+         *       "Plain string = general note bullet"  //   a string is a module-wide note (no name label)
+         *     ],
+         *     example: {                              // optional. Omit => no tab is created.
+         *       code: `import … ;`,
+         *       note: "Short caveat under snippet"    //   optional
          *     }
          *   }
          *
-         * The table and the tabbed examples are both generated from this array,
-         * in array order. Nothing else on the page needs to change.
+         * `doc` and note strings may contain inline HTML such as <code>…</code>.
+         * Array order controls table row order and tab order.
          * ========================================================================== */
         const coreModules = [
             {
                 name: "core:io",
                 exports: ["print(...values)", "println(...values)", "scan(prompt)"],
-                behavior: `<code>print</code> writes values separated by spaces without a newline;
-                    <code>println</code> adds a newline, and no arguments prints a blank line.
-                    <code>scan</code> writes its prompt, blocks while reading one line from standard
-                    input, strips the line ending, and returns <code>null</code> at end of input.`,
+                behavior: [
+                    { name: "print(...values)", doc: `Writes the values separated by spaces, without a trailing newline.` },
+                    { name: "println(...values)", doc: `Like <code>print</code>, but adds a newline. With no arguments it prints a blank line.` },
+                    { name: "scan(prompt)", doc: `Writes the prompt, blocks while reading one line from standard input, strips the line ending, and returns it. Returns <code>null</code> at end of input.` }
+                ],
                 example: {
                     code: `import { print, println, scan } from "core:io";
 
@@ -909,24 +930,22 @@ println("Hello", name);`
             {
                 name: "core:http",
                 exports: ["Express", "fetch(url, options?)"],
-                behavior: `Creates a server with <code>get(path, bodyOrHandler)</code>,
-                    <code>post(path, bodyOrHandler)</code>,
-                    <code>route(method, path, status, bodyOrHandler)</code>,
-                    <code>listen(address)</code>, <code>address()</code>, and <code>close()</code>.
-                    Handlers have the form <code>fn(request, response)</code>; request fields are
-                    <code>method</code>, <code>path</code>, <code>query</code>, <code>body</code>,
-                    and <code>headers</code>. Responses support <code>status(code)</code>,
-                    <code>send(value)</code>, and <code>json(value)</code>. Route handlers are
-                    synchronous and run serially on the interpreter thread. Routes match the exact HTTP
-                    method and path; unmatched routes return 404, and request bodies are limited to 1 MiB.
-                    <code>listen</code> returns the bound address, while <code>close</code> returns a boolean.
-                    <code>fetch</code> accepts an optional object containing <code>method</code>,
-                    <code>headers</code>, and <code>body</code>, and returns a Promise for a response with
-                    <code>status</code>, <code>statusText</code>, <code>url</code>, <code>ok</code>,
-                    <code>headers</code>, and Promise-returning <code>text()</code> and <code>json()</code>
-                    methods. HTTP error statuses such as 404 and 500 resolve normally with <code>ok</code> set to
-                    <code>false</code>; network failures and invalid JSON reject. Requests time out after
-                    30 seconds and response bodies are limited to 10 MiB.`,
+                behavior: [
+                    { name: "Express()", doc: `Creates a server object.` },
+                    { name: "app->get(path, bodyOrHandler)", doc: `Registers a route for <code>GET</code> on the exact path.` },
+                    { name: "app->post(path, bodyOrHandler)", doc: `Registers a route for <code>POST</code> on the exact path.` },
+                    { name: "app->route(method, path, status, bodyOrHandler)", doc: `Registers a route for any method with an explicit response status.` },
+                    { name: "app->listen(address)", doc: `Starts the server and returns the bound address.` },
+                    { name: "app->address()", doc: `Returns the server's address.` },
+                    { name: "app->close()", doc: `Stops the server and returns a boolean.` },
+                    { name: "fn(request, response)", doc: `Handler form. Handlers are synchronous and run serially on the interpreter thread. The request has <code>method</code>, <code>path</code>, <code>query</code>, <code>body</code>, and <code>headers</code>.` },
+                    { name: "response->status(code)", doc: `Sets the response status code.` },
+                    { name: "response->send(value)", doc: `Sends a value as the response body.` },
+                    { name: "response->json(value)", doc: `Sends a value as a JSON response.` },
+                    `Routes match the exact HTTP method and path. Unmatched routes return 404. Request bodies are limited to 1 MiB.`,
+                    { name: "fetch(url, options?)", doc: `Returns a Promise for a response. <code>options</code> is an optional object with <code>method</code>, <code>headers</code>, and <code>body</code>. The response has <code>status</code>, <code>statusText</code>, <code>url</code>, <code>ok</code>, <code>headers</code>, and Promise-returning <code>text()</code> and <code>json()</code> methods.` },
+                    `HTTP error statuses such as 404 and 500 resolve normally with <code>ok</code> set to <code>false</code>. Network failures and invalid JSON reject. Requests time out after 30 seconds; response bodies are limited to 10 MiB.`
+                ],
                 example: {
                     code: `import { Express, fetch } from "core:http";
 import { println } from "core:io";
@@ -951,11 +970,14 @@ check();`,
             {
                 name: "core:file",
                 exports: ["readText(path)", "writeText(path, text)", "appendText(path, text)", "exists(path)", "remove(path)"],
-                behavior: `<code>readText</code> returns file contents as a string. <code>writeText</code>
-                    replaces or creates a file; <code>appendText</code> appends or creates it. New files
-                    use permission mode <code>0644</code>. <code>exists</code>, successful writes, and
-                    <code>remove</code> return booleans. Filesystem failures raise catchable runtime
-                    errors. Relative paths use the process working directory.`,
+                behavior: [
+                    { name: "readText(path)", doc: `Returns the file contents as a string.` },
+                    { name: "writeText(path, text)", doc: `Replaces or creates the file. Returns a boolean on success.` },
+                    { name: "appendText(path, text)", doc: `Appends to the file, creating it if needed. Returns a boolean on success.` },
+                    { name: "exists(path)", doc: `Returns a boolean.` },
+                    { name: "remove(path)", doc: `Deletes the file and returns a boolean.` },
+                    `New files use permission mode <code>0644</code>. Filesystem failures raise catchable runtime errors. Relative paths use the process working directory.`
+                ],
                 example: {
                     code: `import { readText, writeText, appendText, exists, remove } from "core:file";
 import { join } from "core:path";
@@ -972,10 +994,14 @@ remove(path);`
             {
                 name: "core:math",
                 exports: ["PI", "E", "abs", "ceil", "floor", "round", "sqrt", "sin", "cos", "tan", "logarithm", "exp", "pow", "min", "max"],
-                behavior: `Unary functions take one number; <code>pow(base, exponent)</code> takes two.
-                    Trigonometric inputs are radians. <code>min</code> and <code>max</code> accept one
-                    or more numbers. Invalid types and non-finite operation results raise catchable
-                    runtime errors.`,
+                behavior: [
+                    { name: "PI, E", doc: `Mathematical constants.` },
+                    { name: "abs, ceil, floor, round, sqrt, logarithm, exp", doc: `Unary functions; each takes one number.` },
+                    { name: "sin, cos, tan", doc: `Take one number, interpreted as radians.` },
+                    { name: "pow(base, exponent)", doc: `Takes two numbers.` },
+                    { name: "min(...numbers), max(...numbers)", doc: `Accept one or more numbers.` },
+                    `Invalid types and non-finite operation results raise catchable runtime errors.`
+                ],
                 example: {
                     code: `import { PI, sqrt, sin, pow, min, max } from "core:math";
 import { println } from "core:io";
@@ -988,14 +1014,16 @@ println(pow(2, 8), min(4, 2, 9), max(4, 2, 9));`
             {
                 name: "core:number",
                 exports: ["parseInt(text, radix?)", "parseFloat(text)", "isFinite(value)", "isNaN(value)", "sign(value)", "clamp(value, min, max)", "MAX_VALUE", "MIN_VALUE", "NaN", "Infinity"],
-                behavior: `<code>parseInt</code> accepts an optional integer radix from 2 through 36; omitted
-                    or zero radix defaults to decimal and recognizes a <code>0x</code> prefix.
-                    <code>parseFloat</code> reads a decimal prefix, including signed Infinity. Both
-                    return <code>null</code> when no number can be parsed. <code>isFinite</code> and
-                    <code>isNaN</code> require numeric values; <code>sign</code> preserves NaN and
-                    signed zero. <code>clamp</code> requires three numbers and minimum no greater than
-                    maximum. Invalid arguments raise catchable runtime errors. Constants are IEEE-754
-                    float64 values; <code>MIN_VALUE</code> is the smallest positive nonzero value.`,
+                behavior: [
+                    { name: "parseInt(text, radix?)", doc: `Optional integer radix from 2 through 36. An omitted or zero radix defaults to decimal and recognizes a <code>0x</code> prefix. Returns <code>null</code> when no number can be parsed.` },
+                    { name: "parseFloat(text)", doc: `Reads a decimal prefix, including signed Infinity. Returns <code>null</code> when no number can be parsed.` },
+                    { name: "isFinite(value)", doc: `Requires a numeric value.` },
+                    { name: "isNaN(value)", doc: `Requires a numeric value.` },
+                    { name: "sign(value)", doc: `Returns the sign of the number; preserves NaN and signed zero.` },
+                    { name: "clamp(value, min, max)", doc: `Requires three numbers, with minimum no greater than maximum.` },
+                    { name: "MAX_VALUE, MIN_VALUE, NaN, Infinity", doc: `IEEE-754 float64 constants. <code>MIN_VALUE</code> is the smallest positive nonzero value.` },
+                    `Invalid arguments raise catchable runtime errors.`
+                ],
                 example: {
                     code: `import { parseInt, parseFloat, clamp, isFinite } from "core:number";
 import { println } from "core:io";
@@ -1008,14 +1036,17 @@ println(count, volume, isFinite(volume));`
             {
                 name: "core:unicode",
                 exports: ["length", "byteLength", "codePointAt", "fromCodePoint", "isValid", "toUpper", "toLower", "isLetter", "isDigit", "isNumber", "isWhitespace", "isUpper", "isLower", "isMark", "isPunctuation", "isSymbol", "isControl", "isGraphic", "isPrintable"],
-                behavior: `<code>length</code> counts Unicode code points; <code>byteLength</code> counts UTF-8
-                    bytes. <code>codePointAt(text, index)</code> returns a numeric code point, accepts
-                    negative indexes from the end, and returns <code>null</code> out of range.
-                    <code>fromCodePoint</code> accepts one Unicode scalar value and returns its string.
-                    <code>isValid</code> checks UTF-8 validity. Predicates require exactly one valid code
-                    point; <code>isWhitespace</code> follows Unicode whitespace rules. Case conversion
-                    operates on complete strings. Operations requiring valid UTF-8 raise catchable errors
-                    for invalid input.`,
+                behavior: [
+                    { name: "length(text)", doc: `Counts Unicode code points.` },
+                    { name: "byteLength(text)", doc: `Counts UTF-8 bytes.` },
+                    { name: "codePointAt(text, index)", doc: `Returns a numeric code point. Negative indexes count from the end; returns <code>null</code> out of range.` },
+                    { name: "fromCodePoint(codePoint)", doc: `Accepts one Unicode scalar value and returns its string.` },
+                    { name: "isValid(text)", doc: `Checks UTF-8 validity.` },
+                    { name: "toUpper(text), toLower(text)", doc: `Convert complete strings.` },
+                    { name: "isLetter, isDigit, isNumber, isUpper, isLower, isMark, isPunctuation, isSymbol, isControl, isGraphic, isPrintable", doc: `Character predicates; each requires exactly one valid code point.` },
+                    { name: "isWhitespace", doc: `Character predicate following Unicode whitespace rules.` },
+                    `Operations requiring valid UTF-8 raise catchable errors for invalid input.`
+                ],
                 example: {
                     code: `import { length, byteLength, codePointAt, fromCodePoint, toUpper, isLetter } from "core:unicode";
 import { println } from "core:io";
@@ -1029,26 +1060,22 @@ println(toUpper(text), isLetter("é"));`
             {
                 name: "core:socket",
                 exports: ["AF_INET", "SOCK_STREAM", "socket(family?, type?)", "listen(address)", "dial(address)"],
-                behavior: `<code>socket()</code> creates a Python-style TCP socket with
-                    <code>bind([host, port])</code>,
-                    <code>listen(backlog)</code>, <code>accept()</code>, <code>connect([host, port])</code>,
-                    <code>send(text)</code>, <code>sendall(text)</code>, <code>recv(byteCount)</code>,
-                    <code>getsockname()</code>, and <code>close()</code>. <code>accept</code>,
-                    <code>send</code>, <code>sendall</code>, and <code>recv</code> return Promises;
-                    <code>accept</code> resolves to <code>[connection, peerAddress]</code>, and addresses
-                    are <code>[host, port]</code> arrays. <code>send</code> may send fewer bytes than
-                    requested; <code>sendall</code> writes the full string or rejects and resolves to
-                    <code>null</code>. Send and receive accept an optional zero flags argument;
-                    nonzero flags are unsupported. <code>recv</code> returns up to the requested byte
-                    count as a string, including an empty string for a zero count or EOF; its count
-                    must be 0 through 1 MiB. Connect and data operations time out after five
-                    seconds; <code>accept</code> waits until a connection arrives or the listener closes.
-                    The optional backlog is currently ignored. The convenience functions take
-                    <code>host:port</code> strings; their connection methods are <code>read</code>,
-                    <code>write</code>, and <code>close</code>. This is a restricted TCP subset: only
-                    loopback addresses are allowed; UDP, TLS, byte buffers, most socket flags,
-                    socket options, and internet-bound connections are not supported. This API is
-                    Python-style and is not fully compatible with Python 3's <code>socket</code> module.`,
+                behavior: [
+                    { name: "AF_INET, SOCK_STREAM", doc: `Constants for socket family and type.` },
+                    { name: "socket(family?, type?)", doc: `Creates a Python-style TCP socket.` },
+                    { name: "sock->bind([host, port])", doc: `Binds the socket to an address array.` },
+                    { name: "sock->listen(backlog)", doc: `Starts listening. The backlog is currently ignored.` },
+                    { name: "sock->accept()", doc: `Returns a Promise resolving to <code>[connection, peerAddress]</code>. Waits until a connection arrives or the listener closes.` },
+                    { name: "sock->connect([host, port])", doc: `Connects to an address array.` },
+                    { name: "sock->send(text)", doc: `Returns a Promise. May send fewer bytes than requested.` },
+                    { name: "sock->sendall(text)", doc: `Returns a Promise. Writes the full string, or rejects and resolves to <code>null</code>.` },
+                    { name: "sock->recv(byteCount)", doc: `Returns a Promise for up to the requested byte count as a string, including an empty string for a zero count or EOF. The count must be 0 through 1 MiB.` },
+                    { name: "sock->getsockname()", doc: `Returns the bound address as <code>[host, port]</code>.` },
+                    { name: "sock->close()", doc: `Closes the socket.` },
+                    { name: "listen(address), dial(address)", doc: `Convenience functions taking <code>host:port</code> strings. Their connection methods are <code>read</code>, <code>write</code>, and <code>close</code>.` },
+                    `Send and receive accept an optional zero flags argument; nonzero flags are unsupported. Connect and data operations time out after five seconds.`,
+                    `Restricted TCP subset: only loopback addresses are allowed. UDP, TLS, byte buffers, most socket flags, socket options, and internet-bound connections are not supported. The API is Python-style but not fully compatible with Python 3's <code>socket</code> module.`
+                ],
                 example: {
                     code: `import { socket, AF_INET, SOCK_STREAM } from "core:socket";
 import { println } from "core:io";
@@ -1085,15 +1112,20 @@ connect();`,
             {
                 name: "core:sys",
                 exports: ["OS", "ARCH", "BITNESS", "CPU_COUNT", "GO_VERSION", "PID", "PATH_SEP", "PATH_LIST_SEP", "LINE_SEP", "IS_WINDOWS", "IS_LINUX", "IS_MACOS", "argv", "cwd()", "executable()", "hostname()", "homeDir()", "tempDir()", "env(name)"],
-                behavior: `Constants describe the current process/runtime. OS and architecture use Go runtime
-                    names; <code>BITNESS</code> is 32 or 64; <code>CPU_COUNT</code> is the logical CPU
-                    count; <code>PID</code> is the process ID; path separators follow the host OS;
-                    <code>LINE_SEP</code> is currently line feed. <code>argv</code> contains arguments
-                    after the script path, excluding interpreter flags and the script filename.
-                    <code>cwd</code>, <code>executable</code>, <code>hostname</code>, and
-                    <code>homeDir</code> return strings or raise catchable errors; <code>tempDir</code>
-                    returns the system temporary directory. <code>env(name)</code> returns the value or
-                    <code>null</code> when unset.`,
+                behavior: [
+                    { name: "OS, ARCH", doc: `Operating system and architecture, using Go runtime names.` },
+                    { name: "BITNESS", doc: `32 or 64.` },
+                    { name: "CPU_COUNT", doc: `Logical CPU count.` },
+                    { name: "GO_VERSION", doc: `Go runtime version.` },
+                    { name: "PID", doc: `Process ID.` },
+                    { name: "PATH_SEP, PATH_LIST_SEP", doc: `Path separators following the host OS.` },
+                    { name: "LINE_SEP", doc: `Currently line feed.` },
+                    { name: "IS_WINDOWS, IS_LINUX, IS_MACOS", doc: `Boolean platform flags.` },
+                    { name: "argv", doc: `Arguments after the script path, excluding interpreter flags and the script filename.` },
+                    { name: "cwd(), executable(), hostname(), homeDir()", doc: `Return strings or raise catchable errors.` },
+                    { name: "tempDir()", doc: `Returns the system temporary directory.` },
+                    { name: "env(name)", doc: `Returns the value, or <code>null</code> when unset.` }
+                ],
                 example: {
                     code: `import { OS, ARCH, CPU_COUNT, IS_WINDOWS, argv, cwd, env } from "core:sys";
 import { println } from "core:io";
@@ -1108,13 +1140,15 @@ println("HOME:", env("HOME"));`,
             {
                 name: "core:path",
                 exports: ["exists", "isFile", "isDir", "isAbs", "absolute", "join", "clean", "base", "dir", "ext", "relative"],
-                behavior: `All paths use the host operating system's path rules. <code>exists</code>,
-                    <code>isFile</code>, <code>isDir</code>, and <code>isAbs</code> return booleans.
-                    <code>absolute</code> resolves against the working directory; <code>join</code>
-                    accepts one or more paths; <code>clean</code> normalizes a path; <code>base</code>,
-                    <code>dir</code>, and <code>ext</code> return path components.
-                    <code>relative(target, base)</code> returns a path from base to target or raises a
-                    catchable error when the paths cannot be compared.`,
+                behavior: [
+                    `All paths use the host operating system's path rules.`,
+                    { name: "exists, isFile, isDir, isAbs", doc: `Return booleans.` },
+                    { name: "absolute(path)", doc: `Resolves against the working directory.` },
+                    { name: "join(...paths)", doc: `Accepts one or more paths.` },
+                    { name: "clean(path)", doc: `Normalizes a path.` },
+                    { name: "base, dir, ext", doc: `Return path components.` },
+                    { name: "relative(target, base)", doc: `Returns a path from base to target, or raises a catchable error when the paths cannot be compared.` }
+                ],
                 example: {
                     code: `import { join, absolute, exists, isDir, base, ext, relative } from "core:path";
 import { cwd } from "core:sys";
@@ -1129,9 +1163,10 @@ println(relative(join(project, "main.go"), project));`
             {
                 name: "core:error",
                 exports: ["Error(message, line?)"],
-                behavior: `Constructs an error object with readable <code>message</code> and numeric
-                    <code>line</code> properties. The line defaults to zero. This constructor creates a
-                    value; the language currently has no <code>throw</code> statement.`,
+                behavior: [
+                    { name: "Error(message, line?)", doc: `Constructs an error object with readable <code>message</code> and numeric <code>line</code> properties. The line defaults to zero.` },
+                    `This constructor creates a value; the language currently has no <code>throw</code> statement.`
+                ],
                 example: {
                     code: `import { Error } from "core:error";
 import { println } from "core:io";
@@ -1145,12 +1180,11 @@ println(problem->line);`,
             {
                 name: "core:json",
                 exports: ["parse(text)", "stringify(value)"],
-                behavior: `<code>parse</code> requires exactly one valid JSON value; JSON numbers become
-                    OpenScript numbers and arrays/objects become ordinary arrays/objects.
-                    <code>stringify</code> supports null, booleans, finite numbers, strings, arrays, and
-                    objects. Unsupported values and cycles raise catchable runtime errors. An object
-                    property whose value cycles back to an active ancestor is omitted; a cycle in an
-                    array or at the root is an error.`,
+                behavior: [
+                    { name: "parse(text)", doc: `Requires exactly one valid JSON value. JSON numbers become OpenScript numbers; arrays and objects become ordinary arrays and objects.` },
+                    { name: "stringify(value)", doc: `Supports null, booleans, finite numbers, strings, arrays, and objects. Unsupported values and cycles raise catchable runtime errors.` },
+                    `An object property whose value cycles back to an active ancestor is omitted; a cycle in an array or at the root is an error.`
+                ],
                 example: {
                     code: `import { parse, stringify } from "core:json";
 import { println } from "core:io";
@@ -1159,6 +1193,42 @@ const settings = parse("{\\\"theme\\\":\\\"dark\\\",\\\"scale\\\":1.25}");
 settings->scale = 1.5;
 println(settings->theme);
 println(stringify(settings));`
+                }
+            },
+            {
+                name: "core:regex",
+                exports: ["Regex(pattern)", "compile(pattern)", "compilePOSIX(pattern)", "mustCompile(pattern)", "mustCompilePOSIX(pattern)", "match(pattern, text)", "matchReader(pattern, text)", "matchString(pattern, text)", "quoteMeta(text)"],
+                behavior: [
+                    { name: "Regex(pattern), compile(pattern), mustCompile(pattern)", doc: `Compile a regular expression using Go's RE2-compatible syntax. Invalid patterns raise catchable runtime errors; the <code>mustCompile</code> name follows language error handling rather than terminating the process.` },
+                    { name: "compilePOSIX(pattern), mustCompilePOSIX(pattern)", doc: `Compile using POSIX ERE syntax with leftmost-longest matching.` },
+                    { name: "re-&gt;matchString(text), re-&gt;findString(text)", doc: `Test a string or return its first match. A missing string match is an empty string; index and submatch-index methods return <code>null</code> when there is no match.` },
+                    { name: "re-&gt;findAllString(text, count?)", doc: `Return non-overlapping matches. An omitted or negative count returns all matches; zero returns none.` },
+                    { name: "re-&gt;findStringSubmatch(text), re-&gt;findAllStringSubmatch(text, count?)", doc: `Return the full match followed by capture groups. Unmatched groups are empty strings.` },
+                    { name: "re-&gt;findStringIndex(text), re-&gt;findStringSubmatchIndex(text)", doc: `Return zero-based byte-offset pairs. Submatch indexes contain one pair for the full match followed by a pair for each capture group.` },
+                    { name: "re-&gt;replaceAllString(text, replacement), re-&gt;replaceAllLiteralString(text, replacement)", doc: `Replace all matches. Replacement strings interpret <code>$name</code> and <code>\${name}</code> capture references; literal replacement does not.` },
+                    { name: "re-&gt;replaceAllStringFunc(text, callback), re-&gt;replaceAllFunc(text, callback)", doc: `Replace each match with the callback's returned string. The callback receives the matched text and runs synchronously.` },
+                    { name: "re-&gt;split(text, count?)", doc: `Split text around matches using Go's count semantics.` },
+                    { name: "re-&gt;expandString(template, text, indexes)", doc: `Expand capture references using the index array returned by a submatch-index method.` },
+                    { name: "re-&gt;string(), re-&gt;numSubexp(), re-&gt;subexpNames(), re-&gt;subexpIndex(name), re-&gt;literalPrefix()", doc: `Read the pattern, capture metadata, or literal prefix. <code>literalPrefix()</code> returns <code>[prefix, complete]</code>.` },
+                    { name: "re-&gt;copy(), re-&gt;longest()", doc: `Copy a compiled expression or switch it to leftmost-longest matching. <code>longest()</code> returns the same expression.` },
+                    { name: "re-&gt;find(text), re-&gt;findAll(text, count?), re-&gt;findSubmatch(text), re-&gt;findIndex(text), re-&gt;findReaderIndex(text)", doc: `Byte-slice and reader variants are adapted to OpenScript strings; returned match bytes become strings and indexes remain byte offsets.` },
+                    { name: "re-&gt;marshalText(), re-&gt;appendText(prefix), re-&gt;unmarshalText(text)", doc: `Encode or replace a compiled expression's pattern text.` },
+                    { name: "match(pattern, text), matchReader(pattern, text), matchString(pattern, text)", doc: `Package-level one-shot matching helpers. The reader helper uses a string-backed reader.` },
+                    { name: "quoteMeta(text)", doc: `Escape regular-expression metacharacters so the text matches literally.` },
+                    `The engine follows Go's RE2-compatible syntax and guarantees linear-time matching. Reader and byte-slice operations accept strings because OpenScript does not expose Go readers or byte slices.`
+                ],
+                example: {
+                    code: `import { Regex, quoteMeta } from "core:regex";
+import { println } from "core:io";
+
+const pattern = Regex("(?P<name>[a-z]+)-(\\\\d+)");
+const captures = pattern-&gt;findStringSubmatch("item-42");
+const indexes = pattern-&gt;findStringSubmatchIndex("item-42");
+println(captures[1], captures[2]);
+                    println(pattern->expandString("\${name}:$2", "item-42", indexes));
+                    println(pattern->replaceAllString("item-42", "\${name}:$2"));
+println(quoteMeta("a+b"));`,
+                    note: "Capture indexes are byte offsets. Invalid patterns raise catchable runtime errors."
                 }
             }
         ];
@@ -1174,6 +1244,18 @@ println(stringify(settings));`
             return node;
         }
 
+        // One bullet: { name, doc } => "<code>name</code> — doc"; plain string => general note.
+        function renderBehaviorItem(item) {
+            const li = el("li");
+            if (typeof item === "string") {
+                li.innerHTML = item; // authored HTML, trusted
+            } else {
+                li.append(el("code", { textContent: item.name }), " — ");
+                li.insertAdjacentHTML("beforeend", item.doc);
+            }
+            return li;
+        }
+
         // Builds the reference table rows from the module array.
         function renderModuleTable(tbody, modules) {
             const rows = modules.map(({ name, exports, behavior }) => {
@@ -1182,8 +1264,7 @@ println(stringify(settings));`
                     if (i > 0) exportsCell.append(", ");
                     exportsCell.append(el("code", { textContent: exp }));
                 });
-                const behaviorCell = el("td");
-                behaviorCell.innerHTML = behavior; // authored HTML, trusted
+                const behaviorCell = el("td", {}, el("ul", { className: "behavior-list" }, ...behavior.map(renderBehaviorItem)));
                 return el("tr", {}, el("td", {}, el("code", { textContent: name })), exportsCell, behaviorCell);
             });
             tbody.replaceChildren(...rows);

@@ -23,6 +23,7 @@ func getBuiltinModule(name string) (map[string]OSValue, bool) {
 			"core:unicode": getCoreUnicode(),
 			"core:path":    getCorePath(),
 			"core:json":    getCoreJSON(),
+			"core:regex":   getCoreRegex(),
 		}
 	})
 	m, ok := builtinModules[name]
