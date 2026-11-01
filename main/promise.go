@@ -102,6 +102,11 @@ func schedulePromiseReaction(vm *VM, promise *Promise, reaction PromiseReaction)
 		}
 
 		callback := NewCoroutine(reaction.Scope, (*Function)(reaction.Callback.Opaque), InitialStack(1))
+		function := (*Function)(reaction.Callback.Opaque)
+		for index := range function.CaptureMeta {
+			capture := &function.CaptureMeta[index]
+			callback.Frame.Env[capture.Dst] = capture.Cell
+		}
 		callback.Parent = reaction.Scope
 		callback.Caller = nil
 		callback.Frame.Caller = nil

@@ -34,6 +34,22 @@ var checkFetch = fn() async {
 	println("500 ok:", errorResponse->ok);
 	println("500 body:", errorBody);
 	println("PASS: received HTTP error response without rejecting fetch");
+	try {
+		await fetch("://invalid-url");
+		println("FAIL: invalid fetch unexpectedly resolved");
+	} catch (err) {
+		println("FETCH CAUGHT:", err->message);
+	}
+	try {
+		let caughtPromise = fetch("://invalid-promise-catch")->catch(fn(err) {
+			println("PROMISE CATCH:", err);
+			return "handled";
+		});
+		let catchResult = await caughtPromise;
+		println("PROMISE CATCH RESULT:", catchResult);
+	} catch (err) {
+		println("FAIL: promise catch escaped to try/catch:", err->message);
+	}
 	app->close();
 };
 
