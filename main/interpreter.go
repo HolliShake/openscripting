@@ -693,32 +693,6 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 				sp++
 			}
-		case OpMakeClass:
-			{
-				if sp < 4 {
-					panic(msgUnderflow)
-				}
-				superValue := stack[sp-1]
-				templateValue := stack[sp-2]
-				constructor := stack[sp-3]
-				name := stack[sp-4]
-				clear(stack[sp-4 : sp])
-				sp -= 4
-
-				if name.Type != OSVString || (constructor.Type != OSVFunction && constructor.Type != OSVNativeFunction) || constructor.Opaque == nil ||
-					templateValue.Type != OSVObject || templateValue.Opaque == nil ||
-					(superValue.Type != OSVNull && (superValue.Type != OSVClass || superValue.Opaque == nil)) {
-					panic("invalid class definition")
-				}
-				class := &Class{
-					Name:        name.StringValue(),
-					Super:       (*Class)(superValue.Opaque),
-					Template:    (*Object)(templateValue.Opaque).Values,
-					Constructor: constructor,
-				}
-				stack[sp] = OSValue{Type: OSVClass, Opaque: unsafe.Pointer(class)}
-				sp++
-			}
 		case OpGetAttr:
 			{
 				if sp <= 0 {

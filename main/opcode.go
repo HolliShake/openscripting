@@ -10,7 +10,6 @@ const (
 	OpMakeArray
 	OpExtendObject
 	OpMakeObject
-	OpMakeClass
 	OpGetAttr
 	OpSetAttr
 	OpGetIndex

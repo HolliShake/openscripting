@@ -1213,6 +1213,10 @@ func (p *Parser) keyValue(required bool, spread bool) *Ast {
 		ThrowError(p.File, "missing or invalid key", p.lookahead.Pos)
 	}
 
+	if !required && k == nil {
+		return nil
+	}
+
 	p.expect(":")
 
 	v := p.expression(false)
