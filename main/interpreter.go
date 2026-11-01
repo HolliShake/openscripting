@@ -45,6 +45,12 @@ type VM struct {
 	HTTPDone chan *httpAppState
 	// HTTPFetches transfers worker results back to the VM thread for Promise settlement.
 	HTTPFetches chan httpFetchResult
+	// SocketResults transfers accepted connections from listener workers to the VM thread.
+	SocketResults chan socketResult
+	// SocketActive counts listeners and connections that keep the event loop alive.
+	SocketActive int
+	// SocketPending counts accept operations still running in listener workers.
+	SocketPending int
 	// HTTPActive counts servers keeping the event loop alive.
 	HTTPActive int
 	// HTTPFetchActive counts in-flight fetch workers keeping the event loop alive.
@@ -368,7 +374,7 @@ func interpreterLoop(state *State, vm *VM) {
 			if reportUnhandledPromises(vm) {
 				os.Exit(ExitFailure)
 			}
-			if vm.HTTPActive == 0 && vm.HTTPFetchActive == 0 {
+			if vm.HTTPActive == 0 && vm.HTTPFetchActive == 0 && vm.SocketActive == 0 && vm.SocketPending == 0 {
 				return
 			}
 			select {
@@ -381,6 +387,12 @@ func interpreterLoop(state *State, vm *VM) {
 			case result := <-vm.HTTPFetches:
 				vm.HTTPFetchActive--
 				settleHTTPFetch(vm, result)
+			case result := <-vm.SocketResults:
+				if result.accept != nil {
+					settleSocketAccept(vm, *result.accept)
+				} else if result.io != nil {
+					settleSocketIO(vm, *result.io)
+				}
 			}
 		}
 	}
@@ -2362,14 +2374,15 @@ func Run(state *State, program *Function) {
 	}
 
 	vm := VM{
-		State:        state,
-		Null:         OSValue{Type: OSVNull},
-		True:         OSValue{Type: OSVBool, Number: 1},
-		False:        OSValue{Type: OSVBool, Number: 0},
-		strs:         make(map[unsafe.Pointer][]string, 16),
-		HTTPRequests: make(chan *httpIncoming, 64),
-		HTTPDone:     make(chan *httpAppState, 64),
-		HTTPFetches:  make(chan httpFetchResult, 64),
+		State:         state,
+		Null:          OSValue{Type: OSVNull},
+		True:          OSValue{Type: OSVBool, Number: 1},
+		False:         OSValue{Type: OSVBool, Number: 0},
+		strs:          make(map[unsafe.Pointer][]string, 16),
+		HTTPRequests:  make(chan *httpIncoming, 64),
+		HTTPDone:      make(chan *httpAppState, 64),
+		HTTPFetches:   make(chan httpFetchResult, 64),
+		SocketResults: make(chan socketResult, 64),
 	}
 
 	main := NewCoroutine(nil, program, InitialStack(0))

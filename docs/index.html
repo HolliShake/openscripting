@@ -711,8 +711,8 @@ loop (;;) {
                             </td>
                             <td><code>print</code> writes values separated by spaces without a newline;
                                 <code>println</code> adds a newline, and no arguments prints a blank line.
-                                <code>scan</code> writes its prompt and reads one line from standard input; end of
-                                input returns <code>null</code>.
+                                <code>scan</code> writes its prompt, blocks while reading one line from standard
+                                input, strips the line ending, and returns <code>null</code> at end of input.
                             </td>
                         </tr>
                         <tr>
@@ -730,10 +730,11 @@ loop (;;) {
                                 method and path; unmatched routes return 404, and request bodies are limited to 1 MiB.
                                 <code>listen</code> returns the bound address, while <code>close</code> returns a
                                 boolean.
-                                <code>fetch</code> returns a Promise for a response with <code>status</code>,
+                                <code>fetch</code> accepts an optional object containing <code>method</code>,
+                                <code>headers</code>, and <code>body</code>, and returns a Promise for a response with
+                                <code>status</code>,
                                 <code>statusText</code>, <code>url</code>, <code>ok</code>, <code>headers</code>,
                                 and Promise-returning <code>text()</code> and <code>json()</code> methods.
-                                Options support <code>method</code>, <code>headers</code>, and <code>body</code>.
                                 HTTP error statuses such as 404 and 500 resolve normally with <code>ok</code> set to
                                 <code>false</code>; network failures and invalid JSON reject. Requests time out after
                                 30 seconds and response bodies are limited to 10 MiB.
@@ -745,9 +746,11 @@ loop (;;) {
                                 <code>appendText(path, text)</code>, <code>exists(path)</code>,
                                 <code>remove(path)</code>
                             </td>
-                            <td>Reads and writes UTF-8/text bytes. Write, append, and remove return booleans on
-                                success; <code>exists</code> returns a boolean. Read and filesystem failures raise
-                                catchable runtime errors.</td>
+                            <td><code>readText</code> returns file contents as a string. <code>writeText</code>
+                                replaces or creates a file; <code>appendText</code> appends or creates it. New files
+                                use permission mode <code>0644</code>. <code>exists</code>, successful writes, and
+                                <code>remove</code> return booleans. Filesystem failures raise catchable runtime
+                                errors. Relative paths use the process working directory.</td>
                         </tr>
                         <tr>
                             <td><code>core:math</code></td>
@@ -756,9 +759,10 @@ loop (;;) {
                                 <code>cos</code>, <code>tan</code>, <code>logarithm</code>, <code>exp</code>,
                                 <code>pow</code>, <code>min</code>, <code>max</code>
                             </td>
-                            <td>Numeric helpers use radians for trigonometric functions. <code>min</code> and
-                                <code>max</code> accept one or more numbers. Invalid types and non-finite results
-                                raise catchable runtime errors.
+                            <td>Unary functions take one number; <code>pow(base, exponent)</code> takes two.
+                                Trigonometric inputs are radians. <code>min</code> and <code>max</code> accept one
+                                or more numbers. Invalid types and non-finite operation results raise catchable
+                                runtime errors.
                             </td>
                         </tr>
                         <tr>
@@ -768,10 +772,14 @@ loop (;;) {
                                 <code>clamp(value, min, max)</code>, <code>MAX_VALUE</code>, <code>MIN_VALUE</code>,
                                 <code>NaN</code>, <code>Infinity</code>
                             </td>
-                            <td>Parsers read a valid numeric prefix and return <code>null</code> when no number can
-                                be parsed. <code>parseInt</code> accepts radix 2 through 36, or an omitted/zero radix
-                                that recognizes a hexadecimal prefix. Invalid argument types, radix values, and
-                                reversed clamp bounds raise catchable runtime errors.</td>
+                            <td><code>parseInt</code> accepts an optional integer radix from 2 through 36; omitted
+                                or zero radix defaults to decimal and recognizes a <code>0x</code> prefix.
+                                <code>parseFloat</code> reads a decimal prefix, including signed Infinity. Both
+                                return <code>null</code> when no number can be parsed. <code>isFinite</code> and
+                                <code>isNaN</code> require numeric values; <code>sign</code> preserves NaN and
+                                signed zero. <code>clamp</code> requires three numbers and minimum no greater than
+                                maximum. Invalid arguments raise catchable runtime errors. Constants are IEEE-754
+                                float64 values; <code>MIN_VALUE</code> is the smallest positive nonzero value.</td>
                         </tr>
                         <tr>
                             <td><code>core:unicode</code></td>
@@ -783,11 +791,36 @@ loop (;;) {
                                 <code>isSymbol</code>, <code>isControl</code>, <code>isGraphic</code>,
                                 <code>isPrintable</code>
                             </td>
-                            <td>String length counts Unicode code points; <code>byteLength</code> counts UTF-8 bytes.
-                                <code>codePointAt</code> accepts negative indexes and returns <code>null</code> out of
-                                range. Character predicates require a string containing exactly one valid code point.
-                                Case conversion supports full strings.
+                            <td><code>length</code> counts Unicode code points; <code>byteLength</code> counts UTF-8
+                                bytes. <code>codePointAt(text, index)</code> returns a numeric code point, accepts
+                                negative indexes from the end, and returns <code>null</code> out of range.
+                                <code>fromCodePoint</code> accepts one Unicode scalar value and returns its string.
+                                <code>isValid</code> checks UTF-8 validity. Predicates require exactly one valid code
+                                point; <code>isWhitespace</code> follows Unicode whitespace rules. Case conversion
+                                operates on complete strings. Operations requiring valid UTF-8 raise catchable errors
+                                for invalid input.
                             </td>
+                        </tr>
+                        <tr>
+                            <td><code>core:socket</code></td>
+                            <td><code>AF_INET</code>, <code>SOCK_STREAM</code>, <code>socket(family?, type?)</code>,
+                                <code>listen(address)</code>, <code>dial(address)</code></td>
+                            <td><code>socket()</code> creates a Python-style TCP socket with <code>bind([host, port])</code>,
+                                <code>listen(backlog)</code>, <code>accept()</code>, <code>connect([host, port])</code>,
+                                <code>send(text)</code>, <code>sendall(text)</code>, <code>recv(byteCount)</code>,
+                                <code>getsockname()</code>, and <code>close()</code>. <code>accept</code>,
+                                <code>send</code>, <code>sendall</code>, and <code>recv</code> return Promises;
+                                <code>accept</code> resolves to <code>[connection, peerAddress]</code>, and addresses
+                                are <code>[host, port]</code> arrays. <code>send</code> may send fewer bytes than
+                                requested; <code>sendall</code> writes the full string or rejects. <code>recv</code>
+                                returns up to the requested byte count as a string, or <code>null</code> at EOF; its
+                                count must be 1 through 1 MiB. Connect and data operations time out after five
+                                seconds; <code>accept</code> waits until a connection arrives or the listener closes.
+                                The optional backlog is currently ignored. The convenience functions take
+                                <code>host:port</code> strings; their connection methods are <code>read</code>,
+                                <code>write</code>, and <code>close</code>. This is a restricted TCP subset: only
+                                loopback addresses are allowed; UDP, TLS, byte buffers, socket options, and
+                                internet-bound connections are not supported.</td>
                         </tr>
                         <tr>
                             <td><code>core:sys</code></td>
@@ -798,12 +831,15 @@ loop (;;) {
                                 <code>executable()</code>, <code>hostname()</code>, <code>homeDir()</code>,
                                 <code>tempDir()</code>, <code>env(name)</code>
                             </td>
-                            <td>Reports the interpreter's runtime OS and architecture, bitness, CPU count, and process
-                                details. Directory and host helpers return strings or raise catchable errors;
-                                <code>env</code> returns <code>null</code> when the named variable is unset.
-                                <code>argv</code> is an array of arguments after the script path, excluding the
-                                interpreter flags and script filename. <code>LINE_SEP</code> is currently a line-feed
-                                character.
+                            <td>Constants describe the current process/runtime. OS and architecture use Go runtime
+                                names; <code>BITNESS</code> is 32 or 64; <code>CPU_COUNT</code> is the logical CPU
+                                count; <code>PID</code> is the process ID; path separators follow the host OS;
+                                <code>LINE_SEP</code> is currently line feed. <code>argv</code> contains arguments
+                                after the script path, excluding interpreter flags and the script filename.
+                                <code>cwd</code>, <code>executable</code>, <code>hostname</code>, and
+                                <code>homeDir</code> return strings or raise catchable errors; <code>tempDir</code>
+                                returns the system temporary directory. <code>env(name)</code> returns the value or
+                                <code>null</code> when unset.
                             </td>
                         </tr>
                         <tr>
@@ -812,62 +848,172 @@ loop (;;) {
                                 <code>absolute</code>, <code>join</code>, <code>clean</code>, <code>base</code>,
                                 <code>dir</code>, <code>ext</code>, <code>relative</code>
                             </td>
-                            <td>Uses the host operating system's path rules. <code>relative(target, base)</code>
-                                returns a path from the base to the target. Existence/type checks return booleans.</td>
+                            <td>All paths use the host operating system's path rules. <code>exists</code>,
+                                <code>isFile</code>, <code>isDir</code>, and <code>isAbs</code> return booleans.
+                                <code>absolute</code> resolves against the working directory; <code>join</code>
+                                accepts one or more paths; <code>clean</code> normalizes a path; <code>base</code>,
+                                <code>dir</code>, and <code>ext</code> return path components.
+                                <code>relative(target, base)</code> returns a path from base to target or raises a
+                                catchable error when the paths cannot be compared.</td>
                         </tr>
                         <tr>
                             <td><code>core:error</code></td>
                             <td><code>Error(message, line?)</code></td>
-                            <td>Constructs an error object with <code>message</code> and <code>line</code> properties.
-                                Error values are catchable through <code>try/catch</code>.</td>
+                            <td>Constructs an error object with readable <code>message</code> and numeric
+                                <code>line</code> properties. The line defaults to zero. This constructor creates a
+                                value; the language currently has no <code>throw</code> statement.</td>
                         </tr>
                         <tr>
                             <td><code>core:json</code></td>
                             <td><code>parse(text)</code>, <code>stringify(value)</code></td>
-                            <td>Converts JSON values to and from OpenScript values. Object properties that lead to
-                                an active cycle are omitted during serialization; cycles elsewhere and unsupported
-                                values raise catchable runtime errors.</td>
+                            <td><code>parse</code> requires exactly one valid JSON value; JSON numbers become
+                                OpenScript numbers and arrays/objects become ordinary arrays/objects.
+                                <code>stringify</code> supports null, booleans, finite numbers, strings, arrays, and
+                                objects. Unsupported values and cycles raise catchable runtime errors. An object
+                                property whose value cycles back to an active ancestor is omitted; a cycle in an
+                                array or at the root is an error.</td>
                         </tr>
                     </tbody>
                 </table>
-                <pre><code><span class="kw">import</span> { parse, stringify } <span class="kw">from</span> <span class="str">"core:json"</span>;
-<span class="kw">import</span> { join, absolute } <span class="kw">from</span> <span class="str">"core:path"</span>;
-<span class="kw">import</span> { sqrt, PI } <span class="kw">from</span> <span class="str">"core:math"</span>;
-<span class="kw">import</span> { parseFloat, clamp } <span class="kw">from</span> <span class="str">"core:number"</span>;
-<span class="kw">import</span> { OS, ARCH, cwd, argv } <span class="kw">from</span> <span class="str">"core:sys"</span>;
-<span class="kw">import</span> { readText } <span class="kw">from</span> <span class="str">"core:file"</span>;
+                <h3>Usage examples</h3>
+                <h4><code>core:io</code></h4>
+                <pre><code>import { print, println, scan } from "core:io";
 
-<span class="kw">var</span> configPath = absolute(join(<span class="str">"config"</span>, <span class="str">"settings.json"</span>));
-<span class="kw">var</span> config = parse(readText(configPath));
-println(OS, ARCH, cwd());
-println(clamp(parseFloat(config-&gt;volume), 0, 1));</code></pre>
-                <p>Arguments following the script path are available in <code>sys.argv</code>; for example,
-                    <code>openscript -f app.os one two</code> exposes <code>["one", "two"]</code>.
-                </p>
-                <h3>HTTP server and fetch</h3>
-                <p>HTTP server callbacks are synchronous. Use an async function to await outbound fetch requests;
-                    inspect the response status because HTTP error statuses do not reject the fetch promise.</p>
-                <pre><code><span class="kw">import</span> { Express, fetch } <span class="kw">from</span> <span class="str">"core:http"</span>;
-<span class="kw">import</span> { println } <span class="kw">from</span> <span class="str">"core:io"</span>;
+print("Name: ");
+const name = scan("");
+println("Hello", name);</code></pre>
 
-<span class="kw">const</span> app = Express();
-app-&gt;get(<span class="str">"/health"</span>, fn(req, res) {
-    res-&gt;json({ status: <span class="str">"ready"</span> });
+                <h4><code>core:file</code></h4>
+                <pre><code>import { readText, writeText, appendText, exists, remove } from "core:file";
+import { join } from "core:path";
+import { tempDir } from "core:sys";
+
+const path = join(tempDir(), "openscript-note.txt");
+writeText(path, "first line\n");
+appendText(path, "second line\n");
+println(exists(path));
+println(readText(path));
+remove(path);</code></pre>
+
+                <h4><code>core:http</code></h4>
+                <pre><code>import { Express, fetch } from "core:http";
+import { println } from "core:io";
+
+const app = Express();
+app-&gt;get("/health", fn(request, response) {
+    response-&gt;json({ status: "ready" });
 });
-app-&gt;get(<span class="str">"/failure"</span>, fn(req, res) {
-    res-&gt;status(500)-&gt;send(<span class="str">"Internal Server Error"</span>);
-});
-<span class="kw">var</span> address = app-&gt;listen(<span class="str">"127.0.0.1:0"</span>);
+const address = app-&gt;listen("127.0.0.1:0");
 
-<span class="kw">var</span> check = fn() <span class="kw">async</span> {
-    <span class="kw">let</span> response = <span class="kw">await</span> fetch(<span class="str">"http://"</span> + address + <span class="str">"/failure"</span>);
-    println(response-&gt;status); <span class="com">// 500</span>
-    println(response-&gt;ok); <span class="com">// false</span>
-    println(<span class="kw">await</span> response-&gt;text()); <span class="com">// Internal Server Error</span>
+var check::fn() async {
+    const response = await fetch("http://" + address + "/health");
+    println(response-&gt;status, response-&gt;ok);
+    println(await response-&gt;json());
     app-&gt;close();
 };
 
 check();</code></pre>
+                <p>Handlers are synchronous. Fetch network failures reject, while HTTP error statuses resolve with
+                    <code>ok</code> set to false; inspect the response status.</p>
+
+                <h4><code>core:math</code></h4>
+                <pre><code>import { PI, sqrt, sin, pow, min, max } from "core:math";
+import { println } from "core:io";
+
+println(sqrt(81));
+println(sin(PI / 2));
+println(pow(2, 8), min(4, 2, 9), max(4, 2, 9));</code></pre>
+
+                <h4><code>core:number</code></h4>
+                <pre><code>import { parseInt, parseFloat, clamp, isFinite } from "core:number";
+import { println } from "core:io";
+
+const count = parseInt("ff", 16);
+const volume = clamp(parseFloat("1.25 units"), 0, 1);
+println(count, volume, isFinite(volume));</code></pre>
+
+                <h4><code>core:socket</code></h4>
+                <pre><code>import { socket, AF_INET, SOCK_STREAM } from "core:socket";
+import { println } from "core:io";
+
+const server = socket(AF_INET, SOCK_STREAM);
+server-&gt;bind(["127.0.0.1", 0]);
+server-&gt;listen(1);
+const address = server-&gt;getsockname();
+const pendingPeer = server-&gt;accept();
+
+var serve::fn() async {
+    const peerInfo = await pendingPeer;
+    const peer = peerInfo[0];
+    const message = await peer-&gt;recv(64);
+    println("received:", message);
+    await peer-&gt;sendall("ack");
+    peer-&gt;close();
+    server-&gt;close();
+};
+
+var connect::fn() async {
+    const client = socket(AF_INET, SOCK_STREAM);
+    client-&gt;connect(address);
+    await client-&gt;sendall("hello");
+    println("reply:", await client-&gt;recv(16));
+    client-&gt;close();
+};
+
+serve();
+connect();</code></pre>
+                <p>This example only connects to loopback. Socket data methods and <code>accept</code> return
+                    Promises; use an async function and <code>await</code>.</p>
+
+                <h4><code>core:sys</code></h4>
+                <pre><code>import { OS, ARCH, CPU_COUNT, IS_WINDOWS, argv, cwd, env } from "core:sys";
+import { println } from "core:io";
+
+println(OS, ARCH, CPU_COUNT, IS_WINDOWS);
+println("working directory:", cwd());
+println("arguments:", argv);
+println("HOME:", env("HOME"));</code></pre>
+                <p>Use <code>env("USERPROFILE")</code> on Windows when looking up that platform's home variable.
+                    For example, <code>openscript -f app.os one two</code> exposes <code>["one", "two"]</code> in
+                    <code>argv</code>.</p>
+
+                <h4><code>core:unicode</code></h4>
+                <pre><code>import { length, byteLength, codePointAt, fromCodePoint, toUpper, isLetter } from "core:unicode";
+import { println } from "core:io";
+
+const text = "café";
+println(length(text), byteLength(text));
+println(codePointAt(text, -1), fromCodePoint(233));
+println(toUpper(text), isLetter("é"));</code></pre>
+
+                <h4><code>core:path</code></h4>
+                <pre><code>import { join, absolute, exists, isDir, base, ext, relative } from "core:path";
+import { cwd } from "core:sys";
+import { println } from "core:io";
+
+const project = absolute(join(cwd(), "main"));
+println(exists(project), isDir(project));
+println(base(project), ext("notes.txt"));
+println(relative(join(project, "main.go"), project));</code></pre>
+
+                <h4><code>core:error</code></h4>
+                <pre><code>import { Error } from "core:error";
+import { println } from "core:io";
+
+const problem = Error("configuration is missing", 12);
+println(problem-&gt;message);
+println(problem-&gt;line);</code></pre>
+                <p>The constructor creates an error value; OpenScript does not currently provide a <code>throw</code>
+                    statement.</p>
+
+                <h4><code>core:json</code></h4>
+                <pre><code>import { parse, stringify } from "core:json";
+import { println } from "core:io";
+
+const settings = parse("{\"theme\":\"dark\",\"scale\":1.25}");
+settings-&gt;scale = 1.5;
+println(settings-&gt;theme);
+println(stringify(settings));</code></pre>
             </section>
 
             <section id="runtime">
@@ -876,8 +1022,9 @@ check();</code></pre>
                     <li><strong>Built-ins:</strong> <code>core:io</code>, <code>core:file</code>,
                         <code>core:math</code>, <code>core:number</code>, <code>core:unicode</code>,
                         <code>core:sys</code>, <code>core:path</code>, <code>core:json</code>,
-                        <code>core:error</code>, and <code>core:http</code> provide I/O, filesystem, numeric,
-                        Unicode, host-system, path, JSON, error, HTTP server, and fetch operations.
+                        <code>core:error</code>, <code>core:http</code>, and <code>core:socket</code> provide I/O,
+                        filesystem, numeric, Unicode, host-system, path, JSON, error, HTTP, and loopback TCP
+                        operations.
                     </li>
                     <li><strong>Collections:</strong> arrays provide indexed access and mutation plus
                         <code>map</code>, <code>filter</code>, and <code>find</code> methods with script callbacks.
