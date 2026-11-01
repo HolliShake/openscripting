@@ -750,7 +750,8 @@ loop (;;) {
                                 replaces or creates a file; <code>appendText</code> appends or creates it. New files
                                 use permission mode <code>0644</code>. <code>exists</code>, successful writes, and
                                 <code>remove</code> return booleans. Filesystem failures raise catchable runtime
-                                errors. Relative paths use the process working directory.</td>
+                                errors. Relative paths use the process working directory.
+                            </td>
                         </tr>
                         <tr>
                             <td><code>core:math</code></td>
@@ -779,7 +780,8 @@ loop (;;) {
                                 <code>isNaN</code> require numeric values; <code>sign</code> preserves NaN and
                                 signed zero. <code>clamp</code> requires three numbers and minimum no greater than
                                 maximum. Invalid arguments raise catchable runtime errors. Constants are IEEE-754
-                                float64 values; <code>MIN_VALUE</code> is the smallest positive nonzero value.</td>
+                                float64 values; <code>MIN_VALUE</code> is the smallest positive nonzero value.
+                            </td>
                         </tr>
                         <tr>
                             <td><code>core:unicode</code></td>
@@ -804,8 +806,10 @@ loop (;;) {
                         <tr>
                             <td><code>core:socket</code></td>
                             <td><code>AF_INET</code>, <code>SOCK_STREAM</code>, <code>socket(family?, type?)</code>,
-                                <code>listen(address)</code>, <code>dial(address)</code></td>
-                            <td><code>socket()</code> creates a Python-style TCP socket with <code>bind([host, port])</code>,
+                                <code>listen(address)</code>, <code>dial(address)</code>
+                            </td>
+                            <td><code>socket()</code> creates a Python-style TCP socket with
+                                <code>bind([host, port])</code>,
                                 <code>listen(backlog)</code>, <code>accept()</code>, <code>connect([host, port])</code>,
                                 <code>send(text)</code>, <code>sendall(text)</code>, <code>recv(byteCount)</code>,
                                 <code>getsockname()</code>, and <code>close()</code>. <code>accept</code>,
@@ -820,7 +824,8 @@ loop (;;) {
                                 <code>host:port</code> strings; their connection methods are <code>read</code>,
                                 <code>write</code>, and <code>close</code>. This is a restricted TCP subset: only
                                 loopback addresses are allowed; UDP, TLS, byte buffers, socket options, and
-                                internet-bound connections are not supported.</td>
+                                internet-bound connections are not supported.
+                            </td>
                         </tr>
                         <tr>
                             <td><code>core:sys</code></td>
@@ -854,14 +859,16 @@ loop (;;) {
                                 accepts one or more paths; <code>clean</code> normalizes a path; <code>base</code>,
                                 <code>dir</code>, and <code>ext</code> return path components.
                                 <code>relative(target, base)</code> returns a path from base to target or raises a
-                                catchable error when the paths cannot be compared.</td>
+                                catchable error when the paths cannot be compared.
+                            </td>
                         </tr>
                         <tr>
                             <td><code>core:error</code></td>
                             <td><code>Error(message, line?)</code></td>
                             <td>Constructs an error object with readable <code>message</code> and numeric
                                 <code>line</code> properties. The line defaults to zero. This constructor creates a
-                                value; the language currently has no <code>throw</code> statement.</td>
+                                value; the language currently has no <code>throw</code> statement.
+                            </td>
                         </tr>
                         <tr>
                             <td><code>core:json</code></td>
@@ -871,7 +878,8 @@ loop (;;) {
                                 <code>stringify</code> supports null, booleans, finite numbers, strings, arrays, and
                                 objects. Unsupported values and cycles raise catchable runtime errors. An object
                                 property whose value cycles back to an active ancestor is omitted; a cycle in an
-                                array or at the root is an error.</td>
+                                array or at the root is an error.
+                            </td>
                         </tr>
                     </tbody>
                 </table>
@@ -914,7 +922,8 @@ var check::fn() async {
 
 check();</code></pre>
                 <p>Handlers are synchronous. Fetch network failures reject, while HTTP error statuses resolve with
-                    <code>ok</code> set to false; inspect the response status.</p>
+                    <code>ok</code> set to false; inspect the response status.
+                </p>
 
                 <h4><code>core:math</code></h4>
                 <pre><code>import { PI, sqrt, sin, pow, min, max } from "core:math";
@@ -975,7 +984,8 @@ println("arguments:", argv);
 println("HOME:", env("HOME"));</code></pre>
                 <p>Use <code>env("USERPROFILE")</code> on Windows when looking up that platform's home variable.
                     For example, <code>openscript -f app.os one two</code> exposes <code>["one", "two"]</code> in
-                    <code>argv</code>.</p>
+                    <code>argv</code>.
+                </p>
 
                 <h4><code>core:unicode</code></h4>
                 <pre><code>import { length, byteLength, codePointAt, fromCodePoint, toUpper, isLetter } from "core:unicode";
