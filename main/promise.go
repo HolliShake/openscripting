@@ -3,22 +3,35 @@ package main
 import "unsafe"
 
 type Promise struct {
-	Value      OSValue
-	Resolved   bool
-	Rejected   bool
+	// Value is the fulfillment value or rejection reason delivered to awaiters and reactions.
+	Value OSValue
+	// Resolved marks settlement so later reactions are scheduled immediately.
+	Resolved bool
+	// Rejected selects catch reactions and causes await to raise the stored Value.
+	Rejected bool
+	// StringRoot keeps a string Value's backing bytes alive independently of the promise result slot.
 	StringRoot string
-	Coroutine  *Coroutine
-	Then       OSValue
-	Catch      OSValue
-	Reactions  []PromiseReaction
+	// Coroutine tracks the async computation while it is still pending.
+	Coroutine *Coroutine
+	// Then caches the bound fulfillment method for repeated property access.
+	Then OSValue
+	// Catch caches the bound rejection method for repeated property access.
+	Catch OSValue
+	// Reactions stores callbacks/awaiters registered before settlement.
+	Reactions []PromiseReaction
 }
 
 type PromiseReaction struct {
+	// Callback is the function/native callable to run when the selected settlement outcome occurs.
 	Callback OSValue
-	Catch    bool
-	Scope    *Coroutine
-	Next     *Promise
-	Awaiter  *Coroutine
+	// Catch selects rejection instead of fulfillment for callback registration.
+	Catch bool
+	// Scope is a snapshot of lexical frames so callbacks retain captured outer bindings until execution.
+	Scope *Coroutine
+	// Next is the chained Promise settled with the callback result or propagated original value.
+	Next *Promise
+	// Awaiter is a suspended coroutine resumed directly instead of invoking a script callback.
+	Awaiter *Coroutine
 }
 
 func PromiseThen(this OSValue, vm *VM, args []OSValue) OSValue {

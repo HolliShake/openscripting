@@ -3,10 +3,14 @@ package main
 import "unsafe"
 
 type Array struct {
+	// Elements stores values in script-visible index order and is the array's mutable payload.
 	Elements []OSValue
-	Map      OSValue
-	Filter   OSValue
-	Find     OSValue
+	// Map caches the bound map method so repeated property access reuses its receiver wrapper.
+	Map OSValue
+	// Filter caches the bound filter method for stable, allocation-free repeated lookup.
+	Filter OSValue
+	// Find caches the bound find method for stable, allocation-free repeated lookup.
+	Find OSValue
 }
 
 func bindArrayMethod(array OSValue, method *OSValue, paramCount int, callable func(this OSValue, vm *VM, args []OSValue) OSValue) OSValue {

@@ -13,13 +13,21 @@ const (
 type ScopeType byte
 
 type Scope struct {
-	Type          ScopeType
-	Parent        *Scope
-	Frame         *Scope
-	Variables     map[string]Symbol
-	VarCount      int
-	LoopStart     int   // Opcode index for the start of the loop, used in loop scopes
-	BreakStart    []int // Opcode index for the start of the break, used in loop scopes
+	// Type controls declaration rules and which control-flow constructs this lexical scope represents.
+	Type ScopeType
+	// Parent preserves lexical visibility across nested blocks and enclosing functions.
+	Parent *Scope
+	// Frame points to the shared slot allocator for this function/module; nested blocks must not reuse offsets.
+	Frame *Scope
+	// Variables contains only names declared in this lexical scope, enabling shadowing and scope checks.
+	Variables map[string]Symbol
+	// VarCount is the number of frame slots allocated when this scope owns the frame.
+	VarCount int
+	// LoopStart is the bytecode destination for continue in the active loop.
+	LoopStart int
+	// BreakStart stores jump operands patched to the end of the enclosing loop/switch.
+	BreakStart []int
+	// ContinueStart stores deferred continue jumps that require target patching.
 	ContinueStart []int
 }
 

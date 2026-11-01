@@ -28,13 +28,19 @@ var (
 )
 
 type Parser struct {
-	state     *State
-	File      *File
-	line      int
-	colm      int
-	offset    int
+	// state owns compiled functions and imported modules produced while parsing this source.
+	state *State
+	// File supplies rune content and the filename used in parser diagnostics.
+	File *File
+	// line and colm track the current one-based source position as runes are consumed.
+	line int
+	colm int
+	// offset is the index into File.Content for constant-time lexer advancement.
+	offset int
+	// lookahead caches the next token so parser routines can branch without rescanning source.
 	lookahead Token
-	errors    []string
+	// errors accumulates recoverable parse diagnostics until the parser reports failure.
+	errors []string
 }
 
 /******************* Character classes (package-level tables, no struct changes) ***/

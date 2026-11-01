@@ -26,8 +26,11 @@ const (
 type OSValueType byte
 
 type OSValue struct {
-	Type   OSValueType
+	// Type selects the interpretation of the compact payload and keeps values boxed uniformly.
+	Type OSValueType
+	// Number stores numeric/bool payloads and byte lengths for strings in this tagged representation.
 	Number float64
+	// Opaque points to heap-backed strings, arrays, objects, functions, classes, promises, or BigInts.
 	Opaque unsafe.Pointer
 }
 

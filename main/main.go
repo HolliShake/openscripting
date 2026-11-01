@@ -12,7 +12,12 @@ var scriptFile string
 var showHelp bool
 
 type RGB struct {
-	R, G, B int
+	// R is the red channel used when emitting 24-bit terminal foreground colors.
+	R int
+	// G is the green channel used when emitting 24-bit terminal foreground colors.
+	G int
+	// B is the blue channel used when emitting 24-bit terminal foreground colors.
+	B int
 }
 
 func gradientColor(t float64) RGB {

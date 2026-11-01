@@ -3,15 +3,24 @@ package main
 import "unsafe"
 
 type Object struct {
-	ClassName  string
-	Class      *Class
+	// ClassName labels native/instance objects in string output and diagnostics when no Class is present.
+	ClassName string
+	// Class links instances to their inheritance chain and method template.
+	Class *Class
+	// StringRoot retains bytes backing string properties such as error messages owned by this object.
 	StringRoot string
-	Native     any
-	Keys       []string
-	Values     map[string]OSValue
-	Map        OSValue
-	Filter     OSValue
-	Find       OSValue
+	// Native stores host-language state for builtin objects without exposing it as script properties.
+	Native any
+	// Keys preserves insertion order for deterministic iteration and object stringification.
+	Keys []string
+	// Values maps property names to runtime values for lookup and mutation.
+	Values map[string]OSValue
+	// Map caches the bound map method so it retains this receiver across property access.
+	Map OSValue
+	// Filter caches the bound filter method for repeated lookup without rebuilding the wrapper.
+	Filter OSValue
+	// Find caches the bound find method for repeated lookup without rebuilding the wrapper.
+	Find OSValue
 }
 
 func (obj *Object) Set(key string, value OSValue) {

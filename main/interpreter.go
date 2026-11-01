@@ -30,19 +30,32 @@ const (
 // inside OSValue.String is not "moved to heap" in runCoroutine's frame.
 
 type VM struct {
-	State           *State
-	Current         *Coroutine
-	Pending         []*Coroutine
-	HTTPApps        []*httpAppState
-	HTTPRequests    chan *httpIncoming
-	HTTPDone        chan *httpAppState
-	HTTPFetches     chan httpFetchResult
-	HTTPActive      int
+	// State provides compiled functions and import tables required by opcode execution.
+	State *State
+	// Current is the coroutine currently owned by the interpreter loop.
+	Current *Coroutine
+	// Pending is the microtask FIFO for async callbacks and Promise resumptions.
+	Pending []*Coroutine
+	// HTTPApps keeps live server states reachable until their listeners are closed.
+	HTTPApps []*httpAppState
+	// HTTPRequests transfers accepted requests from listener goroutines to VM-thread handlers.
+	HTTPRequests chan *httpIncoming
+	// HTTPDone reports listener shutdowns so the event loop can decrement active server count.
+	HTTPDone chan *httpAppState
+	// HTTPFetches transfers worker results back to the VM thread for Promise settlement.
+	HTTPFetches chan httpFetchResult
+	// HTTPActive counts servers keeping the event loop alive.
+	HTTPActive int
+	// HTTPFetchActive counts in-flight fetch workers keeping the event loop alive.
 	HTTPFetchActive int
-	Null            OSValue
-	True            OSValue
-	False           OSValue
-	NativeError     string
+	// Null is the canonical null value used when bytecode or natives produce no value.
+	Null OSValue
+	// True is the canonical true value, avoiding repeated boxing in opcode execution.
+	True OSValue
+	// False is the canonical false value, avoiding repeated boxing in opcode execution.
+	False OSValue
+	// NativeError is the error channel from a native callable to the interpreter's throw path.
+	NativeError string
 
 	// pendingHead is the index of the next microtask to run in Pending.
 	// Consuming with an index (instead of Pending = Pending[1:]) avoids

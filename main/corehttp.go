@@ -17,58 +17,93 @@ const (
 )
 
 type httpRoute struct {
-	status  int
-	body    string
+	// status is the response status returned by a route without a script handler.
+	status int
+	// body is the static response payload used for routes that do not invoke handler.
+	body string
+	// handler is the script callback invoked for a matching request, or null for a static route.
 	handler OSValue
 }
 
 type httpIncoming struct {
-	method  string
-	path    string
-	query   string
-	body    string
+	// method is the HTTP verb copied from the listener request for VM-thread dispatch.
+	method string
+	// path is the URL path used to select the registered route.
+	path string
+	// query contains the encoded query string for the script request object.
+	query string
+	// body is the bounded request payload copied before the listener goroutine returns.
+	body string
+	// headers carries request metadata without sharing the mutable net/http request object.
 	headers http.Header
-	route   httpRoute
-	write   func(int, string, string)
-	done    chan struct{}
-	status  int
-	text    string
-	json    string
-}
-
-type httpResponseData struct {
+	// route is the listener-thread route snapshot selected for this request.
+	route httpRoute
+	// write sends status, content type, and body back to the listener goroutine for the actual response.
+	write func(int, string, string)
+	// done signals that the response was written and the listener may release request resources.
+	done chan struct{}
+	// status, text, and json hold the script handler's response fields until write consumes them.
 	status int
 	text   string
 	json   string
 }
 
+type httpResponseData struct {
+	// status is the response code returned by a script handler.
+	status int
+	// text is the plain-text response body, when selected.
+	text string
+	// json is the serialized JSON response body, when selected.
+	json string
+}
+
 type httpFetchResult struct {
-	promise    *Promise
-	status     int
+	// promise identifies the script Promise to settle when the worker result reaches the VM thread.
+	promise *Promise
+	// status is the HTTP status code received by the fetch worker.
+	status int
+	// statusText is the server's textual status description.
 	statusText string
-	url        string
-	headers    http.Header
-	body       string
-	err        error
+	// url is the final response URL after redirects.
+	url string
+	// headers are copied response metadata used to construct the script response value.
+	headers http.Header
+	// body is the response payload read up to the configured response-size bound.
+	body string
+	// err records transport/read failures for Promise rejection on the VM thread.
+	err error
 }
 
 type httpFetchResponse struct {
-	status     int
+	// status is the numeric HTTP response code exposed to script.
+	status int
+	// statusText is the human-readable response status exposed to script.
 	statusText string
-	url        string
-	headers    http.Header
-	body       string
+	// url is the final URL after redirects.
+	url string
+	// headers contains the response headers visible to script.
+	headers http.Header
+	// body is consumed by response text/JSON readers.
+	body string
 }
 
 type httpAppState struct {
-	mu      sync.RWMutex
-	routes  map[string]httpRoute
-	server  *http.Server
-	done    chan struct{}
+	// mu protects route registration and lifecycle flags shared by VM and listener goroutines.
+	mu sync.RWMutex
+	// routes maps method/path keys to listener-safe route snapshots.
+	routes map[string]httpRoute
+	// server owns the listener and supports graceful shutdown.
+	server *http.Server
+	// done signals that the listener has stopped and allows the event loop to release this app.
+	done chan struct{}
+	// address is the bound address reported to script and used for lifecycle diagnostics.
 	address string
+	// started prevents duplicate listener startup.
 	started bool
-	closed  bool
-	vm      *VM
+	// closed prevents new requests/registrations after shutdown begins.
+	closed bool
+	// vm is the owning event loop that receives request and listener-completion messages.
+	vm *VM
 }
 
 var (

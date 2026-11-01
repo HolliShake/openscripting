@@ -49,9 +49,12 @@ var scopePool sync.Pool
 // Nested functions are compiled while the parent is still in progress, so each
 // in-flight function owns its own codeBuf.
 type codeBuf struct {
-	bc    []int32
+	// bc is pooled instruction capacity used during compilation before exact-size finalization.
+	bc []int32
+	// lines accumulates source mappings alongside bytecode so runtime diagnostics match emitted offsets.
 	lines []Line
-	try   []TryCatchTable
+	// try accumulates exception-handler ranges whose offsets are patched during code generation.
+	try []TryCatchTable
 }
 
 var codeBufPool sync.Pool
@@ -62,10 +65,14 @@ type constKind uint8
 // (except for string concatenation, which has to).
 // Fields are ordered so kind+b share one word: 32 bytes instead of 48.
 type constVal struct {
-	num  float64
-	str  string
+	// num stores a folded numeric literal without allocating an OSValue.
+	num float64
+	// str stores a folded string result; concatenation is the only fold that may allocate.
+	str string
+	// kind tells constant-folding helpers which payload is valid and whether folding succeeded.
 	kind constKind
-	b    bool
+	// b stores a folded boolean while keeping the compact return-by-value representation.
+	b bool
 }
 
 func (c constVal) folded() bool   { return c.kind != kNone }
@@ -939,10 +946,14 @@ func visitSwitchExpr(s *State, scope *Scope, fn *Function, ast *Ast) {
 
 func visitSwitchStatement(s *State, scope *Scope, fn *Function, ast *Ast) {
 	type switchCase struct {
-		node       *Ast
+		// node is the source AST case whose expressions and body are compiled in this pass.
+		node *Ast
+		// matchJumps are conditional branch operands patched to the case body after comparisons are emitted.
 		matchJumps []int
-		bodyJump   int
-		scope      *Scope
+		// bodyJump skips this case body when control falls through from an earlier matched body.
+		bodyJump int
+		// scope owns declarations in this case body so names do not leak into neighboring cases.
+		scope *Scope
 	}
 
 	switchScope := acquireScope(scope)

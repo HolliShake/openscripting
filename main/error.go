@@ -15,8 +15,10 @@ var errScratch errWriter
 // errWriter is a fixed-size, stack-allocated buffered writer for stderr.
 // Output is flushed whenever the buffer fills, so no heap growth is ever needed.
 type errWriter struct {
+	// buf is fixed-size so writing diagnostics does not allocate or retain a growing buffer.
 	buf [2048]byte
-	n   int
+	// n is the occupied prefix of buf and is reset whenever flush writes it to stderr.
+	n int
 }
 
 func (w *errWriter) flush() {

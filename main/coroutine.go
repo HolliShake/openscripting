@@ -11,23 +11,39 @@ const (
 type CoroutineState int
 
 type Coroutine struct {
-	Parent       *Coroutine
-	Caller       *Coroutine
-	State        CoroutineState
-	Frame        CallFrame
-	Sp           int
+	// Parent is the lexical environment chain used to resolve captured outer variables.
+	Parent *Coroutine
+	// Caller is the dynamic caller resumed after a normal synchronous function returns.
+	Caller *Coroutine
+	// State prevents dead or already-running coroutines from being scheduled again.
+	State CoroutineState
+	// Frame holds this invocation's function, instruction pointer, environment, and frame link.
+	Frame CallFrame
+	// Sp is the next free operand-stack slot and is saved whenever execution suspends.
+	Sp int
+	// OperandStack stores temporary expression values for this coroutine's bytecode.
 	OperandStack []OSValue
-	Transfer     OSValue
-	AsyncResult  *Promise
-	AsyncCaller  *Coroutine
-	StringRoot   string
-	ResumeValue  OSValue
-	ResumeReady  bool
+	// AsyncResult is resolved/rejected when this coroutine completes an async function.
+	AsyncResult *Promise
+	// AsyncCaller resumes the waiting coroutine after an awaited async child settles.
+	AsyncCaller *Coroutine
+	// StringRoot keeps backing bytes alive when a resumed coroutine receives a string value.
+	StringRoot string
+	// ResumeValue is the value delivered when an awaited Promise settles.
+	ResumeValue OSValue
+	// ResumeReady distinguishes a queued resume from an ordinary coroutine entry.
+	ResumeReady bool
+	// ResumeReject tells the entry path to raise ResumeValue instead of pushing it as a result.
 	ResumeReject bool
-	SyncCall     bool
-	SyncRoot     bool
-	SyncDone     bool
-	SyncResult   OSValue
+	// SyncCall marks a caller waiting for a native collection method's synchronous script callback.
+	SyncCall bool
+	// SyncRoot marks the callback's root frame so nested helper returns do not finish the callback early.
+	SyncRoot bool
+	// SyncDone signals that the root callback returned and SyncResult contains its return value.
+	SyncDone bool
+	// SyncResult carries the callback return value back across the native method boundary.
+	SyncResult OSValue
+	// SyncBoundary carries an uncaught callback error back to the collection method without a process panic.
 	SyncBoundary *Promise
 }
 

@@ -97,15 +97,20 @@ var (
 type AstType int
 
 type Ast struct {
-	Type  AstType
+	// Type selects the syntax operation so compiler visitors can interpret child links by node kind.
+	Type AstType
+	// Value stores identifier/literal text directly on the node to avoid separate token ownership.
 	Value string
-	Pos   Position
-	A     *Ast
-	B     *Ast
-	C     *Ast
-	D     *Ast
-	E     *Ast
-	Next  *Ast
+	// Pos preserves source location for compile-time diagnostics and emitted line mappings.
+	Pos Position
+	// A-E are compact positional child links; their meaning is defined by Type to keep the AST allocation small.
+	A *Ast
+	B *Ast
+	C *Ast
+	D *Ast
+	E *Ast
+	// Next links sibling/list nodes without allocating a slice for every argument or statement list.
+	Next *Ast
 }
 
 // newAst hands out a zeroed *Ast from the current chunk. The chunk is a single

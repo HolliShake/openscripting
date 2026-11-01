@@ -18,9 +18,12 @@ const (
 type TokenType int
 
 type Token struct {
-	Type  TokenType
+	// Type distinguishes identifiers, literals, symbols, keywords, and end/error markers.
+	Type TokenType
+	// Value is the token's decoded text consumed by grammar and compiler routines.
 	Value string
-	Pos   Position
+	// Pos is the token start location and anchors syntax errors to the source.
+	Pos Position
 }
 
 func (s TokenType) String() string {
