@@ -816,15 +816,18 @@ loop (;;) {
                                 <code>send</code>, <code>sendall</code>, and <code>recv</code> return Promises;
                                 <code>accept</code> resolves to <code>[connection, peerAddress]</code>, and addresses
                                 are <code>[host, port]</code> arrays. <code>send</code> may send fewer bytes than
-                                requested; <code>sendall</code> writes the full string or rejects. <code>recv</code>
-                                returns up to the requested byte count as a string, or <code>null</code> at EOF; its
-                                count must be 1 through 1 MiB. Connect and data operations time out after five
+                                requested; <code>sendall</code> writes the full string or rejects and resolves to
+                                <code>null</code>. Send and receive accept an optional zero flags argument;
+                                nonzero flags are unsupported. <code>recv</code> returns up to the requested byte
+                                count as a string, including an empty string for a zero count or EOF; its count
+                                must be 0 through 1 MiB. Connect and data operations time out after five
                                 seconds; <code>accept</code> waits until a connection arrives or the listener closes.
                                 The optional backlog is currently ignored. The convenience functions take
                                 <code>host:port</code> strings; their connection methods are <code>read</code>,
                                 <code>write</code>, and <code>close</code>. This is a restricted TCP subset: only
-                                loopback addresses are allowed; UDP, TLS, byte buffers, socket options, and
-                                internet-bound connections are not supported.
+                                loopback addresses are allowed; UDP, TLS, byte buffers, most socket flags,
+                                socket options, and internet-bound connections are not supported. This API is
+                                Python-style and is not fully compatible with Python 3's <code>socket</code> module.
                             </td>
                         </tr>
                         <tr>

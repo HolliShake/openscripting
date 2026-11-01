@@ -262,6 +262,14 @@ func socketConnection(this OSValue, vm *VM) (*socketConnState, bool) {
 	return nil, false
 }
 
+func isPythonSocket(this OSValue) bool {
+	if this.Type != OSVObject || this.Opaque == nil {
+		return false
+	}
+	_, ok := (*Object)(this.Opaque).Native.(*pythonSocketState)
+	return ok
+}
+
 func nativeSocketAddress(this OSValue, vm *VM, _ []OSValue) OSValue {
 	if this.Type == OSVObject && this.Opaque != nil {
 		if objectState, ok := (*Object)(this.Opaque).Native.(*pythonSocketState); ok {
@@ -314,8 +322,17 @@ func nativeSocketRead(this OSValue, vm *VM, args []OSValue) OSValue {
 	if !ok {
 		return vm.Null
 	}
-	if !IsNumber(args[0]) || args[0].Number != float64(int(args[0].Number)) || args[0].Number < 1 || args[0].Number > maxSocketReadBytes {
-		vm.NativeError = "core:socket.read expects a byte count between 1 and 1048576"
+	pythonStyle := isPythonSocket(this)
+	if len(args) < 1 || len(args) > 1 && !pythonStyle {
+		vm.NativeError = "core:socket.recv expects a byte count and optional flags"
+		return vm.Null
+	}
+	if pythonStyle && len(args) > 1 && (!IsNumber(args[1]) || args[1].Number != 0) {
+		vm.NativeError = "core:socket.recv currently supports only zero flags"
+		return vm.Null
+	}
+	if !IsNumber(args[0]) || args[0].Number != float64(int(args[0].Number)) || args[0].Number < 0 || args[0].Number > maxSocketReadBytes || args[0].Number == 0 && !pythonStyle {
+		vm.NativeError = "core:socket.recv expects a byte count between 1 and 1048576"
 		return vm.Null
 	}
 	state.mu.Lock()
@@ -325,6 +342,11 @@ func nativeSocketRead(this OSValue, vm *VM, args []OSValue) OSValue {
 		return vm.Null
 	}
 	state.mu.Unlock()
+	if args[0].Number == 0 {
+		promise := &Promise{}
+		resolvePromise(vm, promise, coreSocketString(""))
+		return OSValue{Type: OSVPromise, Opaque: unsafe.Pointer(promise)}
+	}
 	promise := &Promise{}
 	vm.SocketPending++
 	readSize := int(args[0].Number)
@@ -342,7 +364,11 @@ func nativeSocketRead(this OSValue, vm *VM, args []OSValue) OSValue {
 			return
 		}
 		if count == 0 && errors.Is(err, io.EOF) {
-			vm.SocketResults <- socketResult{io: &socketIOResult{promise: promise, value: vm.Null}}
+			if pythonStyle {
+				vm.SocketResults <- socketResult{io: &socketIOResult{promise: promise, text: "", textSet: true}}
+			} else {
+				vm.SocketResults <- socketResult{io: &socketIOResult{promise: promise, value: vm.Null}}
+			}
 			return
 		}
 		vm.SocketResults <- socketResult{io: &socketIOResult{promise: promise, text: string(buffer[:count]), textSet: true}}
@@ -361,6 +387,15 @@ func nativeSocketWriteAll(this OSValue, vm *VM, args []OSValue) OSValue {
 func nativeSocketWriteMode(this OSValue, vm *VM, args []OSValue, writeAll bool) OSValue {
 	state, ok := socketConnection(this, vm)
 	if !ok {
+		return vm.Null
+	}
+	pythonStyle := isPythonSocket(this)
+	if len(args) < 1 || len(args) > 1 && !pythonStyle {
+		vm.NativeError = "core:socket.send expects text and optional flags"
+		return vm.Null
+	}
+	if pythonStyle && len(args) > 1 && (!IsNumber(args[1]) || args[1].Number != 0) {
+		vm.NativeError = "core:socket.send currently supports only zero flags"
 		return vm.Null
 	}
 	if !IsString(args[0]) {
@@ -400,7 +435,11 @@ func nativeSocketWriteMode(this OSValue, vm *VM, args []OSValue, writeAll bool) 
 				break
 			}
 		}
-		vm.SocketResults <- socketResult{io: &socketIOResult{promise: promise, value: OSValue{Type: OSVNum, Number: float64(count)}}}
+		value := OSValue{Type: OSVNum, Number: float64(count)}
+		if pythonStyle && writeAll {
+			value = vm.Null
+		}
+		vm.SocketResults <- socketResult{io: &socketIOResult{promise: promise, value: value}}
 	}()
 	return OSValue{Type: OSVPromise, Opaque: unsafe.Pointer(promise)}
 }
@@ -508,9 +547,9 @@ func newPythonSocketValue(state *pythonSocketState) OSValue {
 	instance.Set("listen", coreSocketBoundMethod(value, 1, nativePythonSocketListen))
 	instance.Set("accept", coreSocketBoundMethod(value, 0, nativeSocketAccept))
 	instance.Set("connect", coreSocketBoundMethod(value, 1, nativePythonSocketConnect))
-	instance.Set("send", coreSocketBoundMethod(value, 1, nativeSocketWrite))
-	instance.Set("sendall", coreSocketBoundMethod(value, 1, nativeSocketWriteAll))
-	instance.Set("recv", coreSocketBoundMethod(value, 1, nativeSocketRead))
+	instance.Set("send", coreSocketBoundMethod(value, -1, nativeSocketWrite))
+	instance.Set("sendall", coreSocketBoundMethod(value, -1, nativeSocketWriteAll))
+	instance.Set("recv", coreSocketBoundMethod(value, -1, nativeSocketRead))
 	instance.Set("getsockname", coreSocketBoundMethod(value, 0, nativeSocketAddress))
 	instance.Set("address", coreSocketBoundMethod(value, 0, nativeSocketAddress))
 	instance.Set("close", coreSocketBoundMethod(value, 0, nativePythonSocketClose))

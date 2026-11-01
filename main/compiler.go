@@ -693,6 +693,10 @@ func visitArrayLiteral(s *State, scope *Scope, fn *Function, ast *Ast) {
 		}
 	}
 
+	if count > StackSize && !isFoldableAll(ast.A) {
+		ThrowError(fn.File, "array literal too large, try to make all element a constant", ast.Pos)
+	}
+
 	// Fast path: no spread, so push the items and build the array in one op
 	// instead of MakeArray 0 + MakeArray n + ExtendArray.
 	if !hasSpread {
