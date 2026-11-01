@@ -110,6 +110,11 @@ func acquireScope(parent *Scope) *Scope {
 	}
 	vars, breaks, continues := s.Variables, s.BreakStart[:0], s.ContinueStart[:0]
 	*s = Scope{Parent: parent, Variables: vars, BreakStart: breaks, ContinueStart: continues}
+	if parent == nil {
+		s.Frame = s
+	} else {
+		s.Frame = parent.Frame
+	}
 	return s
 }
 
@@ -120,6 +125,7 @@ func releaseScope(s *Scope) {
 	oversized := len(s.Variables) > maxPooledScopeVars || cap(s.BreakStart) > maxPooledBreaks || cap(s.ContinueStart) > maxPooledBreaks
 	clear(s.Variables)
 	s.Parent = nil
+	s.Frame = nil
 	if oversized {
 		return
 	}
@@ -696,6 +702,7 @@ func compileFunction(s *State, scope *Scope, fn *Function, name string, async bo
 
 	localScope := acquireScope(scope)
 	localScope.Type = ScopeTypeFunction
+	localScope.Frame = localScope
 	staticThisOffset := -1
 	if staticThis {
 		if localScope.ExistsLocal(KeyThis) {
@@ -1468,6 +1475,7 @@ func compileClassConstructor(s *State, scope *Scope, parentFn *Function, name st
 	funcOffset := s.SaveFunction(function)
 	localScope := acquireScope(scope)
 	localScope.Type = ScopeTypeFunction
+	localScope.Frame = localScope
 	function.ClassThisOffset = 0
 	function.ClassSuperOffset = 1
 	localScope.AddLocal("$classThis", Symbol{Name: "$classThis", Offset: 0})
@@ -1715,12 +1723,7 @@ func visitTryCatch(s *State, scope *Scope, fn *Function, ast *Ast) {
 	catchScope.Type = ScopeTypeBlock
 
 	catchVarName := ast.B.Value
-	ownerScope := scope
-	for ownerScope.Parent != nil && ownerScope.Type != ScopeTypeFunction && ownerScope.Type != ScopeTypeGlobal && ownerScope.Type != ScopeTypeModule {
-		ownerScope = ownerScope.Parent
-	}
-	offset := ownerScope.VarCount
-	ownerScope.VarCount++
+	offset := catchScope.GetVarCount()
 
 	catchScope.AddLocal(catchVarName, Symbol{
 		Name:   catchVarName,

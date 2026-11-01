@@ -15,6 +15,7 @@ type ScopeType byte
 type Scope struct {
 	Type          ScopeType
 	Parent        *Scope
+	Frame         *Scope
 	Variables     map[string]Symbol
 	VarCount      int
 	LoopStart     int   // Opcode index for the start of the loop, used in loop scopes
@@ -63,7 +64,7 @@ func (s *Scope) AddLocal(name string, sym Symbol) (status bool, msg string) {
 		return false, "variable already exists in scope"
 	}
 	s.Variables[name] = sym
-	s.VarCount++
+	s.Frame.VarCount++
 	return true, "variable added successfully"
 }
 
@@ -78,7 +79,7 @@ func (s *Scope) GetVariable(name string) (sym Symbol, exists bool) {
 }
 
 func (s *Scope) GetVarCount() int {
-	return s.VarCount
+	return s.Frame.VarCount
 }
 
 func (s *Scope) GetNearest(scopeType ScopeType) *Scope {
