@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"os"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -56,6 +57,8 @@ type VM struct {
 	False OSValue
 	// NativeError is the error channel from a native callable to the interpreter's throw path.
 	NativeError string
+	// RejectedPromises retains rejected promises until microtasks drain, allowing late catch registration.
+	RejectedPromises []*Promise
 
 	// pendingHead is the index of the next microtask to run in Pending.
 	// Consuming with an index (instead of Pending = Pending[1:]) avoids
@@ -226,6 +229,7 @@ func raise(vm *VM, co *Coroutine, instruction int, stack []OSValue, sp int, mess
 
 	if promise := co.AsyncResult; promise != nil {
 		promise.StringRoot = message
+		promise.StackTrace = captureStackTrace(co, instruction)
 		rejectPromise(vm, promise, newErrorValue(message, int64(line+1)))
 		co.State = CoroutineStateDead
 		asyncCaller := co.AsyncCaller
@@ -235,6 +239,7 @@ func raise(vm *VM, co *Coroutine, instruction int, stack []OSValue, sp int, mess
 	}
 	if boundary := co.SyncBoundary; boundary != nil {
 		boundary.StringRoot = message
+		boundary.StackTrace = captureStackTrace(co, instruction)
 		rejectPromise(vm, boundary, newErrorValue(message, int64(line+1)))
 		co.State = CoroutineStateDead
 		if root := boundary.Coroutine; root != nil && root != co {
@@ -245,8 +250,89 @@ func raise(vm *VM, co *Coroutine, instruction int, stack []OSValue, sp int, mess
 		return 0, 0, true
 	}
 
-	ThrowError(frame.Function.File, message, Position{Line: int(line), Column: 1})
+	position := Position{Line: int(line), Column: 1}
+	formatError(frame.Function.File, position, message)
+	printStackTrace(captureStackTrace(co, instruction))
+	os.Exit(ExitFailure)
 	panic(message)
+}
+
+func captureStackTrace(co *Coroutine, instruction int) []StackTraceFrame {
+	frames := make([]StackTraceFrame, 0, 8)
+	seen := make(map[*CallFrame]struct{}, 8)
+	appendFrame := func(frame *CallFrame, offset int) {
+		for frame != nil {
+			if _, exists := seen[frame]; exists {
+				return
+			}
+			seen[frame] = struct{}{}
+			if frame.Function != nil {
+				line := 0
+				for _, sourceLine := range frame.Function.Lines {
+					if sourceLine.Index > offset {
+						break
+					}
+					line = sourceLine.Line
+				}
+				frames = append(frames, StackTraceFrame{
+					File:     frame.Function.File,
+					Function: frame.Function.Name,
+					Line:     line + 1,
+				})
+			}
+			offset = frame.Ip - 1
+			frame = frame.Caller
+		}
+	}
+	if co != nil {
+		appendFrame(&co.Frame, instruction)
+		if co.AsyncCaller != nil {
+			appendFrame(&co.AsyncCaller.Frame, co.AsyncCaller.Frame.Ip-1)
+		}
+	}
+	return frames
+}
+
+func printStackTrace(frames []StackTraceFrame) {
+	if len(frames) == 0 {
+		return
+	}
+	fmt.Fprintln(os.Stderr, "Stack trace:")
+	for _, frame := range frames {
+		name := frame.Function
+		if name == "" {
+			name = "<anonymous>"
+		}
+		file := "<unknown>"
+		if frame.File != nil && frame.File.Name != "" {
+			file = frame.File.Name
+		}
+		fmt.Fprintf(os.Stderr, "  at %s (%s:%d)\n", name, file, frame.Line)
+	}
+}
+
+func reportUnhandledPromises(vm *VM) bool {
+	unhandled := false
+	for _, promise := range vm.RejectedPromises {
+		if promise == nil || promise.Handled || !promise.Resolved || !promise.Rejected {
+			continue
+		}
+		unhandled = true
+		message, ok := errorMessage(promise.Value)
+		if !ok {
+			message = promise.Value.String()
+		}
+		if len(promise.StackTrace) > 0 {
+			frame := promise.StackTrace[0]
+			formatError(frame.File, Position{Line: frame.Line - 1}, "unhandled promise rejection: ", message)
+		} else {
+			fmt.Fprintf(os.Stderr, "unhandled promise rejection: %s\n", message)
+		}
+		printStackTrace(promise.StackTrace)
+		promise.Handled = true
+	}
+	vm.RejectedPromises = nil
+	return unhandled
 }
 
 func interpreterLoop(state *State, vm *VM) {
@@ -279,6 +365,9 @@ func interpreterLoop(state *State, vm *VM) {
 		}
 
 		if vm.Current == nil {
+			if reportUnhandledPromises(vm) {
+				os.Exit(ExitFailure)
+			}
 			if vm.HTTPActive == 0 && vm.HTTPFetchActive == 0 {
 				return
 			}

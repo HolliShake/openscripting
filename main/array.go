@@ -242,6 +242,7 @@ func invokeSyncArrayFunction(vm *VM, function *Function, args []OSValue) (OSValu
 	caller.SyncResult = OSValue{}
 	completion := &Promise{}
 	completion.Coroutine = coroutine
+	completion.Handled = true
 	coroutine.AsyncResult = completion
 	coroutine.SyncBoundary = completion
 	vm.Current = coroutine

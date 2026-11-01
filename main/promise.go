@@ -19,6 +19,16 @@ type Promise struct {
 	Catch OSValue
 	// Reactions stores callbacks/awaiters registered before settlement.
 	Reactions []PromiseReaction
+	// StackTrace preserves the originating script frames after an async coroutine is released.
+	StackTrace []StackTraceFrame
+	// Handled prevents reporting a rejection once a catch or await is attached.
+	Handled bool
+}
+
+type StackTraceFrame struct {
+	File     *File
+	Function string
+	Line     int
 }
 
 type PromiseReaction struct {
@@ -44,6 +54,7 @@ func PromiseCatch(this OSValue, vm *VM, args []OSValue) OSValue {
 
 func registerPromiseCallback(this OSValue, vm *VM, callback OSValue, catch bool) OSValue {
 	promise := (*Promise)(this.Opaque)
+	promise.Handled = true
 	next := &Promise{}
 	reaction := PromiseReaction{
 		Callback: callback,
@@ -83,6 +94,9 @@ func settlePromise(vm *VM, promise *Promise, value OSValue, rejected bool) {
 	promise.Resolved = true
 	promise.Rejected = rejected
 	promise.Coroutine = nil
+	if rejected {
+		vm.RejectedPromises = append(vm.RejectedPromises, promise)
+	}
 	for _, reaction := range promise.Reactions {
 		schedulePromiseReaction(vm, promise, reaction)
 	}
@@ -91,6 +105,7 @@ func settlePromise(vm *VM, promise *Promise, value OSValue, rejected bool) {
 
 func schedulePromiseReaction(vm *VM, promise *Promise, reaction PromiseReaction) {
 	if reaction.Awaiter != nil {
+		promise.Handled = true
 		waiter := reaction.Awaiter
 		waiter.ResumeValue = promise.Value
 		waiter.ResumeReady = true
@@ -103,6 +118,7 @@ func schedulePromiseReaction(vm *VM, promise *Promise, reaction PromiseReaction)
 		return
 	}
 	if promise.Rejected != reaction.Catch {
+		reaction.Next.StackTrace = promise.StackTrace
 		settlePromise(vm, reaction.Next, promise.Value, promise.Rejected)
 		return
 	}
