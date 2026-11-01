@@ -30,6 +30,7 @@ const (
 // inside OSValue.String is not "moved to heap" in runCoroutine's frame.
 
 type VM struct {
+	State           *State
 	Current         *Coroutine
 	Pending         []*Coroutine
 	HTTPApps        []*httpAppState
@@ -217,6 +218,17 @@ func raise(vm *VM, co *Coroutine, instruction int, stack []OSValue, sp int, mess
 		asyncCaller := co.AsyncCaller
 		co.Release()
 		vm.Current = asyncCaller
+		return 0, 0, true
+	}
+	if boundary := co.SyncBoundary; boundary != nil {
+		boundary.StringRoot = message
+		rejectPromise(vm, boundary, newErrorValue(message, int64(line+1)))
+		co.State = CoroutineStateDead
+		if root := boundary.Coroutine; root != nil && root != co {
+			root.State = CoroutineStateDead
+			root.Release()
+		}
+		co.Release()
 		return 0, 0, true
 	}
 
@@ -572,10 +584,10 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 						if value, exists := object.Class.Template[attr]; exists {
 							stack[sp-1] = value
 						} else {
-							stack[sp-1] = vm.Null
+							stack[sp-1] = objectMethod(top, attr, vm)
 						}
 					} else {
-						stack[sp-1] = vm.Null
+						stack[sp-1] = objectMethod(top, attr, vm)
 					}
 					continue
 				}
@@ -594,6 +606,21 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 						sp++
 						continue
 					}
+				}
+
+				if top.Type == OSVArray && top.Opaque != nil {
+					switch attr {
+					case "map":
+						stack[sp] = BindArrayMapMethod(top)
+					case "filter":
+						stack[sp] = BindArrayFilterMethod(top)
+					case "find":
+						stack[sp] = BindArrayFindMethod(top)
+					default:
+						stack[sp] = vm.Null
+					}
+					sp++
+					continue
 				}
 
 				if top.Type == OSVClass && top.Opaque != nil {
@@ -1124,6 +1151,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 						if callee == nil {
 							panic("failed to create coroutine")
 						}
+						callee.SyncBoundary = caller.SyncBoundary
 						if len(callee.OperandStack) < argCount {
 							panic("callee operand stack is too small for arguments")
 						}
@@ -1151,10 +1179,23 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 
 						if fn.Async {
 							promise := &Promise{Coroutine: callee}
+							if caller.SyncBoundary != nil {
+								callee.SyncBoundary = promise
+							}
 							callee.Parent = SnapshotLexicalChain(caller)
 							callee.Caller = nil
-							callee.AsyncCaller = caller
+							callee.AsyncCaller = nil
 							callee.AsyncResult = promise
+							if caller.SyncBoundary != nil {
+								if sp >= len(stack) {
+									stack = growStack(co)
+								}
+								stack[sp] = OSValue{Type: OSVPromise, Opaque: unsafe.Pointer(promise)}
+								sp++
+								enqueueMicrotask(vm, callee)
+								continue
+							}
+							callee.AsyncCaller = caller
 							if sp >= len(stack) {
 								stack = growStack(co)
 							}
@@ -2085,6 +2126,13 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 
 				caller := co.Caller
+				if caller != nil && caller.SyncCall && co.SyncRoot {
+					caller.SyncResult = returnValue
+					caller.SyncDone = true
+					co.Release()
+					vm.Current = caller
+					return
+				}
 
 				if caller == nil {
 					// The root coroutine has finished.
@@ -2168,6 +2216,13 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 	}
 
 	parent := co.Caller
+	if parent != nil && parent.SyncCall && co.SyncRoot {
+		parent.SyncResult = returnValue
+		parent.SyncDone = true
+		co.Release()
+		vm.Current = parent
+		return
+	}
 	if parent == nil {
 		co.Release()
 		vm.Current = nil
@@ -2182,6 +2237,19 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 	vm.Current = parent
 }
 
+func objectMethod(object OSValue, name string, vm *VM) OSValue {
+	switch name {
+	case "map":
+		return BindObjectMapMethod(object)
+	case "filter":
+		return BindObjectFilterMethod(object)
+	case "find":
+		return BindObjectFindMethod(object)
+	default:
+		return vm.Null
+	}
+}
+
 func Run(state *State, program *Function) {
 	if state == nil {
 		panic("state cannot be nil")
@@ -2192,6 +2260,7 @@ func Run(state *State, program *Function) {
 	}
 
 	vm := VM{
+		State:        state,
 		Null:         OSValue{Type: OSVNull},
 		True:         OSValue{Type: OSVBool, Number: 1},
 		False:        OSValue{Type: OSVBool, Number: 0},

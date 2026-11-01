@@ -24,6 +24,11 @@ type Coroutine struct {
 	ResumeValue  OSValue
 	ResumeReady  bool
 	ResumeReject bool
+	SyncCall     bool
+	SyncRoot     bool
+	SyncDone     bool
+	SyncResult   OSValue
+	SyncBoundary *Promise
 }
 
 // release drops everything a finished coroutine references so it cannot keep
@@ -38,6 +43,11 @@ func (co *Coroutine) Release() {
 	co.ResumeValue = OSValue{}
 	co.ResumeReady = false
 	co.ResumeReject = false
+	co.SyncCall = false
+	co.SyncRoot = false
+	co.SyncDone = false
+	co.SyncResult = OSValue{}
+	co.SyncBoundary = nil
 	co.Frame = CallFrame{}
 }
 func NewCoroutine(parent *Coroutine, fn *Function, stackSize int) *Coroutine {
