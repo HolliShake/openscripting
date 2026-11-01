@@ -707,11 +707,13 @@ loop (;;) {
                         <tr>
                             <td><code>core:io</code></td>
                             <td><code>print(...values)</code>, <code>println(...values)</code>,
-                                <code>scan(prompt)</code></td>
+                                <code>scan(prompt)</code>
+                            </td>
                             <td><code>print</code> writes values separated by spaces without a newline;
                                 <code>println</code> adds a newline, and no arguments prints a blank line.
                                 <code>scan</code> writes its prompt and reads one line from standard input; end of
-                                input returns <code>null</code>.</td>
+                                input returns <code>null</code>.
+                            </td>
                         </tr>
                         <tr>
                             <td><code>core:http</code></td>
@@ -764,7 +766,8 @@ loop (;;) {
                             <td><code>parseInt(text, radix?)</code>, <code>parseFloat(text)</code>,
                                 <code>isFinite(value)</code>, <code>isNaN(value)</code>, <code>sign(value)</code>,
                                 <code>clamp(value, min, max)</code>, <code>MAX_VALUE</code>, <code>MIN_VALUE</code>,
-                                <code>NaN</code>, <code>Infinity</code></td>
+                                <code>NaN</code>, <code>Infinity</code>
+                            </td>
                             <td>Parsers read a valid numeric prefix and return <code>null</code> when no number can
                                 be parsed. <code>parseInt</code> accepts radix 2 through 36, or an omitted/zero radix
                                 that recognizes a hexadecimal prefix. Invalid argument types, radix values, and
@@ -778,11 +781,13 @@ loop (;;) {
                                 <code>isNumber</code>, <code>isWhitespace</code>, <code>isUpper</code>,
                                 <code>isLower</code>, <code>isMark</code>, <code>isPunctuation</code>,
                                 <code>isSymbol</code>, <code>isControl</code>, <code>isGraphic</code>,
-                                <code>isPrintable</code></td>
+                                <code>isPrintable</code>
+                            </td>
                             <td>String length counts Unicode code points; <code>byteLength</code> counts UTF-8 bytes.
                                 <code>codePointAt</code> accepts negative indexes and returns <code>null</code> out of
                                 range. Character predicates require a string containing exactly one valid code point.
-                                Case conversion supports full strings.</td>
+                                Case conversion supports full strings.
+                            </td>
                         </tr>
                         <tr>
                             <td><code>core:sys</code></td>
@@ -791,11 +796,13 @@ loop (;;) {
                                 <code>PATH_LIST_SEP</code>, <code>LINE_SEP</code>, <code>IS_WINDOWS</code>,
                                 <code>IS_LINUX</code>, <code>IS_MACOS</code>, <code>cwd()</code>,
                                 <code>executable()</code>, <code>hostname()</code>, <code>homeDir()</code>,
-                                <code>tempDir()</code>, <code>env(name)</code></td>
+                                <code>tempDir()</code>, <code>env(name)</code>
+                            </td>
                             <td>Reports the interpreter's runtime OS and architecture, bitness, CPU count, and process
                                 details. Directory and host helpers return strings or raise catchable errors;
                                 <code>env</code> returns <code>null</code> when the named variable is unset.
-                                <code>LINE_SEP</code> is currently a line-feed character.</td>
+                                <code>LINE_SEP</code> is currently a line-feed character.
+                            </td>
                         </tr>
                         <tr>
                             <td><code>core:path</code></td>
@@ -806,12 +813,12 @@ loop (;;) {
                             <td>Uses the host operating system's path rules. <code>relative(target, base)</code>
                                 returns a path from the base to the target. Existence/type checks return booleans.</td>
                         </tr>
-                            <tr>
-                                <td><code>core:error</code></td>
-                                <td><code>Error(message, line?)</code></td>
-                                <td>Constructs an error object with <code>message</code> and <code>line</code> properties.
+                        <tr>
+                            <td><code>core:error</code></td>
+                            <td><code>Error(message, line?)</code></td>
+                            <td>Constructs an error object with <code>message</code> and <code>line</code> properties.
                                 Error values are catchable through <code>try/catch</code>.</td>
-                            </tr>
+                        </tr>
                         <tr>
                             <td><code>core:json</code></td>
                             <td><code>parse(text)</code>, <code>stringify(value)</code></td>
@@ -868,7 +875,8 @@ check();</code></pre>
                         Unicode, host-system, path, JSON, error, HTTP server, and fetch operations.
                     </li>
                     <li><strong>Collections:</strong> arrays provide indexed access and mutation plus
-                        <code>map</code>, <code>filter</code>, and <code>find</code> methods with script callbacks.</li>
+                        <code>map</code>, <code>filter</code>, and <code>find</code> methods with script callbacks.
+                    </li>
                     <li><strong>Promises:</strong> async calls return promises. Promise values expose
                         <code>-&gt;then(fn)</code> and <code>-&gt;catch(fn)</code> chaining.
                     </li>
