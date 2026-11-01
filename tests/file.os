@@ -213,6 +213,8 @@ var Person::class(Human) {
     }
 };
 
+println(">>>", Person->getName(Person("Doy222")));
+
 var MyClass = class {
     constructor: fn(name) {
    

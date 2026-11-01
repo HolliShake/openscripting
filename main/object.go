@@ -15,12 +15,8 @@ type Object struct {
 	Keys []string
 	// Values maps property names to runtime values for lookup and mutation.
 	Values map[string]OSValue
-	// Map caches the bound map method so it retains this receiver across property access.
-	Map OSValue
-	// Filter caches the bound filter method for repeated lookup without rebuilding the wrapper.
-	Filter OSValue
-	// Find caches the bound find method for repeated lookup without rebuilding the wrapper.
-	Find OSValue
+	// Methods caches class-template methods bound to this object.
+	Methods map[string]OSValue
 }
 
 func (obj *Object) Set(key string, value OSValue) {
@@ -28,32 +24,6 @@ func (obj *Object) Set(key string, value OSValue) {
 		obj.Keys = append(obj.Keys, key)
 	}
 	obj.Values[key] = value
-}
-
-func bindObjectMethod(object OSValue, method *OSValue, callable func(this OSValue, vm *VM, args []OSValue) OSValue) OSValue {
-	if *method == (OSValue{}) {
-		*method = OSValue{
-			Type: OSVNativeMethod,
-			Opaque: unsafe.Pointer(&NativeMethod{
-				This:     object,
-				Paramc:   1,
-				Callable: callable,
-			}),
-		}
-	}
-	return *method
-}
-
-func BindObjectMapMethod(this OSValue) OSValue {
-	return bindObjectMethod(this, &(*Object)(this.Opaque).Map, ObjectMap)
-}
-
-func BindObjectFilterMethod(this OSValue) OSValue {
-	return bindObjectMethod(this, &(*Object)(this.Opaque).Filter, ObjectFilter)
-}
-
-func BindObjectFindMethod(this OSValue) OSValue {
-	return bindObjectMethod(this, &(*Object)(this.Opaque).Find, ObjectFind)
 }
 
 func ObjectMap(this OSValue, vm *VM, args []OSValue) OSValue {

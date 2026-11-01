@@ -807,80 +807,44 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 					object := (*Object)(top.Opaque)
 					if value, exists := object.Values[attr]; exists {
 						stack[sp-1] = value
-					} else if object.Class != nil {
-						if value, exists := classTemplateValue(object.Class, attr); exists {
-							if value.Type == OSVFunction {
-								stack[sp-1] = OSValue{Type: OSVMethod, Opaque: unsafe.Pointer(&Method{This: top, Callable: value})}
+					} else {
+						class := runtimeClass(top)
+						if value, exists := classTemplateValue(class, attr); exists {
+							stack[sp-1] = bindClassMethod(top, attr, value)
+						} else if class != getCoreObjectClass() {
+							if value, exists := classTemplateValue(getCoreObjectClass(), attr); exists {
+								stack[sp-1] = bindClassMethod(top, attr, value)
 							} else {
-								stack[sp-1] = value
+								stack[sp-1] = vm.Null
 							}
 						} else {
-							stack[sp-1] = objectMethod(top, attr, vm)
+							stack[sp-1] = vm.Null
 						}
-					} else {
-						stack[sp-1] = objectMethod(top, attr, vm)
 					}
 					continue
 				}
 
-				sp--
-				stack[sp] = OSValue{}
-
-				if top.Type == OSVPromise {
-					if attr == "then" {
-						stack[sp] = BindPromiseThenMethod(top)
-						sp++
-						continue
-					}
-					if attr == "catch" {
-						stack[sp] = BindPromiseCatchMethod(top)
-						sp++
-						continue
-					}
+				if top.Type == OSVArray && attr == "length" && top.Opaque != nil {
+					stack[sp-1] = OSValue{Type: OSVNum, Number: float64(len((*Array)(top.Opaque).Elements))}
+					continue
 				}
 
-				if top.Type == OSVArray && top.Opaque != nil {
-					if attr == "length" {
-						stack[sp] = OSValue{Type: OSVNum, Number: float64(len((*Array)(top.Opaque).Elements))}
-						sp++
+				if class := runtimeClass(top); class != nil {
+					if value, exists := classTemplateValue(class, attr); exists {
+						stack[sp-1] = bindClassMethod(top, attr, value)
 						continue
 					}
-					switch attr {
-					case "map":
-						{
-							stack[sp] = BindArrayMapMethod(top)
-						}
-					case "filter":
-						{
-							stack[sp] = BindArrayFilterMethod(top)
-						}
-					case "find":
-						{
-							stack[sp] = BindArrayFindMethod(top)
-						}
-					default:
-						{
-							stack[sp] = vm.Null
-						}
-					}
-					sp++
+					stack[sp-1] = vm.Null
 					continue
 				}
 
 				if top.Type == OSVClass && top.Opaque != nil {
 					class := (*Class)(top.Opaque)
-					found := false
-					for current := class; current != nil; current = current.Super {
-						if value, exists := current.Template[attr]; exists {
-							stack[sp] = value
-							found = true
-							break
-						}
+					if value, exists := classTemplateValue(class, attr); exists {
+						stack[sp-1] = value
+					} else {
+						stack[sp-1] = vm.Null
 					}
-					if !found {
-						stack[sp] = vm.Null
-					}
-					sp++
 					continue
 				}
 
@@ -2495,27 +2459,6 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 	parent.Sp++
 	co.Release()
 	vm.Current = parent
-}
-
-func objectMethod(object OSValue, name string, vm *VM) OSValue {
-	switch name {
-	case "map":
-		{
-			return BindObjectMapMethod(object)
-		}
-	case "filter":
-		{
-			return BindObjectFilterMethod(object)
-		}
-	case "find":
-		{
-			return BindObjectFindMethod(object)
-		}
-	default:
-		{
-			return vm.Null
-		}
-	}
 }
 
 func Run(state *State, program *Function) {

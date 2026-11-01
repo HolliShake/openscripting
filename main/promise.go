@@ -13,10 +13,8 @@ type Promise struct {
 	StringRoot string
 	// Coroutine tracks the async computation while it is still pending.
 	Coroutine *Coroutine
-	// Then caches the bound fulfillment method for repeated property access.
-	Then OSValue
-	// Catch caches the bound rejection method for repeated property access.
-	Catch OSValue
+	// Methods caches class-template methods bound to this promise.
+	Methods map[string]OSValue
 	// Reactions stores callbacks/awaiters registered before settlement.
 	Reactions []PromiseReaction
 	// StackTrace preserves the originating script frames after an async coroutine is released.
@@ -160,38 +158,4 @@ func schedulePromiseReaction(vm *VM, promise *Promise, reaction PromiseReaction)
 	default:
 		resolvePromise(vm, reaction.Next, promise.Value)
 	}
-}
-
-func BindPromiseThenMethod(this OSValue) OSValue {
-	promise := (*Promise)(this.Opaque)
-
-	if promise.Then == (OSValue{}) {
-		promise.Then = OSValue{
-			Type: OSVNativeMethod,
-			Opaque: unsafe.Pointer(&NativeMethod{
-				This:     this,
-				Paramc:   1,
-				Callable: PromiseThen,
-			}),
-		}
-	}
-
-	return promise.Then
-}
-
-func BindPromiseCatchMethod(this OSValue) OSValue {
-	promise := (*Promise)(this.Opaque)
-
-	if promise.Catch == (OSValue{}) {
-		promise.Catch = OSValue{
-			Type: OSVNativeMethod,
-			Opaque: unsafe.Pointer(&NativeMethod{
-				This:     this,
-				Paramc:   1,
-				Callable: PromiseCatch,
-			}),
-		}
-	}
-
-	return promise.Catch
 }
