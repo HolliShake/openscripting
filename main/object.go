@@ -4,6 +4,7 @@ type Object struct {
 	ClassName  string
 	Class      *Class
 	StringRoot string
+	Native     any
 	Keys       []string
 	Values     map[string]OSValue
 }

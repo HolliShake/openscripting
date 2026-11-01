@@ -5,7 +5,6 @@ import (
 	"log"
 	"math/big"
 	"slices"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 	"unsafe"
@@ -31,12 +30,18 @@ const (
 // inside OSValue.String is not "moved to heap" in runCoroutine's frame.
 
 type VM struct {
-	Current     *Coroutine
-	Pending     []*Coroutine
-	Null        OSValue
-	True        OSValue
-	False       OSValue
-	NativeError string
+	Current         *Coroutine
+	Pending         []*Coroutine
+	HTTPApps        []*httpAppState
+	HTTPRequests    chan *httpIncoming
+	HTTPDone        chan *httpAppState
+	HTTPFetches     chan httpFetchResult
+	HTTPActive      int
+	HTTPFetchActive int
+	Null            OSValue
+	True            OSValue
+	False           OSValue
+	NativeError     string
 
 	// pendingHead is the index of the next microtask to run in Pending.
 	// Consuming with an index (instead of Pending = Pending[1:]) avoids
@@ -87,40 +92,6 @@ func isBigIntPair(left, right OSValue) bool {
 //go:noinline
 func argcMessage(expected, got int) string {
 	return fmt.Sprintf("function expects %d arguments, got %d", expected, got)
-}
-
-// Panic helpers kept out of line: building their messages with string
-// concatenation inside the interpreter loop bloats its frame and hurts
-// register allocation.
-
-//go:noinline
-func panicLoadLocal(index, n int) {
-	panic("invalid local variable index: " + strconv.Itoa(index) + " of " + strconv.Itoa(n))
-}
-
-//go:noinline
-func panicStoreLocal(index, n int) {
-	panic("invalid local variable index: " + strconv.Itoa(index) + " (frame.Env length: " + strconv.Itoa(n) + ")")
-}
-
-//go:noinline
-func panicFuncIndex(index int) {
-	panic("invalid function index: " + strconv.Itoa(index))
-}
-
-//go:noinline
-func panicNilFunc(index int) {
-	panic("function at index " + strconv.Itoa(index) + " is nil")
-}
-
-//go:noinline
-func panicReturnStack(sp int) {
-	panic("stack not empty on return (stack pointer: " + strconv.Itoa(sp) + ")")
-}
-
-//go:noinline
-func panicUnknownOp(op int32, offset int) {
-	panic("unknown opcode " + strconv.Itoa(int(op)) + " at offset " + strconv.Itoa(offset))
 }
 
 // writeLog avoids boxing the string into a []any for log.Println.
@@ -283,7 +254,20 @@ func interpreterLoop(state *State, vm *VM) {
 		}
 
 		if vm.Current == nil {
-			return
+			if vm.HTTPActive == 0 && vm.HTTPFetchActive == 0 {
+				return
+			}
+			select {
+			case incoming := <-vm.HTTPRequests:
+				if incoming != nil {
+					serveHTTPIncoming(vm, incoming)
+				}
+			case <-vm.HTTPDone:
+				vm.HTTPActive--
+			case result := <-vm.HTTPFetches:
+				vm.HTTPFetchActive--
+				settleHTTPFetch(vm, result)
+			}
 		}
 	}
 }
@@ -771,12 +755,12 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				ip++
 
 				if funcIndex < 0 || funcIndex >= len(state.Functions) {
-					panicFuncIndex(funcIndex)
+					panic(fmt.Sprintf("invalid function index: %d", funcIndex))
 				}
 
 				fn := state.Functions[funcIndex]
 				if fn == nil {
-					panicNilFunc(funcIndex)
+					panic(fmt.Sprintf("function at index %d is nil", funcIndex))
 				}
 
 				// Only functions that capture variables need a per-closure
@@ -784,7 +768,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				if len(fn.CaptureMeta) > 0 {
 					fn = fn.Clone()
 					if fn == nil {
-						panicNilFunc(funcIndex)
+						panic(fmt.Sprintf("function at index %d is nil", funcIndex))
 					}
 
 					// Save captured variables from the current environment
@@ -834,7 +818,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				ip++
 
 				if uint(varIndex) >= uint(len(env)) || env[varIndex] == nil {
-					panicLoadLocal(varIndex, len(env))
+					panic(fmt.Sprintf("invalid local variable index: %d of %d", varIndex, len(env)))
 				}
 
 				if sp >= len(stack) {
@@ -1882,7 +1866,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				ip++
 
 				if uint(localIndex) >= uint(len(env)) || env[localIndex] == nil {
-					panicStoreLocal(localIndex, len(env))
+					panic(fmt.Sprintf("invalid local variable index: %d (frame.Env length: %d)", localIndex, len(env)))
 				}
 
 				if sp <= 0 {
@@ -2077,7 +2061,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					returnValue = vm.Null
 				}
 				if sp != 0 {
-					panicReturnStack(sp)
+					panic(fmt.Sprintf("stack not empty on return (stack pointer: %d)", sp))
 				}
 
 				if module := frame.Function.Module; module != nil {
@@ -2146,7 +2130,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 			}
 		default:
 			{
-				panicUnknownOp(op, ip-1)
+				panic(fmt.Sprintf("unknown opcode %d at offset %d", op, ip-1))
 			}
 		}
 		continue
@@ -2208,10 +2192,13 @@ func Run(state *State, program *Function) {
 	}
 
 	vm := VM{
-		Null:  OSValue{Type: OSVNull},
-		True:  OSValue{Type: OSVBool, Number: 1},
-		False: OSValue{Type: OSVBool, Number: 0},
-		strs:  make(map[unsafe.Pointer][]string, 16),
+		Null:         OSValue{Type: OSVNull},
+		True:         OSValue{Type: OSVBool, Number: 1},
+		False:        OSValue{Type: OSVBool, Number: 0},
+		strs:         make(map[unsafe.Pointer][]string, 16),
+		HTTPRequests: make(chan *httpIncoming, 64),
+		HTTPDone:     make(chan *httpAppState, 64),
+		HTTPFetches:  make(chan httpFetchResult, 64),
 	}
 
 	main := NewCoroutine(nil, program, InitialStack(0))

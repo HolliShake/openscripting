@@ -699,6 +699,30 @@ loop (;;) {
                                 newline.</td>
                         </tr>
                         <tr>
+                            <td><code>core:http</code></td>
+                            <td><code>Express</code> class, <code>fetch(url, options?)</code></td>
+                            <td>Creates a server with <code>get(path, bodyOrHandler)</code>,
+                                <code>post(path, bodyOrHandler)</code>,
+                                <code>route(method, path, status, bodyOrHandler)</code>,
+                                <code>listen(address)</code>, <code>address()</code>, and <code>close()</code>.
+                                Handlers have the form <code>fn(request, response)</code>; request fields are
+                                <code>method</code>, <code>path</code>, <code>query</code>, <code>body</code>,
+                                and <code>headers</code>. Responses support <code>status(code)</code>,
+                                <code>send(value)</code>, and <code>json(value)</code>. Route handlers are
+                                synchronous and run serially on the interpreter thread. Routes match the exact HTTP
+                                method and path; unmatched routes return 404, and request bodies are limited to 1 MiB.
+                                <code>listen</code> returns the bound address, while <code>close</code> returns a
+                                boolean.
+                                <code>fetch</code> returns a Promise for a response with <code>status</code>,
+                                <code>statusText</code>, <code>url</code>, <code>ok</code>, <code>headers</code>,
+                                and Promise-returning <code>text()</code> and <code>json()</code> methods.
+                                Options support <code>method</code>, <code>headers</code>, and <code>body</code>.
+                                HTTP error statuses such as 404 and 500 resolve normally with <code>ok</code> set to
+                                <code>false</code>; network failures and invalid JSON reject. Requests time out after
+                                30 seconds and response bodies are limited to 10 MiB.
+                            </td>
+                        </tr>
+                        <tr>
                             <td><code>core:file</code></td>
                             <td><code>readText(path)</code>, <code>writeText(path, text)</code>,
                                 <code>appendText(path, text)</code>, <code>exists(path)</code>,
@@ -745,14 +769,39 @@ loop (;;) {
 
 <span class="kw">var</span> configPath = absolute(join(<span class="str">"config"</span>, <span class="str">"settings.json"</span>));
 <span class="kw">var</span> config = parse(readText(configPath));</code></pre>
+                <h3>HTTP server and fetch</h3>
+                <p>HTTP server callbacks are synchronous. Use an async function to await outbound fetch requests;
+                    inspect the response status because HTTP error statuses do not reject the fetch promise.</p>
+                <pre><code><span class="kw">import</span> { Express, fetch } <span class="kw">from</span> <span class="str">"core:http"</span>;
+<span class="kw">import</span> { println } <span class="kw">from</span> <span class="str">"core:io"</span>;
+
+<span class="kw">const</span> app = Express();
+app-&gt;get(<span class="str">"/health"</span>, fn(req, res) {
+    res-&gt;json({ status: <span class="str">"ready"</span> });
+});
+app-&gt;get(<span class="str">"/failure"</span>, fn(req, res) {
+    res-&gt;status(500)-&gt;send(<span class="str">"Internal Server Error"</span>);
+});
+<span class="kw">var</span> address = app-&gt;listen(<span class="str">"127.0.0.1:0"</span>);
+
+<span class="kw">var</span> check = fn() <span class="kw">async</span> {
+    <span class="kw">let</span> response = <span class="kw">await</span> fetch(<span class="str">"http://"</span> + address + <span class="str">"/failure"</span>);
+    println(response-&gt;status); <span class="com">// 500</span>
+    println(response-&gt;ok); <span class="com">// false</span>
+    println(<span class="kw">await</span> response-&gt;text()); <span class="com">// Internal Server Error</span>
+    app-&gt;close();
+};
+
+check();</code></pre>
             </section>
 
             <section id="runtime">
                 <h2>Runtime features</h2>
                 <ul>
                     <li><strong>Built-ins:</strong> <code>core:io</code>, <code>core:file</code>,
-                        <code>core:math</code>, <code>core:path</code>, and <code>core:json</code> provide I/O,
-                        filesystem, numeric, path, and JSON operations.
+                        <code>core:math</code>, <code>core:path</code>, <code>core:json</code>, and
+                        <code>core:http</code> provide I/O, filesystem, numeric, path, JSON, HTTP server, and fetch
+                        operations.
                     </li>
                     <li><strong>Promises:</strong> async calls return promises. Promise values expose
                         <code>-&gt;then(fn)</code> and <code>-&gt;catch(fn)</code> chaining.
