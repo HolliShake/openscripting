@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -79,6 +80,15 @@ func coreSysBool(value bool) OSValue {
 	return OSValue{Type: OSVBool, Number: boolNumber(value)}
 }
 
+func coreSysArgv() OSValue {
+	arguments := flag.Args()
+	values := make([]OSValue, len(arguments))
+	for index, argument := range arguments {
+		values[index] = coreSysString(argument)
+	}
+	return OSValue{Type: OSVArray, Opaque: unsafe.Pointer(&Array{Elements: values})}
+}
+
 func getCoreSys() map[string]OSValue {
 	return map[string]OSValue{
 		"OS":            coreSysString(runtime.GOOS),
@@ -93,6 +103,7 @@ func getCoreSys() map[string]OSValue {
 		"IS_WINDOWS":    coreSysBool(runtime.GOOS == "windows"),
 		"IS_LINUX":      coreSysBool(runtime.GOOS == "linux"),
 		"IS_MACOS":      coreSysBool(runtime.GOOS == "darwin"),
+		"argv":          coreSysArgv(),
 		"cwd":           coreSysFunction(0, nativeSysCwd),
 		"executable":    coreSysFunction(0, nativeSysExecutable),
 		"hostname":      coreSysFunction(0, nativeSysHostname),

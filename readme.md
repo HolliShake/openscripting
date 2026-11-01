@@ -76,18 +76,18 @@ try {
 
 Builtin modules require named imports and reject unknown export names.
 
-| Module         | Purpose and exports                                                                                                                                                                    |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `core:io`      | `print`, `println`, and `scan` for standard output and line input.                                                                                                                     |
-| `core:file`    | `readText`, `writeText`, `appendText`, `exists`, and `remove`.                                                                                                                         |
-| `core:math`    | `PI`, `E`, common rounding, trigonometric, exponential and logarithmic functions, `pow`, `min`, and `max`. Trigonometric functions use radians.                                        |
-| `core:number`  | `parseInt`, `parseFloat`, `isFinite`, `isNaN`, `sign`, `clamp`, `MAX_VALUE`, `MIN_VALUE`, `NaN`, and `Infinity`. Invalid numeric text parses to `null`.                                |
-| `core:unicode` | Code-point and byte lengths, code-point conversion/indexing, validity checking, case conversion, and Unicode character predicates.                                                     |
-| `core:sys`     | Runtime OS, architecture, bitness, CPU count, process details, path separators, OS predicates, current directory, executable, hostname, home/temp directories, and environment lookup. |
-| `core:path`    | Host path operations: existence/type checks, absolute paths, joining, cleaning, path parts, and relative paths.                                                                        |
-| `core:json`    | `parse` and `stringify` for JSON conversion.                                                                                                                                           |
-| `core:error`   | `Error(message, line?)` constructor with `message` and `line` properties.                                                                                                              |
-| `core:http`    | `Express` HTTP server and asynchronous `fetch`; see the reference for routes, request/response fields, limits, and options.                                                            |
+| Module         | Purpose and exports                                                                                                                                                                                                                     |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `core:io`      | `print`, `println`, and `scan` for standard output and line input.                                                                                                                                                                      |
+| `core:file`    | `readText`, `writeText`, `appendText`, `exists`, and `remove`.                                                                                                                                                                          |
+| `core:math`    | `PI`, `E`, common rounding, trigonometric, exponential and logarithmic functions, `pow`, `min`, and `max`. Trigonometric functions use radians.                                                                                         |
+| `core:number`  | `parseInt`, `parseFloat`, `isFinite`, `isNaN`, `sign`, `clamp`, `MAX_VALUE`, `MIN_VALUE`, `NaN`, and `Infinity`. Invalid numeric text parses to `null`.                                                                                 |
+| `core:unicode` | Code-point and byte lengths, code-point conversion/indexing, validity checking, case conversion, and Unicode character predicates.                                                                                                      |
+| `core:sys`     | Runtime OS, architecture, bitness, CPU count, process details, path separators, OS predicates, `argv` (script arguments after the script path), current directory, executable, hostname, home/temp directories, and environment lookup. |
+| `core:path`    | Host path operations: existence/type checks, absolute paths, joining, cleaning, path parts, and relative paths.                                                                                                                         |
+| `core:json`    | `parse` and `stringify` for JSON conversion.                                                                                                                                                                                            |
+| `core:error`   | `Error(message, line?)` constructor with `message` and `line` properties.                                                                                                                                                               |
+| `core:http`    | `Express` HTTP server and asynchronous `fetch`; see the reference for routes, request/response fields, limits, and options.                                                                                                             |
 
 Example async operation:
 

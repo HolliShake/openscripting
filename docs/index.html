@@ -794,14 +794,16 @@ loop (;;) {
                             <td><code>OS</code>, <code>ARCH</code>, <code>BITNESS</code>, <code>CPU_COUNT</code>,
                                 <code>GO_VERSION</code>, <code>PID</code>, <code>PATH_SEP</code>,
                                 <code>PATH_LIST_SEP</code>, <code>LINE_SEP</code>, <code>IS_WINDOWS</code>,
-                                <code>IS_LINUX</code>, <code>IS_MACOS</code>, <code>cwd()</code>,
+                                <code>IS_LINUX</code>, <code>IS_MACOS</code>, <code>argv</code>, <code>cwd()</code>,
                                 <code>executable()</code>, <code>hostname()</code>, <code>homeDir()</code>,
                                 <code>tempDir()</code>, <code>env(name)</code>
                             </td>
                             <td>Reports the interpreter's runtime OS and architecture, bitness, CPU count, and process
                                 details. Directory and host helpers return strings or raise catchable errors;
                                 <code>env</code> returns <code>null</code> when the named variable is unset.
-                                <code>LINE_SEP</code> is currently a line-feed character.
+                                <code>argv</code> is an array of arguments after the script path, excluding the
+                                interpreter flags and script filename. <code>LINE_SEP</code> is currently a line-feed
+                                character.
                             </td>
                         </tr>
                         <tr>
@@ -832,13 +834,16 @@ loop (;;) {
 <span class="kw">import</span> { join, absolute } <span class="kw">from</span> <span class="str">"core:path"</span>;
 <span class="kw">import</span> { sqrt, PI } <span class="kw">from</span> <span class="str">"core:math"</span>;
 <span class="kw">import</span> { parseFloat, clamp } <span class="kw">from</span> <span class="str">"core:number"</span>;
-<span class="kw">import</span> { OS, ARCH, cwd } <span class="kw">from</span> <span class="str">"core:sys"</span>;
+<span class="kw">import</span> { OS, ARCH, cwd, argv } <span class="kw">from</span> <span class="str">"core:sys"</span>;
 <span class="kw">import</span> { readText } <span class="kw">from</span> <span class="str">"core:file"</span>;
 
 <span class="kw">var</span> configPath = absolute(join(<span class="str">"config"</span>, <span class="str">"settings.json"</span>));
 <span class="kw">var</span> config = parse(readText(configPath));
 println(OS, ARCH, cwd());
 println(clamp(parseFloat(config-&gt;volume), 0, 1));</code></pre>
+                <p>Arguments following the script path are available in <code>sys.argv</code>; for example,
+                    <code>openscript -f app.os one two</code> exposes <code>["one", "two"]</code>.
+                </p>
                 <h3>HTTP server and fetch</h3>
                 <p>HTTP server callbacks are synchronous. Use an async function to await outbound fetch requests;
                     inspect the response status because HTTP error statuses do not reject the fetch promise.</p>
