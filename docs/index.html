@@ -9,21 +9,18 @@
     <title>OpenScript Language Reference</title>
     <style>
         :root {
-            color-scheme: light;
-            --ink: #202a35;
-            --muted: #596774;
-            --paper: #f7f8f5;
-            --panel: #ffffff;
-            --line: #d7dedb;
-            --green: #176b55;
-            --green-soft: #e4f2eb;
-            --coral: #bd4d38;
-            --yellow: #f1c968;
-            --code: #17252a;
-            --code-ink: #e9f2ee;
-            --serif: Georgia, "Times New Roman", serif;
-            --sans: "Segoe UI", "Trebuchet MS", sans-serif;
-            --mono: "Cascadia Code", Consolas, monospace;
+            color-scheme: dark;
+            --ink: #ededed;
+            --muted: #888;
+            --paper: #000;
+            --panel: #0a0a0a;
+            --line: #262626;
+            --accent: #3291ff;
+            --accent-soft: #071b33;
+            --code: #0a0a0a;
+            --code-ink: #ededed;
+            --sans: Geist, "Segoe UI", sans-serif;
+            --mono: "Geist Mono", "Cascadia Code", Consolas, monospace;
         }
 
         * {
@@ -40,30 +37,33 @@
             background: var(--paper);
             font-family: var(--sans);
             line-height: 1.65;
+            -webkit-font-smoothing: antialiased;
         }
 
         a {
-            color: var(--green);
+            color: var(--accent);
             text-decoration-thickness: 1px;
             text-underline-offset: 3px;
         }
 
         a:hover {
-            color: var(--coral);
+            color: #66adff;
         }
 
         .masthead {
-            min-height: 250px;
-            padding: 48px max(24px, calc((100vw - 1180px) / 2));
-            color: #f6f7ee;
-            background-color: #174e43;
-            background-image: repeating-linear-gradient(135deg, transparent 0 22px, rgba(255, 255, 255, .035) 22px 23px), linear-gradient(110deg, #173f38, #216955 65%, #a34a37);
-            border-bottom: 7px solid var(--yellow);
+            min-height: 0;
+            padding: 72px max(24px, calc((100vw - 1180px) / 2)) 56px;
+            color: var(--ink);
+            background-color: #000;
+            background-image: linear-gradient(#151515 1px, transparent 1px), linear-gradient(90deg, #151515 1px, transparent 1px);
+            background-position: center top;
+            background-size: 48px 48px;
+            border-bottom: 1px solid var(--line);
         }
 
         .eyebrow {
             margin: 0 0 12px;
-            color: #f3d37e;
+            color: var(--muted);
             font-size: .78rem;
             font-weight: 700;
             text-transform: uppercase;
@@ -72,20 +72,23 @@
         h1 {
             max-width: 760px;
             margin: 0;
-            font: 500 clamp(2.4rem, 5vw, 4.2rem)/1.05 var(--serif);
+            font-size: 3rem;
+            font-weight: 650;
+            line-height: 1.08;
+            letter-spacing: 0;
         }
 
         .masthead p:last-child {
             max-width: 680px;
             margin: 18px 0 0;
-            color: #e2eee8;
+            color: #a1a1a1;
             font-size: 1.05rem;
         }
 
         .layout {
             display: grid;
-            grid-template-columns: 248px minmax(0, 800px);
-            gap: 48px;
+            grid-template-columns: 220px minmax(0, 820px);
+            gap: 56px;
             max-width: 1180px;
             margin: 0 auto;
             padding: 42px 24px 90px;
@@ -97,9 +100,9 @@
             align-self: start;
             max-height: calc(100vh - 40px);
             overflow: auto;
-            padding: 18px 16px;
-            border-left: 3px solid var(--green);
-            background: #edf1ed;
+            padding: 12px 0;
+            border: 0;
+            background: transparent;
         }
 
         nav h2 {
@@ -107,7 +110,7 @@
             font-size: .8rem;
             letter-spacing: 0;
             text-transform: uppercase;
-            color: var(--muted);
+            color: #737373;
         }
 
         nav ol {
@@ -116,12 +119,21 @@
         }
 
         nav li {
-            margin: 3px 0;
+            margin: 2px 0;
             font-size: .88rem;
         }
 
         nav a {
+            display: block;
+            padding: 4px 8px;
+            color: #a1a1a1;
             text-decoration: none;
+            border-radius: 4px;
+        }
+
+        nav a:hover {
+            color: #fff;
+            background: #171717;
         }
 
         main {
@@ -129,15 +141,18 @@
         }
 
         section {
-            padding: 0 0 34px;
-            margin: 0 0 34px;
+            padding: 0 0 40px;
+            margin: 0 0 40px;
             border-bottom: 1px solid var(--line);
             scroll-margin-top: 24px;
         }
 
         h2 {
             margin: 0 0 14px;
-            font: 500 2rem/1.2 var(--serif);
+            font-size: 1.65rem;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: 0;
         }
 
         h3 {
@@ -157,15 +172,17 @@
         .note {
             margin: 18px 0;
             padding: 12px 16px;
-            border-left: 4px solid var(--coral);
-            background: #faeee9;
+            border: 1px solid #4b2325;
+            border-left: 3px solid #e5484d;
+            background: #1b1011;
         }
 
         .tip {
             margin: 18px 0;
             padding: 12px 16px;
-            border-left: 4px solid var(--green);
-            background: var(--green-soft);
+            border: 1px solid #17365b;
+            border-left: 3px solid var(--accent);
+            background: var(--accent-soft);
         }
 
         code,
@@ -175,9 +192,10 @@
 
         :not(pre)>code {
             padding: .12em .35em;
-            color: #174e43;
-            background: #e8eeea;
-            border-radius: 3px;
+            color: #e5e5e5;
+            background: #171717;
+            border: 1px solid #303030;
+            border-radius: 4px;
             font-size: .92em;
         }
 
@@ -187,26 +205,27 @@
             padding: 18px 20px;
             color: var(--code-ink);
             background: var(--code);
-            border-top: 3px solid var(--yellow);
+            border: 1px solid var(--line);
+            border-radius: 6px;
             font-size: .88rem;
             line-height: 1.58;
             tab-size: 4;
         }
 
         .kw {
-            color: #82d5b3;
+            color: #79c0ff;
         }
 
         .str {
-            color: #f1cb75;
+            color: #7ee787;
         }
 
         .com {
-            color: #a3b6ad;
+            color: #8b949e;
         }
 
         .op {
-            color: #ef987d;
+            color: #ff9bce;
         }
 
         table {
@@ -226,8 +245,8 @@
         }
 
         th {
-            color: #174e43;
-            background: #e9efea;
+            color: #ededed;
+            background: #111;
         }
 
         td:first-child {
@@ -238,15 +257,79 @@
             display: inline-block;
             margin: 2px 3px 2px 0;
             padding: 2px 7px;
-            color: #164b40;
-            background: #e4f2eb;
+            color: #79c0ff;
+            background: var(--accent-soft);
             font: .8rem var(--mono);
+        }
+
+        .snippet-tabs {
+            margin: 18px 0 26px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #0a0a0a;
+            overflow: hidden;
+        }
+
+        .snippet-tabs__list {
+            display: flex;
+            gap: 2px;
+            padding: 8px 10px 0;
+            border-bottom: 1px solid var(--line);
+            overflow-x: auto;
+            scrollbar-width: thin;
+        }
+
+        .snippet-tabs__tab {
+            flex: 0 0 auto;
+            padding: 8px 10px 9px;
+            color: #a1a1a1;
+            background: transparent;
+            border: 0;
+            border-bottom: 2px solid transparent;
+            font: inherit;
+            font-size: .84rem;
+            cursor: pointer;
+        }
+
+        .snippet-tabs__tab:hover {
+            color: #fff;
+        }
+
+        .snippet-tabs__tab[aria-selected="true"] {
+            color: #fff;
+            border-bottom-color: #fff;
+            font-weight: 600;
+        }
+
+        .snippet-tabs__panel {
+            min-width: 0;
+        }
+
+        .snippet-tabs__panel[hidden] {
+            display: none;
+        }
+
+        .snippet-tabs__panel pre {
+            margin: 0;
+            padding: 20px 22px;
+            border: 0;
+            border-radius: 0;
+            background: #0a0a0a;
+        }
+
+        .snippet-tabs__note {
+            margin: 0;
+            padding: 12px 20px;
+            color: #a1a1a1;
+            border-top: 1px solid var(--line);
+            font-size: .88rem;
         }
 
         footer {
             padding: 24px;
-            color: #e7eee9;
-            background: #173f38;
+            color: #888;
+            background: #050505;
+            border-top: 1px solid var(--line);
             text-align: center;
             font-size: .86rem;
         }
@@ -254,7 +337,11 @@
         @media (max-width: 820px) {
             .masthead {
                 min-height: 0;
-                padding: 38px 22px;
+                padding: 48px 22px 38px;
+            }
+
+            h1 {
+                font-size: 2.4rem;
             }
 
             .layout {
@@ -265,7 +352,9 @@
             nav {
                 position: static;
                 max-height: none;
-                margin-bottom: 36px;
+                margin-bottom: 28px;
+                padding: 0 0 18px;
+                border-bottom: 1px solid var(--line);
             }
 
             nav ol {
@@ -281,6 +370,23 @@
         @media (max-width: 480px) {
             nav ol {
                 columns: 1;
+            }
+
+            .snippet-tabs__list {
+                flex-wrap: wrap;
+                overflow-x: visible;
+                padding: 6px 6px 0;
+            }
+
+            .snippet-tabs__tab {
+                padding: 7px 8px;
+                font-size: .78rem;
+            }
+
+            table {
+                display: block;
+                max-width: 100%;
+                overflow-x: auto;
             }
 
             pre {
@@ -703,330 +809,11 @@ loop (;;) {
                             <th>Behavior</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        <tr>
-                            <td><code>core:io</code></td>
-                            <td><code>print(...values)</code>, <code>println(...values)</code>,
-                                <code>scan(prompt)</code>
-                            </td>
-                            <td><code>print</code> writes values separated by spaces without a newline;
-                                <code>println</code> adds a newline, and no arguments prints a blank line.
-                                <code>scan</code> writes its prompt, blocks while reading one line from standard
-                                input, strips the line ending, and returns <code>null</code> at end of input.
-                            </td>
-                        </tr>
-                        <tr>
-                            <td><code>core:http</code></td>
-                            <td><code>Express</code> class, <code>fetch(url, options?)</code></td>
-                            <td>Creates a server with <code>get(path, bodyOrHandler)</code>,
-                                <code>post(path, bodyOrHandler)</code>,
-                                <code>route(method, path, status, bodyOrHandler)</code>,
-                                <code>listen(address)</code>, <code>address()</code>, and <code>close()</code>.
-                                Handlers have the form <code>fn(request, response)</code>; request fields are
-                                <code>method</code>, <code>path</code>, <code>query</code>, <code>body</code>,
-                                and <code>headers</code>. Responses support <code>status(code)</code>,
-                                <code>send(value)</code>, and <code>json(value)</code>. Route handlers are
-                                synchronous and run serially on the interpreter thread. Routes match the exact HTTP
-                                method and path; unmatched routes return 404, and request bodies are limited to 1 MiB.
-                                <code>listen</code> returns the bound address, while <code>close</code> returns a
-                                boolean.
-                                <code>fetch</code> accepts an optional object containing <code>method</code>,
-                                <code>headers</code>, and <code>body</code>, and returns a Promise for a response with
-                                <code>status</code>,
-                                <code>statusText</code>, <code>url</code>, <code>ok</code>, <code>headers</code>,
-                                and Promise-returning <code>text()</code> and <code>json()</code> methods.
-                                HTTP error statuses such as 404 and 500 resolve normally with <code>ok</code> set to
-                                <code>false</code>; network failures and invalid JSON reject. Requests time out after
-                                30 seconds and response bodies are limited to 10 MiB.
-                            </td>
-                        </tr>
-                        <tr>
-                            <td><code>core:file</code></td>
-                            <td><code>readText(path)</code>, <code>writeText(path, text)</code>,
-                                <code>appendText(path, text)</code>, <code>exists(path)</code>,
-                                <code>remove(path)</code>
-                            </td>
-                            <td><code>readText</code> returns file contents as a string. <code>writeText</code>
-                                replaces or creates a file; <code>appendText</code> appends or creates it. New files
-                                use permission mode <code>0644</code>. <code>exists</code>, successful writes, and
-                                <code>remove</code> return booleans. Filesystem failures raise catchable runtime
-                                errors. Relative paths use the process working directory.
-                            </td>
-                        </tr>
-                        <tr>
-                            <td><code>core:math</code></td>
-                            <td><code>PI</code>, <code>E</code>, <code>abs</code>, <code>ceil</code>,
-                                <code>floor</code>, <code>round</code>, <code>sqrt</code>, <code>sin</code>,
-                                <code>cos</code>, <code>tan</code>, <code>logarithm</code>, <code>exp</code>,
-                                <code>pow</code>, <code>min</code>, <code>max</code>
-                            </td>
-                            <td>Unary functions take one number; <code>pow(base, exponent)</code> takes two.
-                                Trigonometric inputs are radians. <code>min</code> and <code>max</code> accept one
-                                or more numbers. Invalid types and non-finite operation results raise catchable
-                                runtime errors.
-                            </td>
-                        </tr>
-                        <tr>
-                            <td><code>core:number</code></td>
-                            <td><code>parseInt(text, radix?)</code>, <code>parseFloat(text)</code>,
-                                <code>isFinite(value)</code>, <code>isNaN(value)</code>, <code>sign(value)</code>,
-                                <code>clamp(value, min, max)</code>, <code>MAX_VALUE</code>, <code>MIN_VALUE</code>,
-                                <code>NaN</code>, <code>Infinity</code>
-                            </td>
-                            <td><code>parseInt</code> accepts an optional integer radix from 2 through 36; omitted
-                                or zero radix defaults to decimal and recognizes a <code>0x</code> prefix.
-                                <code>parseFloat</code> reads a decimal prefix, including signed Infinity. Both
-                                return <code>null</code> when no number can be parsed. <code>isFinite</code> and
-                                <code>isNaN</code> require numeric values; <code>sign</code> preserves NaN and
-                                signed zero. <code>clamp</code> requires three numbers and minimum no greater than
-                                maximum. Invalid arguments raise catchable runtime errors. Constants are IEEE-754
-                                float64 values; <code>MIN_VALUE</code> is the smallest positive nonzero value.
-                            </td>
-                        </tr>
-                        <tr>
-                            <td><code>core:unicode</code></td>
-                            <td><code>length</code>, <code>byteLength</code>, <code>codePointAt</code>,
-                                <code>fromCodePoint</code>, <code>isValid</code>, <code>toUpper</code>,
-                                <code>toLower</code>, <code>isLetter</code>, <code>isDigit</code>,
-                                <code>isNumber</code>, <code>isWhitespace</code>, <code>isUpper</code>,
-                                <code>isLower</code>, <code>isMark</code>, <code>isPunctuation</code>,
-                                <code>isSymbol</code>, <code>isControl</code>, <code>isGraphic</code>,
-                                <code>isPrintable</code>
-                            </td>
-                            <td><code>length</code> counts Unicode code points; <code>byteLength</code> counts UTF-8
-                                bytes. <code>codePointAt(text, index)</code> returns a numeric code point, accepts
-                                negative indexes from the end, and returns <code>null</code> out of range.
-                                <code>fromCodePoint</code> accepts one Unicode scalar value and returns its string.
-                                <code>isValid</code> checks UTF-8 validity. Predicates require exactly one valid code
-                                point; <code>isWhitespace</code> follows Unicode whitespace rules. Case conversion
-                                operates on complete strings. Operations requiring valid UTF-8 raise catchable errors
-                                for invalid input.
-                            </td>
-                        </tr>
-                        <tr>
-                            <td><code>core:socket</code></td>
-                            <td><code>AF_INET</code>, <code>SOCK_STREAM</code>, <code>socket(family?, type?)</code>,
-                                <code>listen(address)</code>, <code>dial(address)</code>
-                            </td>
-                            <td><code>socket()</code> creates a Python-style TCP socket with
-                                <code>bind([host, port])</code>,
-                                <code>listen(backlog)</code>, <code>accept()</code>, <code>connect([host, port])</code>,
-                                <code>send(text)</code>, <code>sendall(text)</code>, <code>recv(byteCount)</code>,
-                                <code>getsockname()</code>, and <code>close()</code>. <code>accept</code>,
-                                <code>send</code>, <code>sendall</code>, and <code>recv</code> return Promises;
-                                <code>accept</code> resolves to <code>[connection, peerAddress]</code>, and addresses
-                                are <code>[host, port]</code> arrays. <code>send</code> may send fewer bytes than
-                                requested; <code>sendall</code> writes the full string or rejects and resolves to
-                                <code>null</code>. Send and receive accept an optional zero flags argument;
-                                nonzero flags are unsupported. <code>recv</code> returns up to the requested byte
-                                count as a string, including an empty string for a zero count or EOF; its count
-                                must be 0 through 1 MiB. Connect and data operations time out after five
-                                seconds; <code>accept</code> waits until a connection arrives or the listener closes.
-                                The optional backlog is currently ignored. The convenience functions take
-                                <code>host:port</code> strings; their connection methods are <code>read</code>,
-                                <code>write</code>, and <code>close</code>. This is a restricted TCP subset: only
-                                loopback addresses are allowed; UDP, TLS, byte buffers, most socket flags,
-                                socket options, and internet-bound connections are not supported. This API is
-                                Python-style and is not fully compatible with Python 3's <code>socket</code> module.
-                            </td>
-                        </tr>
-                        <tr>
-                            <td><code>core:sys</code></td>
-                            <td><code>OS</code>, <code>ARCH</code>, <code>BITNESS</code>, <code>CPU_COUNT</code>,
-                                <code>GO_VERSION</code>, <code>PID</code>, <code>PATH_SEP</code>,
-                                <code>PATH_LIST_SEP</code>, <code>LINE_SEP</code>, <code>IS_WINDOWS</code>,
-                                <code>IS_LINUX</code>, <code>IS_MACOS</code>, <code>argv</code>, <code>cwd()</code>,
-                                <code>executable()</code>, <code>hostname()</code>, <code>homeDir()</code>,
-                                <code>tempDir()</code>, <code>env(name)</code>
-                            </td>
-                            <td>Constants describe the current process/runtime. OS and architecture use Go runtime
-                                names; <code>BITNESS</code> is 32 or 64; <code>CPU_COUNT</code> is the logical CPU
-                                count; <code>PID</code> is the process ID; path separators follow the host OS;
-                                <code>LINE_SEP</code> is currently line feed. <code>argv</code> contains arguments
-                                after the script path, excluding interpreter flags and the script filename.
-                                <code>cwd</code>, <code>executable</code>, <code>hostname</code>, and
-                                <code>homeDir</code> return strings or raise catchable errors; <code>tempDir</code>
-                                returns the system temporary directory. <code>env(name)</code> returns the value or
-                                <code>null</code> when unset.
-                            </td>
-                        </tr>
-                        <tr>
-                            <td><code>core:path</code></td>
-                            <td><code>exists</code>, <code>isFile</code>, <code>isDir</code>, <code>isAbs</code>,
-                                <code>absolute</code>, <code>join</code>, <code>clean</code>, <code>base</code>,
-                                <code>dir</code>, <code>ext</code>, <code>relative</code>
-                            </td>
-                            <td>All paths use the host operating system's path rules. <code>exists</code>,
-                                <code>isFile</code>, <code>isDir</code>, and <code>isAbs</code> return booleans.
-                                <code>absolute</code> resolves against the working directory; <code>join</code>
-                                accepts one or more paths; <code>clean</code> normalizes a path; <code>base</code>,
-                                <code>dir</code>, and <code>ext</code> return path components.
-                                <code>relative(target, base)</code> returns a path from base to target or raises a
-                                catchable error when the paths cannot be compared.
-                            </td>
-                        </tr>
-                        <tr>
-                            <td><code>core:error</code></td>
-                            <td><code>Error(message, line?)</code></td>
-                            <td>Constructs an error object with readable <code>message</code> and numeric
-                                <code>line</code> properties. The line defaults to zero. This constructor creates a
-                                value; the language currently has no <code>throw</code> statement.
-                            </td>
-                        </tr>
-                        <tr>
-                            <td><code>core:json</code></td>
-                            <td><code>parse(text)</code>, <code>stringify(value)</code></td>
-                            <td><code>parse</code> requires exactly one valid JSON value; JSON numbers become
-                                OpenScript numbers and arrays/objects become ordinary arrays/objects.
-                                <code>stringify</code> supports null, booleans, finite numbers, strings, arrays, and
-                                objects. Unsupported values and cycles raise catchable runtime errors. An object
-                                property whose value cycles back to an active ancestor is omitted; a cycle in an
-                                array or at the root is an error.
-                            </td>
-                        </tr>
-                    </tbody>
+                    <!-- Rows are generated from `coreModules` in the script at the bottom of this page. -->
+                    <tbody id="core-modules-body"></tbody>
                 </table>
                 <h3>Usage examples</h3>
-                <h4><code>core:io</code></h4>
-                <pre><code>import { print, println, scan } from "core:io";
-
-print("Name: ");
-const name = scan("");
-println("Hello", name);</code></pre>
-
-                <h4><code>core:file</code></h4>
-                <pre><code>import { readText, writeText, appendText, exists, remove } from "core:file";
-import { join } from "core:path";
-import { tempDir } from "core:sys";
-
-const path = join(tempDir(), "openscript-note.txt");
-writeText(path, "first line\n");
-appendText(path, "second line\n");
-println(exists(path));
-println(readText(path));
-remove(path);</code></pre>
-
-                <h4><code>core:http</code></h4>
-                <pre><code>import { Express, fetch } from "core:http";
-import { println } from "core:io";
-
-const app = Express();
-app-&gt;get("/health", fn(request, response) {
-    response-&gt;json({ status: "ready" });
-});
-const address = app-&gt;listen("127.0.0.1:0");
-
-var check::fn() async {
-    const response = await fetch("http://" + address + "/health");
-    println(response-&gt;status, response-&gt;ok);
-    println(await response-&gt;json());
-    app-&gt;close();
-};
-
-check();</code></pre>
-                <p>Handlers are synchronous. Fetch network failures reject, while HTTP error statuses resolve with
-                    <code>ok</code> set to false; inspect the response status.
-                </p>
-
-                <h4><code>core:math</code></h4>
-                <pre><code>import { PI, sqrt, sin, pow, min, max } from "core:math";
-import { println } from "core:io";
-
-println(sqrt(81));
-println(sin(PI / 2));
-println(pow(2, 8), min(4, 2, 9), max(4, 2, 9));</code></pre>
-
-                <h4><code>core:number</code></h4>
-                <pre><code>import { parseInt, parseFloat, clamp, isFinite } from "core:number";
-import { println } from "core:io";
-
-const count = parseInt("ff", 16);
-const volume = clamp(parseFloat("1.25 units"), 0, 1);
-println(count, volume, isFinite(volume));</code></pre>
-
-                <h4><code>core:socket</code></h4>
-                <pre><code>import { socket, AF_INET, SOCK_STREAM } from "core:socket";
-import { println } from "core:io";
-
-const server = socket(AF_INET, SOCK_STREAM);
-server-&gt;bind(["127.0.0.1", 0]);
-server-&gt;listen(1);
-const address = server-&gt;getsockname();
-const pendingPeer = server-&gt;accept();
-
-var serve::fn() async {
-    const peerInfo = await pendingPeer;
-    const peer = peerInfo[0];
-    const message = await peer-&gt;recv(64);
-    println("received:", message);
-    await peer-&gt;sendall("ack");
-    peer-&gt;close();
-    server-&gt;close();
-};
-
-var connect::fn() async {
-    const client = socket(AF_INET, SOCK_STREAM);
-    client-&gt;connect(address);
-    await client-&gt;sendall("hello");
-    println("reply:", await client-&gt;recv(16));
-    client-&gt;close();
-};
-
-serve();
-connect();</code></pre>
-                <p>This example only connects to loopback. Socket data methods and <code>accept</code> return
-                    Promises; use an async function and <code>await</code>.</p>
-
-                <h4><code>core:sys</code></h4>
-                <pre><code>import { OS, ARCH, CPU_COUNT, IS_WINDOWS, argv, cwd, env } from "core:sys";
-import { println } from "core:io";
-
-println(OS, ARCH, CPU_COUNT, IS_WINDOWS);
-println("working directory:", cwd());
-println("arguments:", argv);
-println("HOME:", env("HOME"));</code></pre>
-                <p>Use <code>env("USERPROFILE")</code> on Windows when looking up that platform's home variable.
-                    For example, <code>openscript -f app.os one two</code> exposes <code>["one", "two"]</code> in
-                    <code>argv</code>.
-                </p>
-
-                <h4><code>core:unicode</code></h4>
-                <pre><code>import { length, byteLength, codePointAt, fromCodePoint, toUpper, isLetter } from "core:unicode";
-import { println } from "core:io";
-
-const text = "café";
-println(length(text), byteLength(text));
-println(codePointAt(text, -1), fromCodePoint(233));
-println(toUpper(text), isLetter("é"));</code></pre>
-
-                <h4><code>core:path</code></h4>
-                <pre><code>import { join, absolute, exists, isDir, base, ext, relative } from "core:path";
-import { cwd } from "core:sys";
-import { println } from "core:io";
-
-const project = absolute(join(cwd(), "main"));
-println(exists(project), isDir(project));
-println(base(project), ext("notes.txt"));
-println(relative(join(project, "main.go"), project));</code></pre>
-
-                <h4><code>core:error</code></h4>
-                <pre><code>import { Error } from "core:error";
-import { println } from "core:io";
-
-const problem = Error("configuration is missing", 12);
-println(problem-&gt;message);
-println(problem-&gt;line);</code></pre>
-                <p>The constructor creates an error value; OpenScript does not currently provide a <code>throw</code>
-                    statement.</p>
-
-                <h4><code>core:json</code></h4>
-                <pre><code>import { parse, stringify } from "core:json";
-import { println } from "core:io";
-
-const settings = parse("{\"theme\":\"dark\",\"scale\":1.25}");
-settings-&gt;scale = 1.5;
-println(settings-&gt;theme);
-println(stringify(settings));</code></pre>
+                <div id="core-snippets" aria-label="Core module usage examples"></div>
             </section>
 
             <section id="runtime">
@@ -1084,6 +871,402 @@ println(stringify(settings));</code></pre>
         </main>
     </div>
     <footer>OpenScript · language reference generated from the current parser/compiler implementation</footer>
+    <script>
+        /* ==========================================================================
+         * CORE MODULE DATA — the single source of truth.
+         *
+         * To document a new module, append ONE object to `coreModules`:
+         *
+         *   {
+         *     name:     "core:foo",                 // required. Table row + tab label.
+         *     exports:  ["bar(x)", "BAZ"],          // required. Each renders as <code>.
+         *     behavior: `HTML string…`,             // required. May contain <code>, etc.
+         *     example: {                            // optional. Omit => no tab is created.
+         *       code: `import … ;`,                 //   required if example is present
+         *       note: "Short caveat under snippet"  //   optional
+         *     }
+         *   }
+         *
+         * The table and the tabbed examples are both generated from this array,
+         * in array order. Nothing else on the page needs to change.
+         * ========================================================================== */
+        const coreModules = [
+            {
+                name: "core:io",
+                exports: ["print(...values)", "println(...values)", "scan(prompt)"],
+                behavior: `<code>print</code> writes values separated by spaces without a newline;
+                    <code>println</code> adds a newline, and no arguments prints a blank line.
+                    <code>scan</code> writes its prompt, blocks while reading one line from standard
+                    input, strips the line ending, and returns <code>null</code> at end of input.`,
+                example: {
+                    code: `import { print, println, scan } from "core:io";
+
+print("Name: ");
+const name = scan("");
+println("Hello", name);`
+                }
+            },
+            {
+                name: "core:http",
+                exports: ["Express", "fetch(url, options?)"],
+                behavior: `Creates a server with <code>get(path, bodyOrHandler)</code>,
+                    <code>post(path, bodyOrHandler)</code>,
+                    <code>route(method, path, status, bodyOrHandler)</code>,
+                    <code>listen(address)</code>, <code>address()</code>, and <code>close()</code>.
+                    Handlers have the form <code>fn(request, response)</code>; request fields are
+                    <code>method</code>, <code>path</code>, <code>query</code>, <code>body</code>,
+                    and <code>headers</code>. Responses support <code>status(code)</code>,
+                    <code>send(value)</code>, and <code>json(value)</code>. Route handlers are
+                    synchronous and run serially on the interpreter thread. Routes match the exact HTTP
+                    method and path; unmatched routes return 404, and request bodies are limited to 1 MiB.
+                    <code>listen</code> returns the bound address, while <code>close</code> returns a boolean.
+                    <code>fetch</code> accepts an optional object containing <code>method</code>,
+                    <code>headers</code>, and <code>body</code>, and returns a Promise for a response with
+                    <code>status</code>, <code>statusText</code>, <code>url</code>, <code>ok</code>,
+                    <code>headers</code>, and Promise-returning <code>text()</code> and <code>json()</code>
+                    methods. HTTP error statuses such as 404 and 500 resolve normally with <code>ok</code> set to
+                    <code>false</code>; network failures and invalid JSON reject. Requests time out after
+                    30 seconds and response bodies are limited to 10 MiB.`,
+                example: {
+                    code: `import { Express, fetch } from "core:http";
+import { println } from "core:io";
+
+const app = Express();
+app->get("/health", fn(request, response) {
+    response->json({ status: "ready" });
+});
+const address = app->listen("127.0.0.1:0");
+
+var check::fn() async {
+    const response = await fetch("http://" + address + "/health");
+    println(response->status, response->ok);
+    println(await response->json());
+    app->close();
+};
+
+check();`,
+                    note: "Handlers are synchronous. Fetch network failures reject; HTTP error statuses resolve with ok set to false."
+                }
+            },
+            {
+                name: "core:file",
+                exports: ["readText(path)", "writeText(path, text)", "appendText(path, text)", "exists(path)", "remove(path)"],
+                behavior: `<code>readText</code> returns file contents as a string. <code>writeText</code>
+                    replaces or creates a file; <code>appendText</code> appends or creates it. New files
+                    use permission mode <code>0644</code>. <code>exists</code>, successful writes, and
+                    <code>remove</code> return booleans. Filesystem failures raise catchable runtime
+                    errors. Relative paths use the process working directory.`,
+                example: {
+                    code: `import { readText, writeText, appendText, exists, remove } from "core:file";
+import { join } from "core:path";
+import { tempDir } from "core:sys";
+
+const path = join(tempDir(), "openscript-note.txt");
+writeText(path, "first line\\n");
+appendText(path, "second line\\n");
+println(exists(path));
+println(readText(path));
+remove(path);`
+                }
+            },
+            {
+                name: "core:math",
+                exports: ["PI", "E", "abs", "ceil", "floor", "round", "sqrt", "sin", "cos", "tan", "logarithm", "exp", "pow", "min", "max"],
+                behavior: `Unary functions take one number; <code>pow(base, exponent)</code> takes two.
+                    Trigonometric inputs are radians. <code>min</code> and <code>max</code> accept one
+                    or more numbers. Invalid types and non-finite operation results raise catchable
+                    runtime errors.`,
+                example: {
+                    code: `import { PI, sqrt, sin, pow, min, max } from "core:math";
+import { println } from "core:io";
+
+println(sqrt(81));
+println(sin(PI / 2));
+println(pow(2, 8), min(4, 2, 9), max(4, 2, 9));`
+                }
+            },
+            {
+                name: "core:number",
+                exports: ["parseInt(text, radix?)", "parseFloat(text)", "isFinite(value)", "isNaN(value)", "sign(value)", "clamp(value, min, max)", "MAX_VALUE", "MIN_VALUE", "NaN", "Infinity"],
+                behavior: `<code>parseInt</code> accepts an optional integer radix from 2 through 36; omitted
+                    or zero radix defaults to decimal and recognizes a <code>0x</code> prefix.
+                    <code>parseFloat</code> reads a decimal prefix, including signed Infinity. Both
+                    return <code>null</code> when no number can be parsed. <code>isFinite</code> and
+                    <code>isNaN</code> require numeric values; <code>sign</code> preserves NaN and
+                    signed zero. <code>clamp</code> requires three numbers and minimum no greater than
+                    maximum. Invalid arguments raise catchable runtime errors. Constants are IEEE-754
+                    float64 values; <code>MIN_VALUE</code> is the smallest positive nonzero value.`,
+                example: {
+                    code: `import { parseInt, parseFloat, clamp, isFinite } from "core:number";
+import { println } from "core:io";
+
+const count = parseInt("ff", 16);
+const volume = clamp(parseFloat("1.25 units"), 0, 1);
+println(count, volume, isFinite(volume));`
+                }
+            },
+            {
+                name: "core:unicode",
+                exports: ["length", "byteLength", "codePointAt", "fromCodePoint", "isValid", "toUpper", "toLower", "isLetter", "isDigit", "isNumber", "isWhitespace", "isUpper", "isLower", "isMark", "isPunctuation", "isSymbol", "isControl", "isGraphic", "isPrintable"],
+                behavior: `<code>length</code> counts Unicode code points; <code>byteLength</code> counts UTF-8
+                    bytes. <code>codePointAt(text, index)</code> returns a numeric code point, accepts
+                    negative indexes from the end, and returns <code>null</code> out of range.
+                    <code>fromCodePoint</code> accepts one Unicode scalar value and returns its string.
+                    <code>isValid</code> checks UTF-8 validity. Predicates require exactly one valid code
+                    point; <code>isWhitespace</code> follows Unicode whitespace rules. Case conversion
+                    operates on complete strings. Operations requiring valid UTF-8 raise catchable errors
+                    for invalid input.`,
+                example: {
+                    code: `import { length, byteLength, codePointAt, fromCodePoint, toUpper, isLetter } from "core:unicode";
+import { println } from "core:io";
+
+const text = "café";
+println(length(text), byteLength(text));
+println(codePointAt(text, -1), fromCodePoint(233));
+println(toUpper(text), isLetter("é"));`
+                }
+            },
+            {
+                name: "core:socket",
+                exports: ["AF_INET", "SOCK_STREAM", "socket(family?, type?)", "listen(address)", "dial(address)"],
+                behavior: `<code>socket()</code> creates a Python-style TCP socket with
+                    <code>bind([host, port])</code>,
+                    <code>listen(backlog)</code>, <code>accept()</code>, <code>connect([host, port])</code>,
+                    <code>send(text)</code>, <code>sendall(text)</code>, <code>recv(byteCount)</code>,
+                    <code>getsockname()</code>, and <code>close()</code>. <code>accept</code>,
+                    <code>send</code>, <code>sendall</code>, and <code>recv</code> return Promises;
+                    <code>accept</code> resolves to <code>[connection, peerAddress]</code>, and addresses
+                    are <code>[host, port]</code> arrays. <code>send</code> may send fewer bytes than
+                    requested; <code>sendall</code> writes the full string or rejects and resolves to
+                    <code>null</code>. Send and receive accept an optional zero flags argument;
+                    nonzero flags are unsupported. <code>recv</code> returns up to the requested byte
+                    count as a string, including an empty string for a zero count or EOF; its count
+                    must be 0 through 1 MiB. Connect and data operations time out after five
+                    seconds; <code>accept</code> waits until a connection arrives or the listener closes.
+                    The optional backlog is currently ignored. The convenience functions take
+                    <code>host:port</code> strings; their connection methods are <code>read</code>,
+                    <code>write</code>, and <code>close</code>. This is a restricted TCP subset: only
+                    loopback addresses are allowed; UDP, TLS, byte buffers, most socket flags,
+                    socket options, and internet-bound connections are not supported. This API is
+                    Python-style and is not fully compatible with Python 3's <code>socket</code> module.`,
+                example: {
+                    code: `import { socket, AF_INET, SOCK_STREAM } from "core:socket";
+import { println } from "core:io";
+
+const server = socket(AF_INET, SOCK_STREAM);
+server->bind(["127.0.0.1", 0]);
+server->listen(1);
+const address = server->getsockname();
+const pendingPeer = server->accept();
+
+var serve::fn() async {
+    const peerInfo = await pendingPeer;
+    const peer = peerInfo[0];
+    const message = await peer->recv(64);
+    println("received:", message);
+    await peer->sendall("ack");
+    peer->close();
+    server->close();
+};
+
+var connect::fn() async {
+    const client = socket(AF_INET, SOCK_STREAM);
+    client->connect(address);
+    await client->sendall("hello");
+    println("reply:", await client->recv(16));
+    client->close();
+};
+
+serve();
+connect();`,
+                    note: "Socket methods return Promises; this example only uses loopback."
+                }
+            },
+            {
+                name: "core:sys",
+                exports: ["OS", "ARCH", "BITNESS", "CPU_COUNT", "GO_VERSION", "PID", "PATH_SEP", "PATH_LIST_SEP", "LINE_SEP", "IS_WINDOWS", "IS_LINUX", "IS_MACOS", "argv", "cwd()", "executable()", "hostname()", "homeDir()", "tempDir()", "env(name)"],
+                behavior: `Constants describe the current process/runtime. OS and architecture use Go runtime
+                    names; <code>BITNESS</code> is 32 or 64; <code>CPU_COUNT</code> is the logical CPU
+                    count; <code>PID</code> is the process ID; path separators follow the host OS;
+                    <code>LINE_SEP</code> is currently line feed. <code>argv</code> contains arguments
+                    after the script path, excluding interpreter flags and the script filename.
+                    <code>cwd</code>, <code>executable</code>, <code>hostname</code>, and
+                    <code>homeDir</code> return strings or raise catchable errors; <code>tempDir</code>
+                    returns the system temporary directory. <code>env(name)</code> returns the value or
+                    <code>null</code> when unset.`,
+                example: {
+                    code: `import { OS, ARCH, CPU_COUNT, IS_WINDOWS, argv, cwd, env } from "core:sys";
+import { println } from "core:io";
+
+println(OS, ARCH, CPU_COUNT, IS_WINDOWS);
+println("working directory:", cwd());
+println("arguments:", argv);
+println("HOME:", env("HOME"));`,
+                    note: "Use env(\"USERPROFILE\") on Windows to read that platform's home variable."
+                }
+            },
+            {
+                name: "core:path",
+                exports: ["exists", "isFile", "isDir", "isAbs", "absolute", "join", "clean", "base", "dir", "ext", "relative"],
+                behavior: `All paths use the host operating system's path rules. <code>exists</code>,
+                    <code>isFile</code>, <code>isDir</code>, and <code>isAbs</code> return booleans.
+                    <code>absolute</code> resolves against the working directory; <code>join</code>
+                    accepts one or more paths; <code>clean</code> normalizes a path; <code>base</code>,
+                    <code>dir</code>, and <code>ext</code> return path components.
+                    <code>relative(target, base)</code> returns a path from base to target or raises a
+                    catchable error when the paths cannot be compared.`,
+                example: {
+                    code: `import { join, absolute, exists, isDir, base, ext, relative } from "core:path";
+import { cwd } from "core:sys";
+import { println } from "core:io";
+
+const project = absolute(join(cwd(), "main"));
+println(exists(project), isDir(project));
+println(base(project), ext("notes.txt"));
+println(relative(join(project, "main.go"), project));`
+                }
+            },
+            {
+                name: "core:error",
+                exports: ["Error(message, line?)"],
+                behavior: `Constructs an error object with readable <code>message</code> and numeric
+                    <code>line</code> properties. The line defaults to zero. This constructor creates a
+                    value; the language currently has no <code>throw</code> statement.`,
+                example: {
+                    code: `import { Error } from "core:error";
+import { println } from "core:io";
+
+const problem = Error("configuration is missing", 12);
+println(problem->message);
+println(problem->line);`,
+                    note: "The constructor creates an error value; OpenScript does not currently provide a throw statement."
+                }
+            },
+            {
+                name: "core:json",
+                exports: ["parse(text)", "stringify(value)"],
+                behavior: `<code>parse</code> requires exactly one valid JSON value; JSON numbers become
+                    OpenScript numbers and arrays/objects become ordinary arrays/objects.
+                    <code>stringify</code> supports null, booleans, finite numbers, strings, arrays, and
+                    objects. Unsupported values and cycles raise catchable runtime errors. An object
+                    property whose value cycles back to an active ancestor is omitted; a cycle in an
+                    array or at the root is an error.`,
+                example: {
+                    code: `import { parse, stringify } from "core:json";
+import { println } from "core:io";
+
+const settings = parse("{\\\"theme\\\":\\\"dark\\\",\\\"scale\\\":1.25}");
+settings->scale = 1.5;
+println(settings->theme);
+println(stringify(settings));`
+                }
+            }
+        ];
+
+        /* ==========================================================================
+         * RENDERING — nothing below needs editing when adding modules.
+         * ========================================================================== */
+
+        // Small DOM helper: el("div", { className, id }, child1, child2…)
+        function el(tag, props = {}, ...children) {
+            const node = Object.assign(document.createElement(tag), props);
+            node.append(...children);
+            return node;
+        }
+
+        // Builds the reference table rows from the module array.
+        function renderModuleTable(tbody, modules) {
+            const rows = modules.map(({ name, exports, behavior }) => {
+                const exportsCell = el("td");
+                exports.forEach((exp, i) => {
+                    if (i > 0) exportsCell.append(", ");
+                    exportsCell.append(el("code", { textContent: exp }));
+                });
+                const behaviorCell = el("td");
+                behaviorCell.innerHTML = behavior; // authored HTML, trusted
+                return el("tr", {}, el("td", {}, el("code", { textContent: name })), exportsCell, behaviorCell);
+            });
+            tbody.replaceChildren(...rows);
+        }
+
+        // Builds an accessible tabbed code-example widget from { label, code, note? } items.
+        const snippetTabs = {
+            mount(container, items, ariaLabel = "Examples") {
+                const tabList = el("div", { className: "snippet-tabs__list" });
+                tabList.setAttribute("role", "tablist");
+                tabList.setAttribute("aria-label", ariaLabel);
+
+                const panels = items.map((item, index) => {
+                    const id = `snippet-${index}`;
+                    const tab = el("button", {
+                        className: "snippet-tabs__tab",
+                        type: "button",
+                        id: `${id}-tab`,
+                        textContent: item.label,
+                        tabIndex: index === 0 ? 0 : -1
+                    });
+                    tab.setAttribute("role", "tab");
+                    tab.setAttribute("aria-controls", `${id}-panel`);
+                    tab.setAttribute("aria-selected", String(index === 0));
+                    tabList.append(tab);
+
+                    const panel = el("div", {
+                        className: "snippet-tabs__panel",
+                        id: `${id}-panel`,
+                        tabIndex: 0,
+                        hidden: index !== 0
+                    }, el("pre", {}, el("code", { textContent: item.code })));
+                    panel.setAttribute("role", "tabpanel");
+                    panel.setAttribute("aria-labelledby", tab.id);
+                    if (item.note) {
+                        panel.append(el("p", { className: "snippet-tabs__note", textContent: item.note }));
+                    }
+                    return { tab, panel };
+                });
+
+                const activate = (activeIndex, moveFocus = false) => {
+                    panels.forEach(({ tab, panel }, index) => {
+                        const active = index === activeIndex;
+                        tab.setAttribute("aria-selected", String(active));
+                        tab.tabIndex = active ? 0 : -1;
+                        panel.hidden = !active;
+                    });
+                    if (moveFocus) panels[activeIndex].tab.focus();
+                };
+
+                tabList.addEventListener("click", (event) => {
+                    const index = panels.findIndex(({ tab }) => tab === event.target);
+                    if (index >= 0) activate(index);
+                });
+                tabList.addEventListener("keydown", (event) => {
+                    const index = panels.findIndex(({ tab }) => tab === document.activeElement);
+                    if (index < 0) return;
+                    let nextIndex;
+                    if (event.key === "ArrowRight") nextIndex = (index + 1) % panels.length;
+                    else if (event.key === "ArrowLeft") nextIndex = (index - 1 + panels.length) % panels.length;
+                    else if (event.key === "Home") nextIndex = 0;
+                    else if (event.key === "End") nextIndex = panels.length - 1;
+                    else return;
+                    event.preventDefault();
+                    activate(nextIndex, true);
+                });
+
+                container.replaceChildren(
+                    el("div", { className: "snippet-tabs" }, tabList, ...panels.map(({ panel }) => panel))
+                );
+            }
+        };
+
+        renderModuleTable(document.getElementById("core-modules-body"), coreModules);
+
+        snippetTabs.mount(
+            document.getElementById("core-snippets"),
+            coreModules
+                .filter((m) => m.example)
+                .map((m) => ({ label: m.name, code: m.example.code, note: m.example.note })),
+            "Core module examples"
+        );
+    </script>
 </body>
 
 </html>
