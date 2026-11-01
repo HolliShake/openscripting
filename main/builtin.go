@@ -17,6 +17,8 @@ func getBuiltinModule(name string) (map[string]OSValue, bool) {
 			"core:error":   getCoreError(),
 			"core:file":    getCoreFile(),
 			"core:math":    getCoreMath(),
+			"core:number":  getCoreNumber(),
+			"core:sys":     getCoreSys(),
 			"core:unicode": getCoreUnicode(),
 			"core:path":    getCorePath(),
 			"core:json":    getCoreJSON(),

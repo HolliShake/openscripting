@@ -553,6 +553,18 @@ collect(<span class="str">"items"</span>, 2, 3, 4);</code></pre>
                 <pre><code>more[0] = 10;
 profile-&gt;active = <span class="kw">false</span>;
 profile[<span class="str">"name"</span>];</code></pre>
+                <p>Arrays also expose <code>-&gt;map(callback)</code>, <code>-&gt;filter(callback)</code>, and
+                    <code>-&gt;find(callback)</code>. Each callback receives the element and its zero-based index;
+                    <code>map</code> returns transformed values, <code>filter</code> retains values whose callback
+                    result is truthy, and <code>find</code> returns the first matching value or <code>null</code>.
+                </p>
+                <pre><code><span class="kw">var</span> values = [3, 8, 11];
+<span class="kw">var</span> doubled = values-&gt;map(fn(value, index) {
+    <span class="kw">return</span> value * 2 + index;
+});
+<span class="kw">var</span> firstLarge = values-&gt;find(fn(value) {
+    <span class="kw">return</span> value &gt; 5;
+});</code></pre>
             </section>
 
             <section id="classes">
@@ -694,9 +706,12 @@ loop (;;) {
                     <tbody>
                         <tr>
                             <td><code>core:io</code></td>
-                            <td><code>println(...values)</code></td>
-                            <td>Writes values separated by spaces, followed by a newline. No arguments prints a
-                                newline.</td>
+                            <td><code>print(...values)</code>, <code>println(...values)</code>,
+                                <code>scan(prompt)</code></td>
+                            <td><code>print</code> writes values separated by spaces without a newline;
+                                <code>println</code> adds a newline, and no arguments prints a blank line.
+                                <code>scan</code> writes its prompt and reads one line from standard input; end of
+                                input returns <code>null</code>.</td>
                         </tr>
                         <tr>
                             <td><code>core:http</code></td>
@@ -745,6 +760,44 @@ loop (;;) {
                             </td>
                         </tr>
                         <tr>
+                            <td><code>core:number</code></td>
+                            <td><code>parseInt(text, radix?)</code>, <code>parseFloat(text)</code>,
+                                <code>isFinite(value)</code>, <code>isNaN(value)</code>, <code>sign(value)</code>,
+                                <code>clamp(value, min, max)</code>, <code>MAX_VALUE</code>, <code>MIN_VALUE</code>,
+                                <code>NaN</code>, <code>Infinity</code></td>
+                            <td>Parsers read a valid numeric prefix and return <code>null</code> when no number can
+                                be parsed. <code>parseInt</code> accepts radix 2 through 36, or an omitted/zero radix
+                                that recognizes a hexadecimal prefix. Invalid argument types, radix values, and
+                                reversed clamp bounds raise catchable runtime errors.</td>
+                        </tr>
+                        <tr>
+                            <td><code>core:unicode</code></td>
+                            <td><code>length</code>, <code>byteLength</code>, <code>codePointAt</code>,
+                                <code>fromCodePoint</code>, <code>isValid</code>, <code>toUpper</code>,
+                                <code>toLower</code>, <code>isLetter</code>, <code>isDigit</code>,
+                                <code>isNumber</code>, <code>isWhitespace</code>, <code>isUpper</code>,
+                                <code>isLower</code>, <code>isMark</code>, <code>isPunctuation</code>,
+                                <code>isSymbol</code>, <code>isControl</code>, <code>isGraphic</code>,
+                                <code>isPrintable</code></td>
+                            <td>String length counts Unicode code points; <code>byteLength</code> counts UTF-8 bytes.
+                                <code>codePointAt</code> accepts negative indexes and returns <code>null</code> out of
+                                range. Character predicates require a string containing exactly one valid code point.
+                                Case conversion supports full strings.</td>
+                        </tr>
+                        <tr>
+                            <td><code>core:sys</code></td>
+                            <td><code>OS</code>, <code>ARCH</code>, <code>BITNESS</code>, <code>CPU_COUNT</code>,
+                                <code>GO_VERSION</code>, <code>PID</code>, <code>PATH_SEP</code>,
+                                <code>PATH_LIST_SEP</code>, <code>LINE_SEP</code>, <code>IS_WINDOWS</code>,
+                                <code>IS_LINUX</code>, <code>IS_MACOS</code>, <code>cwd()</code>,
+                                <code>executable()</code>, <code>hostname()</code>, <code>homeDir()</code>,
+                                <code>tempDir()</code>, <code>env(name)</code></td>
+                            <td>Reports the interpreter's runtime OS and architecture, bitness, CPU count, and process
+                                details. Directory and host helpers return strings or raise catchable errors;
+                                <code>env</code> returns <code>null</code> when the named variable is unset.
+                                <code>LINE_SEP</code> is currently a line-feed character.</td>
+                        </tr>
+                        <tr>
                             <td><code>core:path</code></td>
                             <td><code>exists</code>, <code>isFile</code>, <code>isDir</code>, <code>isAbs</code>,
                                 <code>absolute</code>, <code>join</code>, <code>clean</code>, <code>base</code>,
@@ -753,6 +806,12 @@ loop (;;) {
                             <td>Uses the host operating system's path rules. <code>relative(target, base)</code>
                                 returns a path from the base to the target. Existence/type checks return booleans.</td>
                         </tr>
+                            <tr>
+                                <td><code>core:error</code></td>
+                                <td><code>Error(message, line?)</code></td>
+                                <td>Constructs an error object with <code>message</code> and <code>line</code> properties.
+                                Error values are catchable through <code>try/catch</code>.</td>
+                            </tr>
                         <tr>
                             <td><code>core:json</code></td>
                             <td><code>parse(text)</code>, <code>stringify(value)</code></td>
@@ -765,10 +824,14 @@ loop (;;) {
                 <pre><code><span class="kw">import</span> { parse, stringify } <span class="kw">from</span> <span class="str">"core:json"</span>;
 <span class="kw">import</span> { join, absolute } <span class="kw">from</span> <span class="str">"core:path"</span>;
 <span class="kw">import</span> { sqrt, PI } <span class="kw">from</span> <span class="str">"core:math"</span>;
+<span class="kw">import</span> { parseFloat, clamp } <span class="kw">from</span> <span class="str">"core:number"</span>;
+<span class="kw">import</span> { OS, ARCH, cwd } <span class="kw">from</span> <span class="str">"core:sys"</span>;
 <span class="kw">import</span> { readText } <span class="kw">from</span> <span class="str">"core:file"</span>;
 
 <span class="kw">var</span> configPath = absolute(join(<span class="str">"config"</span>, <span class="str">"settings.json"</span>));
-<span class="kw">var</span> config = parse(readText(configPath));</code></pre>
+<span class="kw">var</span> config = parse(readText(configPath));
+println(OS, ARCH, cwd());
+println(clamp(parseFloat(config-&gt;volume), 0, 1));</code></pre>
                 <h3>HTTP server and fetch</h3>
                 <p>HTTP server callbacks are synchronous. Use an async function to await outbound fetch requests;
                     inspect the response status because HTTP error statuses do not reject the fetch promise.</p>
@@ -799,10 +862,13 @@ check();</code></pre>
                 <h2>Runtime features</h2>
                 <ul>
                     <li><strong>Built-ins:</strong> <code>core:io</code>, <code>core:file</code>,
-                        <code>core:math</code>, <code>core:path</code>, <code>core:json</code>, and
-                        <code>core:http</code> provide I/O, filesystem, numeric, path, JSON, HTTP server, and fetch
-                        operations.
+                        <code>core:math</code>, <code>core:number</code>, <code>core:unicode</code>,
+                        <code>core:sys</code>, <code>core:path</code>, <code>core:json</code>,
+                        <code>core:error</code>, and <code>core:http</code> provide I/O, filesystem, numeric,
+                        Unicode, host-system, path, JSON, error, HTTP server, and fetch operations.
                     </li>
+                    <li><strong>Collections:</strong> arrays provide indexed access and mutation plus
+                        <code>map</code>, <code>filter</code>, and <code>find</code> methods with script callbacks.</li>
                     <li><strong>Promises:</strong> async calls return promises. Promise values expose
                         <code>-&gt;then(fn)</code> and <code>-&gt;catch(fn)</code> chaining.
                     </li>
