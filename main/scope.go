@@ -37,7 +37,7 @@ func (s *Scope) ExistsFunction(name string) bool {
 	currentFunctionScope := s
 
 	for currentFunctionScope != nil {
-		if currentFunctionScope.Type == ScopeTypeFunction || currentFunctionScope.Type == ScopeTypeGlobal {
+		if currentFunctionScope.Type == ScopeTypeFunction || currentFunctionScope.Type == ScopeTypeGlobal || currentFunctionScope.Type == ScopeTypeModule {
 			return currentFunctionScope.ExistsLocal(name)
 		} else {
 			// Skip non-function and non-global scopes
