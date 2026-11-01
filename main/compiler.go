@@ -24,6 +24,7 @@ const (
 	kBool
 	kNull
 	kArray
+	kObject
 )
 
 var noConst constVal
@@ -77,6 +78,8 @@ type constVal struct {
 	b bool
 	// values stores immutable compile-time array elements for constant-pool entries.
 	values []constVal
+	// keys stores immutable object keys aligned with values for constant-pool entries.
+	keys []string
 }
 
 func (c constVal) folded() bool   { return c.kind != kNone }
@@ -431,6 +434,21 @@ func tryFold(fn *Function, ast *Ast) constVal {
 			values = append(values, value)
 		}
 		return constVal{kind: kArray, values: values}
+	case AstObject:
+		keys := make([]string, 0)
+		values := make([]constVal, 0)
+		for property := ast.A; property != nil; property = property.Next {
+			if property.Type != AstKeyValue || property.A.Type != AstIdentifier && property.A.Type != AstStrLit {
+				return noConst
+			}
+			value := tryFoldArrayElement(fn, property.B)
+			if !value.folded() {
+				return noConst
+			}
+			keys = append(keys, objectKey(property.A))
+			values = append(values, value)
+		}
+		return constVal{kind: kObject, keys: keys, values: values}
 	case AstPos, AstNeg, AstNot, AstBitNot:
 		v := tryFold(fn, ast.A)
 		if !v.folded() {
@@ -787,6 +805,16 @@ func visitObjectLiteral(s *State, scope *Scope, fn *Function, ast *Ast) {
 		} else {
 			count++
 		}
+	}
+
+	if count > StackSize/2 {
+		if !hasSpread {
+			if value := tryFold(fn, ast); value.kind == kObject {
+				emitConstPool(fn, value)
+				return
+			}
+		}
+		ThrowError(fn.File, "object literal too large; keys and values must be compile-time constants", ast.Pos)
 	}
 
 	// Fast path: no spread, build the object in one op.

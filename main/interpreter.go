@@ -127,6 +127,12 @@ func materializeConstant(value constVal) OSValue {
 			elements[index] = materializeConstant(element)
 		}
 		return OSValue{Type: OSVArray, Opaque: unsafe.Pointer(&Array{Elements: elements})}
+	case kObject:
+		object := &Object{Keys: make([]string, 0, len(value.keys)), Values: make(map[string]OSValue, len(value.keys))}
+		for index, key := range value.keys {
+			object.Set(key, materializeConstant(value.values[index]))
+		}
+		return OSValue{Type: OSVObject, Opaque: unsafe.Pointer(object)}
 	default:
 		panic("invalid constant-pool value")
 	}
