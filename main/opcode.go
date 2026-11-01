@@ -65,4 +65,5 @@ const (
 	OpCallSuper
 	OpLoadBuiltin
 	OpLoadBigInt
+	OpLoadConst
 )

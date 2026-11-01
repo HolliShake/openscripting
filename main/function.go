@@ -31,6 +31,8 @@ type Function struct {
 	Lines []Line
 	// CaptureMeta maps enclosing cells into closure-local environment slots.
 	CaptureMeta []CaptureMeta
+	// Constants stores immutable compile-time values referenced by OpLoadConst.
+	Constants []constVal
 }
 
 func (fn *Function) Clone() *Function {

@@ -22,6 +22,8 @@ const (
 	kNum
 	kStr
 	kBool
+	kNull
+	kArray
 )
 
 var noConst constVal
@@ -73,6 +75,8 @@ type constVal struct {
 	kind constKind
 	// b stores a folded boolean while keeping the compact return-by-value representation.
 	b bool
+	// values stores immutable compile-time array elements for constant-pool entries.
+	values []constVal
 }
 
 func (c constVal) folded() bool   { return c.kind != kNone }
@@ -295,9 +299,17 @@ func emitConst(fn *Function, c constVal) {
 		emitString(fn, c.str)
 	case kBool:
 		emitBool(fn, c.b)
+	case kNull:
+		emit(fn, OpLoadNull)
 	default:
 		panic("unsupported type")
 	}
+}
+
+func emitConstPool(fn *Function, value constVal) {
+	index := len(fn.Constants)
+	fn.Constants = append(fn.Constants, value)
+	emitInt(fn, OpLoadConst, index)
 }
 
 func binaryOpcode(astType AstType) int32 {
@@ -406,6 +418,19 @@ func tryFold(fn *Function, ast *Ast) constVal {
 		return strConst(value)
 	case AstBoolLit:
 		return boolConst(ast.Value == KeyTrue)
+	case AstArray:
+		values := make([]constVal, 0)
+		for element := ast.A; element != nil; element = element.Next {
+			if element.Type == AstSpread {
+				return noConst
+			}
+			value := tryFoldArrayElement(fn, element)
+			if !value.folded() {
+				return noConst
+			}
+			values = append(values, value)
+		}
+		return constVal{kind: kArray, values: values}
 	case AstPos, AstNeg, AstNot, AstBitNot:
 		v := tryFold(fn, ast.A)
 		if !v.folded() {
@@ -552,6 +577,13 @@ func tryFold(fn *Function, ast *Ast) constVal {
 	return noConst
 }
 
+func tryFoldArrayElement(fn *Function, ast *Ast) constVal {
+	if ast.Type == AstNullLit {
+		return constVal{kind: kNull}
+	}
+	return tryFold(fn, ast)
+}
+
 /******************* Variable resolution ***/
 
 // resolveVar finds the variable named by an identifier node, registers a
@@ -693,8 +725,14 @@ func visitArrayLiteral(s *State, scope *Scope, fn *Function, ast *Ast) {
 		}
 	}
 
-	if count > StackSize && !isFoldableAll(ast.A) {
-		ThrowError(fn.File, "array literal too large, try to make all element a constant", ast.Pos)
+	if count > StackSize {
+		if !hasSpread {
+			if value := tryFold(fn, ast); value.kind == kArray {
+				emitConstPool(fn, value)
+				return
+			}
+		}
+		ThrowError(fn.File, "array literal too large; elements must be compile-time constants", ast.Pos)
 	}
 
 	// Fast path: no spread, so push the items and build the array in one op

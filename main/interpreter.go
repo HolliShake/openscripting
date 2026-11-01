@@ -108,6 +108,30 @@ func bigIntValue(value *big.Int) OSValue {
 	return OSValue{Type: OSVBigInt, Opaque: unsafe.Pointer(value)}
 }
 
+func materializeConstant(value constVal) OSValue {
+	switch value.kind {
+	case kNum:
+		return OSValue{Type: OSVNum, Number: value.num}
+	case kStr:
+		return OSValue{Type: OSVString, Number: float64(len(value.str)), Opaque: unsafe.Pointer(unsafe.StringData(value.str))}
+	case kBool:
+		if value.b {
+			return OSValue{Type: OSVBool, Number: 1}
+		}
+		return OSValue{Type: OSVBool}
+	case kNull:
+		return OSValue{}
+	case kArray:
+		elements := make([]OSValue, len(value.values))
+		for index, element := range value.values {
+			elements[index] = materializeConstant(element)
+		}
+		return OSValue{Type: OSVArray, Opaque: unsafe.Pointer(&Array{Elements: elements})}
+	default:
+		panic("invalid constant-pool value")
+	}
+}
+
 func isBigIntPair(left, right OSValue) bool {
 	return left.Type == OSVBigInt && left.Opaque != nil && right.Type == OSVBigInt && right.Opaque != nil
 }
@@ -499,6 +523,19 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					stack = growStack(co)
 				}
 				stack[sp] = bigIntValue(integer)
+				sp++
+			}
+		case OpLoadConst:
+			{
+				index := operand(bcode, ip, bsize)
+				ip++
+				if index < 0 || index >= len(frame.Function.Constants) {
+					panic("invalid constant-pool index")
+				}
+				if sp >= len(stack) {
+					stack = growStack(co)
+				}
+				stack[sp] = materializeConstant(frame.Function.Constants[index])
 				sp++
 			}
 		case OpLoadStr:
