@@ -25,6 +25,8 @@ type Scope struct {
 	VarCount int
 	// LoopStart is the bytecode destination for continue in the active loop.
 	LoopStart int
+	// LoopContinue is the destination after the body for the active loop.
+	LoopContinue int
 	// BreakStart stores jump operands patched to the end of the enclosing loop/switch.
 	BreakStart []int
 	// ContinueStart stores deferred continue jumps that require target patching.

@@ -151,6 +151,50 @@ func acquireCodeBuf() *codeBuf {
 	}
 }
 
+func visitClassExpression(s *State, scope *Scope, fn *Function, ast *Ast, name string) {
+	emitString(fn, name)
+	if ast.A == nil {
+		emit(fn, OpLoadNull)
+	} else {
+		visitExpression(s, scope, fn, ast.A)
+	}
+
+	methodCount := 0
+	constructorFound := false
+	for method := ast.B; method != nil; method = method.Next {
+		methodName := objectKey(method.A)
+		if methodName == "constructor" {
+			if method.B.Type == AstAsyncFunctionExpression {
+				ThrowError(fn.File, "class constructors cannot be async", method.Pos)
+			}
+			if constructorFound {
+				ThrowError(fn.File, "duplicate class constructor", method.Pos)
+			}
+			constructorFound = true
+		}
+		emitString(fn, methodName)
+		if method.B.Type == AstFunctionExpression || method.B.Type == AstAsyncFunctionExpression {
+			funcOffset := compileFunction(s, scope, fn, name+"."+methodName,
+				method.B.Type == AstAsyncFunctionExpression, true, false, methodName == "constructor", method.B.A, method.B.B)
+			emitInt(fn, OpLoadFunction, funcOffset)
+		} else {
+			if methodName == "constructor" {
+				ThrowError(fn.File, "class constructor must be a function", method.Pos)
+			}
+			visitExpression(s, scope, fn, method.B)
+		}
+		methodCount++
+	}
+	if !constructorFound {
+		funcOffset := compileFunction(s, scope, fn, name+".constructor", false, true, false, true, nil, nil)
+		emitString(fn, "constructor")
+		emitInt(fn, OpLoadFunction, funcOffset)
+		methodCount++
+	}
+
+	emitInt(fn, OpMakeClass, methodCount)
+}
+
 /******************* Emit helpers ***/
 
 // newFunction creates a function whose code slices are backed by buf.
@@ -645,7 +689,7 @@ func resolveVar(scope *Scope, fn *Function, ast *Ast) (offset int, isConst bool)
 // compileFunction compiles a function (declaration or expression) into a new
 // Function saved in the parser state and returns its offset. Shared by both
 // visitors, which used to carry identical copies of this code.
-func compileFunction(s *State, scope *Scope, fn *Function, name string, async bool, implicitThis, staticThis bool, parmNode, bodyNode *Ast) int {
+func compileFunction(s *State, scope *Scope, fn *Function, name string, async bool, implicitThis, staticThis, classConstructor bool, parmNode, bodyNode *Ast) int {
 	buf := acquireCodeBuf()
 	function := newFunction(fn.File, name, buf)
 	funcOffset := s.SaveFunction(function)
@@ -671,6 +715,14 @@ func compileFunction(s *State, scope *Scope, fn *Function, name string, async bo
 		}
 		localScope.AddLocal(KeyThis, Symbol{Name: KeyThis, Offset: 0})
 		reverse = append(reverse, 0)
+	}
+	if classConstructor {
+		superOffset := localScope.GetVarCount()
+		localScope.AddLocal(KeySuper, Symbol{Name: KeySuper, Offset: superOffset})
+		reverse = append(reverse, superOffset)
+		function.ClassConstructor = true
+		function.ClassThisOffset = 0
+		function.ClassSuperOffset = superOffset
 	}
 
 	vaIndex := -1
@@ -1054,10 +1106,10 @@ func visitExpression(s *State, scope *Scope, fn *Function, ast *Ast) {
 	case AstObject:
 		visitObjectLiteral(s, scope, fn, ast)
 	case AstClassExpression:
-		// TODO: implement, do not use old code.!!!
+		visitClassExpression(s, scope, fn, ast, "")
 	case AstFunctionExpression, AstAsyncFunctionExpression:
 		funcOffset := compileFunction(s, scope, fn, "<anon/>",
-			ast.Type == AstAsyncFunctionExpression, false, false, ast.A, ast.B)
+			ast.Type == AstAsyncFunctionExpression, false, false, false, ast.A, ast.B)
 		emitInt(fn, OpLoadFunction, funcOffset)
 	case AstSwitchExpr:
 		visitSwitchExpr(s, scope, fn, ast)
@@ -1325,7 +1377,7 @@ func visitFunctionDeclaration(s *State, scope *Scope, fn *Function, ast *Ast) {
 	nameNode := ast.A
 
 	funcOffset := compileFunction(s, scope, fn, nameNode.Value,
-		ast.B.Type == AstAsyncFunctionExpression, false, false, ast.B.A, ast.B.B)
+		ast.B.Type == AstAsyncFunctionExpression, false, false, false, ast.B.A, ast.B.B)
 
 	sym, exists := scope.GetVariable(nameNode.Value)
 	if !exists {
@@ -1379,6 +1431,11 @@ func visitForStatement(s *State, scope *Scope, fn *Function, ast *Ast) {
 
 	visitDeclarationOrStatement(s, loopScope, fn, bodyNode)
 
+	loopScope.LoopContinue = len(fn.Bytecode)
+	for _, jump := range loopScope.ContinueStart {
+		fn.Bytecode[jump] = int32(loopScope.LoopContinue)
+	}
+	loopScope.ContinueStart = loopScope.ContinueStart[:0]
 	if muttNode != nil {
 		visitExpression(s, loopScope, fn, muttNode)
 		emit(fn, OpPopTop)
@@ -1406,6 +1463,7 @@ func visitWhileStatement(s *State, scope *Scope, fn *Function, ast *Ast) {
 	loopScope := acquireScope(scope)
 	loopScope.Type = ScopeTypeLoop
 	loopScope.LoopStart = loopStart
+	loopScope.LoopContinue = loopStart
 
 	visitExpression(s, scope, fn, condNode)
 	jmpIfFalsePos := emitJump(fn, OpPopJmpIfFalse)
@@ -1458,7 +1516,11 @@ func visitContinue(_ *State, scope *Scope, fn *Function, ast *Ast) {
 		continueScope.ContinueStart = append(continueScope.ContinueStart, emitJump(fn, OpJmp))
 		return
 	}
-	emitInt(fn, OpAbsJmp, continueScope.LoopStart)
+	if continueScope.Type == ScopeTypeLoop && continueScope.LoopContinue != 0 {
+		emitInt(fn, OpAbsJmp, continueScope.LoopContinue)
+		return
+	}
+	continueScope.ContinueStart = append(continueScope.ContinueStart, emitJump(fn, OpJmp))
 }
 
 func visitReturn(s *State, scope *Scope, fn *Function, ast *Ast) {
@@ -1786,7 +1848,14 @@ func visitDeclarationOrStatement(s *State, scope *Scope, fn *Function, ast *Ast)
 	emitLine(fn, ast.Pos)
 	switch ast.Type {
 	case AstClass:
-		// TODO: implement, do not use old code.!!!
+		name := ast.A.Value
+		symbol, exists := scope.GetVariable(name)
+		if !exists {
+			symbol = Symbol{Name: name, Offset: scope.GetVarCount(), Const: true, Pos: ast.Pos}
+			scope.AddLocal(name, symbol)
+		}
+		visitClassExpression(s, scope, fn, ast.B, name)
+		emitInt(fn, OpStoreLocal, symbol.Offset)
 	case AstFunction:
 		visitFunctionDeclaration(s, scope, fn, ast)
 	case AstVar, AstLet, AstConst:

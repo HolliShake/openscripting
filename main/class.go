@@ -9,3 +9,12 @@ type Class struct {
 	// Constructor is invoked when the class value is called; it is stored here to share class lookup rules.
 	Constructor OSValue
 }
+
+func classTemplateValue(class *Class, name string) (OSValue, bool) {
+	for current := class; current != nil; current = current.Super {
+		if value, exists := current.Template[name]; exists {
+			return value, true
+		}
+	}
+	return OSValue{}, false
+}

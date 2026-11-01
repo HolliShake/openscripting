@@ -23,6 +23,9 @@ var callNestedAsync::fn(value) {
 
 const values = [1, 2, 3, 4];
 const factor = 3;
+if (values->length != 4 || [1, 2, 3]->length != 3 || []->length != 0) {
+	println("FAIL: array length property");
+}
 const doubled = values->map(fn(value, index, source) {
 	if (source[0] != 1) {
 		return 0;

@@ -65,4 +65,5 @@ const (
 	OpLoadBuiltin
 	OpLoadBigInt
 	OpLoadConst
+	OpMakeClass
 )

@@ -16,14 +16,19 @@ if (parsed->file != "input.txt" || parsed->verbose != 2 || parsed->number != 42 
 	println("FAIL: argparse values", parsed);
 }
 
-var known = parser->parse_known_args(["input.txt", "--mystery", "tail"]);
-if (known->unknown[0] != "--mystery" || known->unknown[1] != "tail") {
+var known = parser->parse_known_args(["input.txt", "--mystery", "--another"]);
+if (known->unknown[0] != "--mystery" || known->unknown[1] != "--another") {
 	println("FAIL: argparse unknown args", known);
 }
 
 var help = parser->parse_args(["--help"]);
 if (help->help == null) {
 	println("FAIL: argparse help", help);
+}
+
+var missing = parser->parse_args([]);
+if (missing->error == null) {
+	println("FAIL: missing required argument was not reported", missing);
 }
 
 println("argparse ok");

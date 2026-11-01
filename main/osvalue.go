@@ -21,6 +21,7 @@ const (
 	OSVPromise
 	OSVClass
 	OSVBigInt
+	OSVMethod
 )
 
 type OSValueType byte
@@ -91,6 +92,10 @@ func (v OSValue) String() string {
 	case OSVFunction:
 		{
 			return "<function>"
+		}
+	case OSVMethod:
+		{
+			return "<method>"
 		}
 	case OSVClass:
 		{
@@ -224,6 +229,10 @@ func (v OSValue) writeString(builder *strings.Builder, path *[]unsafe.Pointer) {
 	case OSVFunction:
 		{
 			builder.WriteString("<function>")
+		}
+	case OSVMethod:
+		{
+			builder.WriteString("<method>")
 		}
 	case OSVClass:
 		{

@@ -218,9 +218,12 @@ var MyClass = class {
    
         this->name = name;
     },
+    Static: "Doy",
+    Val: {"A":2}
 };
 
 println(MyClass("Doy"));
+println(MyClass->Static);
 
 
 var person = Person("Doydoy");

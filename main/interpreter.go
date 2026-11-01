@@ -286,11 +286,26 @@ func raise(vm *VM, co *Coroutine, instruction int, stack []OSValue, sp int, mess
 		return 0, 0, true
 	}
 
-	position := Position{Line: int(line), Column: 1}
-	formatError(frame.Function.File, position, message)
-	printStackTrace(captureStackTrace(co, instruction))
+	fatalRuntimeError(co, instruction, message)
+	return 0, 0, true
+}
+
+func fatalRuntimeError(co *Coroutine, instruction int, message string) {
+	if co != nil && co.Frame.Function != nil {
+		frame := &co.Frame
+		line := 0
+		for _, sourceLine := range frame.Function.Lines {
+			if sourceLine.Index > instruction {
+				break
+			}
+			line = sourceLine.Line
+		}
+		formatError(frame.Function.File, Position{Line: line, Column: 1}, message)
+		printStackTrace(captureStackTrace(co, instruction))
+	} else {
+		fmt.Fprintln(os.Stderr, message)
+	}
 	os.Exit(ExitFailure)
-	panic(message)
 }
 
 func captureStackTrace(co *Coroutine, instruction int) []StackTraceFrame {
@@ -446,6 +461,20 @@ func enqueueMicrotask(vm *VM, coroutine *Coroutine) {
 // Errors are raised with `errMsg = ...; goto throwError`; the shared handler
 // at the bottom of the dispatch loop calls raise().
 func runCoroutine(state *State, vm *VM, co *Coroutine) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			active := vm.Current
+			instruction := 0
+			if active != nil {
+				instruction = active.Frame.Ip
+			}
+			fatalRuntimeError(active, instruction, "runtime failure: "+fmt.Sprint(recovered))
+		}
+	}()
+	runCoroutineLoop(state, vm, co)
+}
+
+func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 	if co == nil || co.Frame.Function == nil {
 		panic("invalid coroutine or call frame")
 	}
@@ -497,6 +526,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 
 	for ip < bsize {
 		currentInstruction = ip
+		frame.Ip = currentInstruction
 		op := bcode[ip]
 		ip++
 
@@ -542,6 +572,45 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					stack = growStack(co)
 				}
 				stack[sp] = materializeConstant(frame.Function.Constants[index])
+				sp++
+			}
+		case OpMakeClass:
+			{
+				methodCount := operand(bcode, ip, bsize)
+				ip++
+				if methodCount < 0 || sp < 2+2*methodCount {
+					panic("invalid class construction operands")
+				}
+				base := sp - 2 - 2*methodCount
+				nameValue := stack[base]
+				if nameValue.Type != OSVString {
+					panic("invalid class name operand")
+				}
+				var super *Class
+				baseValue := stack[base+1]
+				if baseValue.Type != OSVNull {
+					if baseValue.Type != OSVClass || baseValue.Opaque == nil {
+						errMsg = "class superclass must be a class"
+						goto throwError
+					}
+					super = (*Class)(baseValue.Opaque)
+				}
+				class := &Class{Name: nameValue.StringValue(), Super: super, Template: make(map[string]OSValue, methodCount)}
+				for index := 0; index < methodCount; index++ {
+					key := stack[base+2+2*index]
+					val := stack[base+3+2*index]
+					if key.Type != OSVString || (val.Type == OSVFunction && val.Opaque == nil) {
+						panic("invalid class method entry")
+					}
+					methodName := key.StringValue()
+					class.Template[methodName] = val
+					if methodName == "constructor" {
+						class.Constructor = val
+					}
+				}
+				clear(stack[base:sp])
+				sp = base
+				stack[sp] = OSValue{Type: OSVClass, Opaque: unsafe.Pointer(class)}
 				sp++
 			}
 		case OpLoadStr:
@@ -712,8 +781,12 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 					if value, exists := object.Values[attr]; exists {
 						stack[sp-1] = value
 					} else if object.Class != nil {
-						if value, exists := object.Class.Template[attr]; exists {
-							stack[sp-1] = value
+						if value, exists := classTemplateValue(object.Class, attr); exists {
+							if value.Type == OSVFunction {
+								stack[sp-1] = OSValue{Type: OSVMethod, Opaque: unsafe.Pointer(&Method{This: top, Callable: value})}
+							} else {
+								stack[sp-1] = value
+							}
 						} else {
 							stack[sp-1] = objectMethod(top, attr, vm)
 						}
@@ -740,6 +813,11 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 
 				if top.Type == OSVArray && top.Opaque != nil {
+					if attr == "length" {
+						stack[sp] = OSValue{Type: OSVNum, Number: float64(len((*Array)(top.Opaque).Elements))}
+						sp++
+						continue
+					}
 					switch attr {
 					case "map":
 						stack[sp] = BindArrayMapMethod(top)
@@ -839,7 +917,7 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				}
 
 				if obj.Type != OSVArray || obj.Opaque == nil {
-					errMsg = "attempted to index a non-array value " + valueString(obj)
+					errMsg = "attempted to index a non-array value " + valueString(obj) + " with index " + valueString(idx)
 					goto throwError
 				}
 
@@ -855,6 +933,16 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				val := stack[sp-1]
 				idx := stack[sp-2]
 				obj := stack[sp-3]
+				if obj.Type == OSVObject && obj.Opaque != nil {
+					if idx.Type != OSVString {
+						errMsg = "object index must be a string"
+						goto throwError
+					}
+					(*Object)(obj.Opaque).Set(idx.StringValue(), val)
+					clear(stack[sp-3 : sp])
+					sp -= 3
+					continue
+				}
 
 				if obj.Type != OSVArray || obj.Opaque == nil {
 					errMsg = "attempted to index a non-array value " + valueString(obj)
@@ -1202,6 +1290,26 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				sp--
 				fnValue := stack[sp]
 				stack[sp] = OSValue{}
+				if fnValue.Type == OSVMethod {
+					if fnValue.Opaque == nil {
+						errMsg = "attempted to call an invalid method"
+						goto throwError
+					}
+					method := (*Method)(fnValue.Opaque)
+					if method.Callable.Type != OSVFunction || method.Callable.Opaque == nil || argCount < 0 || argCount > sp {
+						errMsg = "invalid script method"
+						goto throwError
+					}
+					for sp+1 > len(stack) {
+						stack = growStack(co)
+					}
+					argStart := sp - argCount
+					copy(stack[argStart+1:sp+1], stack[argStart:sp])
+					stack[argStart] = method.This
+					sp++
+					argCount++
+					fnValue = method.Callable
+				}
 
 				if fnValue.Type == OSVClass {
 					if fnValue.Opaque == nil {
@@ -1229,6 +1337,9 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 						stack[argStart+1] = OSValue{Type: OSVClass, Opaque: unsafe.Pointer(class.Super)}
 						sp += 2
 						argCount += 2
+						if argCount < 2 {
+							panic("invalid class constructor arguments")
+						}
 					}
 					fnValue = class.Constructor
 				}
@@ -2232,6 +2343,9 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 				} else {
 					returnValue = vm.Null
 				}
+				if frame.Function.ClassConstructor && frame.Function.ClassThisOffset >= 0 && frame.Function.ClassThisOffset < len(env) {
+					returnValue = env[frame.Function.ClassThisOffset].Value
+				}
 				if sp != 0 {
 					panic(fmt.Sprintf("stack not empty on return (stack pointer: %d)", sp))
 				}
@@ -2383,11 +2497,11 @@ func objectMethod(object OSValue, name string, vm *VM) OSValue {
 
 func Run(state *State, program *Function) {
 	if state == nil {
-		panic("state cannot be nil")
+		fatalRuntimeError(nil, 0, "state cannot be nil")
 	}
 
 	if program == nil {
-		panic("program function cannot be nil")
+		fatalRuntimeError(nil, 0, "program function cannot be nil")
 	}
 
 	vm := VM{
@@ -2405,7 +2519,7 @@ func Run(state *State, program *Function) {
 	main := NewCoroutine(nil, program, InitialStack(0))
 
 	if main == nil {
-		panic("failed to create main coroutine")
+		fatalRuntimeError(nil, 0, "failed to create main coroutine")
 	}
 
 	vm.Current = main
