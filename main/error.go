@@ -155,10 +155,11 @@ func digitCount(n int) int {
 
 // formatError writes "[file:line:col]: <parts...>\n" followed by the source snippet.
 // parts is not retained, so the variadic slice stays on the caller's stack.
-func formatError(file *File, position Position, parts ...string) {
+func formatError(file *File, position Position, message string, parts ...string) {
 	w := &errScratch
 	w.n = 0
 	w.header(file, position)
+	w.str(message)
 	for _, part := range parts {
 		w.str(part)
 	}
@@ -171,13 +172,8 @@ func FormatError(file *File, message string, position Position) {
 	formatError(file, position, message)
 }
 
-func ThrowError(file *File, message string, position Position) {
-	formatError(file, position, message)
-	os.Exit(ExitFailure)
-}
-
-func ThrowExpectedTokenError(file *File, expected, actual string, position Position) {
-	formatError(file, position, `expected token "`, expected, `", got "`, actual, `"`)
+func ThrowError(file *File, message string, position Position, parts ...string) {
+	formatError(file, position, message, parts...)
 	os.Exit(ExitFailure)
 }
 

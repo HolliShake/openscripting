@@ -475,7 +475,7 @@ func (p *Parser) expect(token string) {
 		p.lookahead = p.getNextToken()
 		return
 	}
-	ThrowExpectedTokenError(p.File, token, p.lookahead.Value, p.lookahead.Pos)
+	ThrowError(p.File, `expected token "`, p.lookahead.Pos, token, `", got "`, p.lookahead.Value, `"`)
 }
 
 func (p *Parser) expectType(token TokenType) {
@@ -483,7 +483,7 @@ func (p *Parser) expectType(token TokenType) {
 		p.lookahead = p.getNextToken()
 		return
 	}
-	ThrowExpectedTokenError(p.File, token.String(), p.lookahead.Value, p.lookahead.Pos)
+	ThrowError(p.File, `expected token "`, p.lookahead.Pos, token.String(), `", got "`, p.lookahead.Value, `"`)
 }
 
 func (p *Parser) identifier(required bool) *Ast {
