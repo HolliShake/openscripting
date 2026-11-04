@@ -45,10 +45,15 @@ type Coroutine struct {
 	SyncResult OSValue
 	// SyncBoundary carries an uncaught callback error back to the collection method without a process panic.
 	SyncBoundary *Promise
+	// snapshot memoizes this coroutine's immutable lexical snapshot (see
+	// SnapshotLexicalChain). Function and Env never change during a
+	// coroutine's life, so the snapshot can be built once and shared.
+	snapshot *Coroutine
 }
 
-// release drops everything a finished coroutine references so it cannot keep
-// the stack, cells or caller chain alive.
+// Release drops everything a finished coroutine references so it cannot keep
+// the stack, cells or caller chain alive. It is idempotent: raise() may
+// release the same coroutine twice.
 func (co *Coroutine) Release() {
 	co.OperandStack = nil
 	co.Parent = nil
@@ -64,8 +69,59 @@ func (co *Coroutine) Release() {
 	co.SyncDone = false
 	co.SyncResult = OSValue{}
 	co.SyncBoundary = nil
+	co.snapshot = nil
 	co.Frame = CallFrame{}
 }
+
+// Pointer table and cells are allocated together, so a call costs one
+// allocation for its environment instead of two. A captured *Cell points into
+// the block and keeps only the block alive, exactly like the old cells slice.
+type envBlock4 struct {
+	ptrs  [4]*Cell
+	cells [4]Cell
+}
+
+type envBlock8 struct {
+	ptrs  [8]*Cell
+	cells [8]Cell
+}
+
+type envBlock16 struct {
+	ptrs  [16]*Cell
+	cells [16]Cell
+}
+
+func newEnv(n int) []*Cell {
+	switch {
+	case n <= 0:
+		return make([]*Cell, 0)
+	case n <= 4:
+		b := new(envBlock4)
+		for i := 0; i < n; i++ {
+			b.ptrs[i] = &b.cells[i]
+		}
+		return b.ptrs[:n:n]
+	case n <= 8:
+		b := new(envBlock8)
+		for i := 0; i < n; i++ {
+			b.ptrs[i] = &b.cells[i]
+		}
+		return b.ptrs[:n:n]
+	case n <= 16:
+		b := new(envBlock16)
+		for i := 0; i < n; i++ {
+			b.ptrs[i] = &b.cells[i]
+		}
+		return b.ptrs[:n:n]
+	}
+	env := make([]*Cell, n)
+	cells := make([]Cell, n)
+	for i := range env {
+		env[i] = &cells[i]
+	}
+	return env
+}
+
 func NewCoroutine(parent *Coroutine, fn *Function, stackSize int) *Coroutine {
 	if stackSize <= 0 {
 		stackSize = minOperandStack
@@ -84,11 +140,7 @@ func NewCoroutine(parent *Coroutine, fn *Function, stackSize int) *Coroutine {
 		frame.Caller = &parent.Frame
 	}
 	frame.Function = fn
-	frame.Env = make([]*Cell, fn.LocalCount)
-	cells := make([]Cell, fn.LocalCount)
-	for i := range frame.Env {
-		frame.Env[i] = &cells[i]
-	}
+	frame.Env = newEnv(fn.LocalCount)
 
 	return co
 }
@@ -103,18 +155,27 @@ func InitialStack(argCount int) int {
 	return size
 }
 
+// SnapshotLexicalChain returns an immutable copy of parent's lexical chain.
+// Each coroutine's snapshot is built once and cached, so repeated async calls
+// from the same frame (and from frames sharing ancestors) reuse the chain
+// instead of copying it every time.
 func SnapshotLexicalChain(parent *Coroutine) *Coroutine {
 	if parent == nil {
 		return nil
 	}
+	if parent.snapshot != nil {
+		return parent.snapshot
+	}
 
-	return &Coroutine{
+	snap := &Coroutine{
 		Parent: SnapshotLexicalChain(parent.Parent),
 		Frame: CallFrame{
 			Function: parent.Frame.Function,
 			Env:      parent.Frame.Env,
 		},
 	}
+	parent.snapshot = snap
+	return snap
 }
 
 // growStack doubles co's operand stack (bounded by StackSize) and returns it.

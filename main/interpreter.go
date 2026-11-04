@@ -323,6 +323,8 @@ func raise(vm *VM, co *Coroutine, instruction int, stack []OSValue, sp int, mess
 	return 0, 0, true
 }
 
+// fatalRuntimeError reports through the static errScratch writer (error.go)
+// instead of fmt.Fprintln, so nothing is boxed into interfaces.
 func fatalRuntimeError(co *Coroutine, instruction int, message string) {
 	if co != nil && co.Frame.Function != nil {
 		frame := &co.Frame
@@ -330,7 +332,11 @@ func fatalRuntimeError(co *Coroutine, instruction int, message string) {
 		formatError(frame.Function.File, Position{Line: line, Column: 1}, message)
 		printStackTrace(captureStackTrace(co, instruction))
 	} else {
-		fmt.Fprintln(os.Stderr, message)
+		w := &errScratch
+		w.n = 0
+		w.str(message)
+		w.byte('\n')
+		w.flush()
 	}
 	os.Exit(ExitFailure)
 }
@@ -364,11 +370,16 @@ func captureStackTrace(co *Coroutine, instruction int) []StackTraceFrame {
 	return frames
 }
 
+// printStackTrace writes through errScratch: no fmt.Fprintf, so name, file
+// and frame.Line are no longer boxed (removes the escapes at old
+// interpreter.go:371 and :381).
 func printStackTrace(frames []StackTraceFrame) {
 	if len(frames) == 0 {
 		return
 	}
-	fmt.Fprintln(os.Stderr, "Stack trace:")
+	w := &errScratch
+	w.n = 0
+	w.str("Stack trace:\n")
 	for _, frame := range frames {
 		name := frame.Function
 		if name == "" {
@@ -378,8 +389,15 @@ func printStackTrace(frames []StackTraceFrame) {
 		if frame.File != nil && frame.File.Name != "" {
 			file = frame.File.Name
 		}
-		fmt.Fprintf(os.Stderr, "  at %s (%s:%d)\n", name, file, frame.Line)
+		w.str("  at ")
+		w.str(name)
+		w.str(" (")
+		w.str(file)
+		w.byte(':')
+		w.int(frame.Line)
+		w.str(")\n")
 	}
+	w.flush()
 }
 
 func reportUnhandledPromises(vm *VM) bool {
@@ -397,7 +415,12 @@ func reportUnhandledPromises(vm *VM) bool {
 			frame := promise.StackTrace[0]
 			formatError(frame.File, Position{Line: frame.Line - 1}, "unhandled promise rejection: ", message)
 		} else {
-			fmt.Fprintf(os.Stderr, "unhandled promise rejection: %s\n", message)
+			w := &errScratch
+			w.n = 0
+			w.str("unhandled promise rejection: ")
+			w.str(message)
+			w.byte('\n')
+			w.flush()
 		}
 		printStackTrace(promise.StackTrace)
 		promise.Handled = true

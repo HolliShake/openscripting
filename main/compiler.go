@@ -548,7 +548,12 @@ func tryFold(fn *Function, ast *Ast) constVal {
 		}
 	case AstArray:
 		{
-			values := make([]constVal, 0)
+			// Presized: one allocation instead of ~log2(n) regrowths.
+			n := 0
+			for element := ast.A; element != nil; element = element.Next {
+				n++
+			}
+			values := make([]constVal, 0, n)
 			for element := ast.A; element != nil; element = element.Next {
 				if element.Type == AstSpread {
 					return noConst
@@ -563,8 +568,12 @@ func tryFold(fn *Function, ast *Ast) constVal {
 		}
 	case AstObject:
 		{
-			keys := make([]string, 0)
-			values := make([]constVal, 0)
+			n := 0
+			for property := ast.A; property != nil; property = property.Next {
+				n++
+			}
+			keys := make([]string, 0, n)
+			values := make([]constVal, 0, n)
 			for property := ast.A; property != nil; property = property.Next {
 				if property.Type != AstKeyValue || property.A.Type != AstIdentifier && property.A.Type != AstStrLit {
 					return noConst
