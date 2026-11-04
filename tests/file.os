@@ -51,6 +51,8 @@ println([13, 14]);
 println([... [15, 16]]);
 
 
+var callnative::fn() { return 1 + 2; };
+
 var obj = {
     "A": "65",
     "B": "66",

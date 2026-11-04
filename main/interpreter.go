@@ -65,6 +65,8 @@ type VM struct {
 	NativeError string
 	// RejectedPromises retains rejected promises until microtasks drain, allowing late catch registration.
 	RejectedPromises []*Promise
+	// nativeJIT stores executable machine-code tiers for eligible hot functions.
+	nativeJIT map[*Function]nativeJITFunction
 
 	// pendingHead is the index of the next microtask to run in Pending.
 	// Consuming with an index (instead of Pending = Pending[1:]) avoids
@@ -1399,6 +1401,18 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 							goto throwError
 						}
 
+						if result, executed := vm.tryNative(fn, stack[sp-argCount:sp]); executed {
+							fmt.Println("Running natively...")
+							clear(stack[sp-argCount : sp])
+							sp -= argCount
+							if sp >= len(stack) {
+								stack = growStack(co)
+							}
+							stack[sp] = result
+							sp++
+							continue
+						}
+
 						argStart := sp - argCount
 						args := stack[argStart:sp]
 						sp = argStart
@@ -2504,6 +2518,7 @@ func Run(state *State, program *Function) {
 		HTTPFetches:   make(chan httpFetchResult, 64),
 		SocketResults: make(chan socketResult, 64),
 	}
+	defer vm.closeNative()
 
 	main := NewCoroutine(nil, program, InitialStack(0))
 

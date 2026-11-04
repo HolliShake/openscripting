@@ -11,6 +11,8 @@
 
 OpenScript is a small compiled scripting language implemented in Go. Its compiler emits bytecode that runs on a coroutine-based virtual machine. The CLI prints the colored version of the banner above with `-help` or when no script path is provided.
 
+On Windows/amd64, Windows/ARM64, and Windows/386, the VM includes an adaptive native JIT for hot, two-argument numeric functions with straight-line numeric expressions. After 32 calls, the matching x64, AArch64, or x87 backend emits machine instructions for local loads, numeric literals/constants, unary signs, and arithmetic. AMD64 and 386 support addition, subtraction, multiplication, division, and remainder; ARM64 supports addition, subtraction, multiplication, and division. Unsupported bytecode, other OS/CPU targets, nonnumeric calls, and divide-by-zero cases continue through the bytecode interpreter.
+
 ## Requirements
 
 - Go 1.25.5 or newer.
