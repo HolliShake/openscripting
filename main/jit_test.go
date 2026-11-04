@@ -18,6 +18,14 @@ func TestNativeJITEmitsArithmeticMachineCode(t *testing.T) {
 		{name: "multiply", opcode: OpBinMul, left: 7, right: 3, expected: 21},
 		{name: "divide", opcode: OpBinDiv, left: 7, right: 2, expected: 3.5},
 		{name: "remainder", opcode: OpBinMod, left: 7, right: 3, expected: 1},
+		{name: "bitwise and", opcode: OpBinBitAnd, left: 6, right: 3, expected: 2},
+		{name: "bitwise xor", opcode: OpBinBitXor, left: 6, right: 3, expected: 5},
+		{name: "bitwise or", opcode: OpBinBitOr, left: 6, right: 3, expected: 7},
+		{name: "shift left", opcode: OpBinShiftLeft, left: 6, right: 3, expected: 48},
+		{name: "shift right", opcode: OpBinShiftRight, left: 12, right: 2, expected: 3},
+		{name: "signed shift right", opcode: OpBinShiftRight, left: -8, right: 1, expected: -4},
+		{name: "oversized shift", opcode: OpBinShiftLeft, left: 6, right: 64, expected: 0},
+		{name: "negative shift", opcode: OpBinShiftRight, left: 6, right: -1, expected: 0},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -29,8 +37,11 @@ func TestNativeJITEmitsArithmeticMachineCode(t *testing.T) {
 			}
 			instructions, eligible := nativeFunctionCode(fn)
 			if !eligible || len(instructions) == 0 {
-				if test.opcode == OpBinMod && runtime.GOARCH == "arm64" {
-					t.Skip("ARM64 emitter intentionally falls back for remainder")
+				if runtime.GOARCH == "arm64" && (test.opcode == OpBinMod || test.opcode == OpBinShiftLeft || test.opcode == OpBinShiftRight) {
+					t.Skip("ARM64 emitter intentionally falls back for this operator")
+				}
+				if runtime.GOARCH == "386" && (test.opcode == OpBinBitAnd || test.opcode == OpBinBitXor || test.opcode == OpBinBitOr || test.opcode == OpBinShiftLeft || test.opcode == OpBinShiftRight) {
+					t.Skip("386 emitter intentionally falls back for bitwise operators")
 				}
 				t.Fatal("expected eligible function to emit machine code")
 			}
@@ -47,6 +58,34 @@ func TestNativeJITEmitsArithmeticMachineCode(t *testing.T) {
 				t.Fatalf("native result = %v, %v; want %v; code=% x", got, ok, test.expected, instructions)
 			}
 		})
+	}
+}
+
+func TestNativeJITCompilesBitwiseNot(t *testing.T) {
+	if runtime.GOARCH == "386" {
+		t.Skip("386 emitter intentionally falls back for bitwise operators")
+	}
+	fn := &Function{
+		ParamCount:  2,
+		LocalCount:  2,
+		VarArgIndex: -1,
+		Bytecode:    []int32{OpStoreLocal, 1, OpStoreLocal, 0, OpLoadVar, 0, OpUnaryBitNot, OpReturn},
+	}
+	instructions, eligible := nativeFunctionCode(fn)
+	if !eligible {
+		t.Fatal("expected bitwise-not function to compile")
+	}
+	code, err := allocateNativeCode(instructions)
+	if err != nil {
+		t.Fatalf("allocate native code: %v", err)
+	}
+	if code == nil {
+		t.Skip("native execution is unavailable on this target")
+	}
+	defer code.release()
+	got, ok := code.run(6, 0)
+	if !ok || got != -7 {
+		t.Fatalf("native bitwise-not result = %v, %v; want -7", got, ok)
 	}
 }
 
@@ -144,7 +183,13 @@ func TestNativeJITCompilesAfterHotCallsAndFallsBack(t *testing.T) {
 		}
 	}
 	result, executed := vm.tryNative(fn, numericArgs)
-	if executed && (result.Type != OSVNum || result.Number != 7) {
+	if !executed {
+		if runtime.GOOS != "windows" {
+			t.Skip("native executable memory is unavailable on this OS")
+		}
+		t.Fatal("hot eligible function did not enter native code")
+	}
+	if result.Type != OSVNum || result.Number != 7 {
 		t.Fatalf("native result = %+v, want numeric 7", result)
 	}
 	if code := vm.nativeJIT[fn].code; code != nil {

@@ -115,7 +115,13 @@ func nativeFunctionIR(fn *Function) ([]nativeIROp, bool) {
 				return nil, false
 			}
 			ops = append(ops, nativeIROp{opcode: op})
-		case OpBinAdd, OpBinSub, OpBinMul, OpBinDiv, OpBinMod:
+		case OpUnaryBitNot:
+			if stackDepth < 1 {
+				return nil, false
+			}
+			ops = append(ops, nativeIROp{opcode: op})
+		case OpBinAdd, OpBinSub, OpBinMul, OpBinDiv, OpBinMod,
+			OpBinBitAnd, OpBinBitXor, OpBinBitOr, OpBinShiftLeft, OpBinShiftRight:
 			if stackDepth < 2 {
 				return nil, false
 			}

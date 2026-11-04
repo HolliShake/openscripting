@@ -21,7 +21,13 @@ func emitNativeCode(ops []nativeIROp) ([]byte, bool) {
 		case OpUnaryNeg:
 			reg := uint32(stackDepth - 1)
 			code = appendARM64Word(code, 0x1E614000|(reg<<5)|reg)
-		case OpBinAdd, OpBinSub, OpBinMul, OpBinDiv:
+		case OpUnaryBitNot:
+			reg := uint32(stackDepth - 1)
+			code = appendARM64Word(code, 0x9E780000|(reg<<5)|9) // fcvtzs X9, Dn
+			code = appendARM64Word(code, 0xAA2903E9)            // mvn X9, X9
+			code = appendARM64Word(code, 0x9E620000|(9<<5)|reg) // scvtf Dn, X9
+		case OpBinAdd, OpBinSub, OpBinMul, OpBinDiv,
+			OpBinBitAnd, OpBinBitXor, OpBinBitOr:
 			left := uint32(stackDepth - 2)
 			right := uint32(stackDepth - 1)
 			base := uint32(0)
@@ -37,6 +43,19 @@ func emitNativeCode(ops []nativeIROp) ([]byte, bool) {
 				zeroBranches = append(zeroBranches, len(code))
 				code = appendARM64Word(code, 0x54000000) // b.eq divide-by-zero fallback
 				base = 0x1E601800
+			case OpBinBitAnd, OpBinBitXor, OpBinBitOr:
+				code = appendARM64Word(code, 0x9E780000|(left<<5)|9)   // fcvtzs X9, Dleft
+				code = appendARM64Word(code, 0x9E780000|(right<<5)|10) // fcvtzs X10, Dright
+				integerOpcode := uint32(0x8A0A0129)                    // and X9, X9, X10
+				if op.opcode == OpBinBitXor {
+					integerOpcode = 0xCA0A0129 // eor X9, X9, X10
+				} else if op.opcode == OpBinBitOr {
+					integerOpcode = 0xAA0A0129 // orr X9, X9, X10
+				}
+				code = appendARM64Word(code, integerOpcode)
+				code = appendARM64Word(code, 0x9E620000|(9<<5)|left) // scvtf Dleft, X9
+				stackDepth--
+				continue
 			}
 			code = appendARM64Word(code, base|(right<<16)|(left<<5)|left)
 			stackDepth--

@@ -26,7 +26,47 @@ func emitNativeCode(ops []nativeIROp) ([]byte, bool) {
 			code = append(code, 0x66, 0x48, 0x0F, 0x7E, 0xC0|(register<<3))
 			code = append(code, 0x49, 0xBA, 0, 0, 0, 0, 0, 0, 0, 0x80, 0x4C, 0x31, 0xD0)
 			code = append(code, 0x66, 0x48, 0x0F, 0x6E, 0xC0|(register<<3))
-		case OpBinAdd, OpBinSub, OpBinMul, OpBinDiv, OpBinMod:
+		case OpUnaryBitNot:
+			register := byte(stackDepth - 1)
+			code = append(code,
+				0xF2, 0x48, 0x0F, 0x2C, 0xC0|register, // cvttsd2si rax, xmmN
+				0x48, 0xF7, 0xD0, // not rax
+				0xF2, 0x48, 0x0F, 0x2A, 0xC0|(register<<3), // cvtsi2sd xmmN, rax
+			)
+		case OpBinAdd, OpBinSub, OpBinMul, OpBinDiv, OpBinMod,
+			OpBinBitAnd, OpBinBitXor, OpBinBitOr, OpBinShiftLeft, OpBinShiftRight:
+			if op.opcode == OpBinBitAnd || op.opcode == OpBinBitXor || op.opcode == OpBinBitOr ||
+				op.opcode == OpBinShiftLeft || op.opcode == OpBinShiftRight {
+				left := byte(stackDepth - 2)
+				right := byte(stackDepth - 1)
+				code = append(code,
+					0xF2, 0x48, 0x0F, 0x2C, 0xC0|left, // cvttsd2si rax, xmmLeft
+					0xF2, 0x4C, 0x0F, 0x2C, 0xD0|right, // cvttsd2si r10, xmmRight
+				)
+				switch op.opcode {
+				case OpBinBitAnd:
+					code = append(code, 0x4C, 0x21, 0xD0) // and rax, r10
+				case OpBinBitXor:
+					code = append(code, 0x4C, 0x31, 0xD0) // xor rax, r10
+				case OpBinBitOr:
+					code = append(code, 0x4C, 0x09, 0xD0) // or rax, r10
+				case OpBinShiftLeft, OpBinShiftRight:
+					code = append(code,
+						0x49, 0x83, 0xFA, 0x3F, // cmp r10, 63; Go shifts >=64 produce zero
+						0x77, 0x08, // ja zero result
+						0x44, 0x89, 0xD1, // mov ecx, r10d
+					)
+					if op.opcode == OpBinShiftLeft {
+						code = append(code, 0x48, 0xD3, 0xE0) // shl rax, cl
+					} else {
+						code = append(code, 0x48, 0xD3, 0xF8) // sar rax, cl
+					}
+					code = append(code, 0xEB, 0x03, 0x48, 0x31, 0xC0) // skip xor; zero rax
+				}
+				code = append(code, 0xF2, 0x48, 0x0F, 0x2A, 0xC0|(left<<3)) // cvtsi2sd xmmLeft, rax
+				stackDepth--
+				continue
+			}
 			left := byte(stackDepth - 2)
 			right := byte(stackDepth - 1)
 			operation := byte(0)
