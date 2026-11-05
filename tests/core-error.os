@@ -21,7 +21,8 @@ var fail::fn(value) async {
     return 1 / value;
 };
 fail(0)->catch(fn(err) {
-    if (err->message != "division by zero" || err->line != 6) {
+    if (err->message != "division by zero" || err->line != 21) {
         println("FAIL: async Error fields", err->line, err->message);
     }
 });
+

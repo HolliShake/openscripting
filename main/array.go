@@ -167,16 +167,14 @@ func invokeCollectionCallback(callback OSValue, callbackArgs []OSValue, vm *VM) 
 		return invokeSyncArrayFunction(vm, function, args)
 	case OSVNativeFunction:
 		native := (*NativeFunction)(callback.Opaque)
-		vm.NativeError = ""
-		result := native.Callable(vm, args)
+		result := invokeNativeFunction(vm, native.Callable, args)
 		if vm.NativeError != "" {
 			return vm.Null, false
 		}
 		return result, true
 	case OSVNativeMethod:
 		method := (*NativeMethod)(callback.Opaque)
-		vm.NativeError = ""
-		result := method.Callable(method.This, vm, args)
+		result := invokeNativeMethod(vm, method.Callable, method.This, args)
 		if vm.NativeError != "" {
 			return vm.Null, false
 		}

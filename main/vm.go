@@ -1586,8 +1586,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 						}
 
 						argStart := sp - argCount
-						vm.NativeError = ""
-						result := native.Callable(vm, stack[argStart:sp])
+						result := invokeNativeFunction(vm, native.Callable, stack[argStart:sp])
 						if vm.NativeError != "" {
 							errMsg = consumeNativeError(vm, stack, sp, argStart)
 							sp = argStart
@@ -1613,8 +1612,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 						}
 
 						argStart := sp - argCount
-						vm.NativeError = ""
-						result := nativeMethod.Callable(nativeMethod.This, vm, stack[argStart:sp])
+						result := invokeNativeMethod(vm, nativeMethod.Callable, nativeMethod.This, stack[argStart:sp])
 						if vm.NativeError != "" {
 							errMsg = consumeNativeError(vm, stack, sp, argStart)
 							sp = argStart

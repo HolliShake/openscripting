@@ -153,7 +153,14 @@ func schedulePromiseReaction(vm *VM, promise *Promise, reaction PromiseReaction)
 			resolvePromise(vm, reaction.Next, promise.Value)
 			return
 		}
-		result := native.Callable(vm, []OSValue{promise.Value})
+		result := invokeNativeFunction(vm, native.Callable, []OSValue{promise.Value})
+		if vm.NativeError != "" {
+			message := vm.NativeError
+			vm.NativeError = ""
+			reaction.Next.StackTrace = promise.StackTrace
+			rejectPromise(vm, reaction.Next, newErrorValue(message, 0))
+			return
+		}
 		resolvePromise(vm, reaction.Next, result)
 	default:
 		resolvePromise(vm, reaction.Next, promise.Value)
