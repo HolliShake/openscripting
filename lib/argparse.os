@@ -1,5 +1,6 @@
 /**
- * Command-line argument parsing helpers.
+ * Command-line argument parsing helpers. Internal implementation functions
+ * use a double-underscore prefix and are not importable from other modules.
  * Author: Philipp Andrew Redondo.
  *
  * The primary entry point is ArgumentParser(config?). Configuration accepts
@@ -28,11 +29,11 @@ import { println } from "core:io";
 import { parseInt, parseFloat } from "core:number";
 import { length, codePointAt, fromCodePoint } from "core:unicode";
 
-var makeError::fn(message) {
+var __makeError::fn(message) {
 	return {error: message};
 };
 
-var substring::fn(value, start) {
+var __substring::fn(value, start) {
 	let output = "";
 	loop (let index = start; index < length(value); index++) {
 		output += fromCodePoint(codePointAt(value, index));
@@ -40,7 +41,7 @@ var substring::fn(value, start) {
 	return output;
 };
 
-var splitOption::fn(token) {
+var __splitOption::fn(token) {
 	let name = "";
 	let value = "";
 	let hasValue = false;
@@ -59,7 +60,7 @@ var splitOption::fn(token) {
 	return {name: name, value: value, hasValue: hasValue};
 };
 
-var startsWith::fn(value, prefix) {
+var __startsWith::fn(value, prefix) {
 	if (length(prefix) > length(value)) {
 		return false;
 	}
@@ -71,7 +72,7 @@ var startsWith::fn(value, prefix) {
 	return true;
 };
 
-var containsSpace::fn(value) {
+var __containsSpace::fn(value) {
 	loop (let index = 0; index < length(value); index++) {
 		if (codePointAt(value, index) == 32) {
 			return true;
@@ -81,7 +82,7 @@ var containsSpace::fn(value) {
 };
 
 // "-5", "-1.5", "-.5"
-var isNegativeNumber::fn(token) {
+var __isNegativeNumber::fn(token) {
 	if (length(token) < 2 || codePointAt(token, 0) != 45) {
 		return false;
 	}
@@ -100,7 +101,7 @@ var isNegativeNumber::fn(token) {
 	return digits > 0;
 };
 
-var findExact::fn(parser, name) {
+var __findExact::fn(parser, name) {
 	loop (let specIndex = 0; specIndex < parser->options->length; specIndex++) {
 		let spec = parser->options[specIndex];
 		loop (let nameIndex = 0; nameIndex < spec->flags->length; nameIndex++) {
@@ -112,11 +113,11 @@ var findExact::fn(parser, name) {
 	return null;
 };
 
-var hasNegativeLookingOption::fn(parser) {
+var __hasNegativeLookingOption::fn(parser) {
 	loop (let specIndex = 0; specIndex < parser->options->length; specIndex++) {
 		let spec = parser->options[specIndex];
 		loop (let nameIndex = 0; nameIndex < spec->flags->length; nameIndex++) {
-			if (isNegativeNumber(spec->flags[nameIndex])) {
+			if (__isNegativeNumber(spec->flags[nameIndex])) {
 				return true;
 			}
 		}
@@ -124,42 +125,42 @@ var hasNegativeLookingOption::fn(parser) {
 	return false;
 };
 
-var isOptionToken::fn(parser, token) {
+var __isOptionToken::fn(parser, token) {
 	if (length(token) < 2 || codePointAt(token, 0) != 45) {
 		return false;
 	}
 	if (token == "--") {
 		return true;
 	}
-	let split = splitOption(token);
-	if (findExact(parser, split->name) != null) {
+	let split = __splitOption(token);
+	if (__findExact(parser, split->name) != null) {
 		return true;
 	}
-	if (isNegativeNumber(token)) {
-		return hasNegativeLookingOption(parser);
+	if (__isNegativeNumber(token)) {
+		return __hasNegativeLookingOption(parser);
 	}
-	if (containsSpace(token)) {
+	if (__containsSpace(token)) {
 		return false;
 	}
 	return true;
 };
 
-var actionOf::fn(spec) {
+var __actionOf::fn(spec) {
 	if (spec->action == null) {
 		return "store";
 	}
 	return spec->action;
 };
 
-var takesValue::fn(spec) {
-	let action = actionOf(spec);
+var __takesValue::fn(spec) {
+	let action = __actionOf(spec);
 	return action == "store" || action == "append";
 };
 
-var deriveDest::fn(flags) {
+var __deriveDest::fn(flags) {
 	let chosen = flags[0];
 	loop (let index = 0; index < flags->length; index++) {
-		if (startsWith(flags[index], "--")) {
+		if (__startsWith(flags[index], "--")) {
 			chosen = flags[index];
 			break;
 		}
@@ -179,7 +180,7 @@ var deriveDest::fn(flags) {
 	return output;
 };
 
-var convertValue::fn(value, valueType) {
+var __convertValue::fn(value, valueType) {
 	if (valueType == null || valueType == "string" || valueType == "str") {
 		return {value: value, error: null};
 	}
@@ -209,7 +210,7 @@ var convertValue::fn(value, valueType) {
 	return {value: null, error: "unsupported argument type: " + valueType};
 };
 
-var checkChoices::fn(spec, value) {
+var __checkChoices::fn(spec, value) {
 	if (spec->choices == null) {
 		return null;
 	}
@@ -227,14 +228,14 @@ var checkChoices::fn(spec, value) {
 };
 
 // Convert + validate a list of raw tokens for a spec. Returns {values, error}.
-var convertAll::fn(spec, raw) {
+var __convertAll::fn(spec, raw) {
 	let out = [];
 	loop (let index = 0; index < raw->length; index++) {
-		let converted = convertValue(raw[index], spec->type);
+		let converted = __convertValue(raw[index], spec->type);
 		if (converted->error != null) {
 			return {values: null, error: converted->error};
 		}
-		let choiceError = checkChoices(spec, converted->value);
+		let choiceError = __checkChoices(spec, converted->value);
 		if (choiceError != null) {
 			return {values: null, error: choiceError};
 		}
@@ -243,19 +244,19 @@ var convertAll::fn(spec, raw) {
 	return {values: out, error: null};
 };
 
-var matchOption::fn(parser, token) {
-	let exact = findExact(parser, token);
+var __matchOption::fn(parser, token) {
+	let exact = __findExact(parser, token);
 	if (exact != null) {
 		return {spec: exact, ambiguous: false};
 	}
 	let abbreviation = null;
 	let ambiguous = false;
-	if (parser->allow_abbrev && length(token) > 2 && startsWith(token, "--")) {
+	if (parser->allow_abbrev && length(token) > 2 && __startsWith(token, "--")) {
 		loop (let specIndex = 0; specIndex < parser->options->length; specIndex++) {
 			let spec = parser->options[specIndex];
 			loop (let nameIndex = 0; nameIndex < spec->flags->length; nameIndex++) {
 				let flag = spec->flags[nameIndex];
-				if (startsWith(flag, token)) {
+				if (__startsWith(flag, token)) {
 					if (abbreviation != null && abbreviation->dest != spec->dest) {
 						ambiguous = true;
 					}
@@ -267,20 +268,20 @@ var matchOption::fn(parser, token) {
 	return {spec: abbreviation, ambiguous: ambiguous};
 };
 
-var positionalLabel::fn(positional) {
+var __positionalLabel::fn(positional) {
 	if (positional->metavar != null) {
 		return positional->metavar;
 	}
 	return positional->dest;
 };
 
-var formatHelp::fn(parser) {
+var __formatHelp::fn(parser) {
 	let usage = "usage: " + parser->prog;
 	if (parser->options->length > 0) {
 		usage += " [options]";
 	}
 	loop (let index = 0; index < parser->positionals->length; index++) {
-		usage += " " + positionalLabel(parser->positionals[index]);
+		usage += " " + __positionalLabel(parser->positionals[index]);
 	}
 	let output = usage + "\n";
 	if (parser->description != "") {
@@ -290,7 +291,7 @@ var formatHelp::fn(parser) {
 		output += "\npositional arguments:\n";
 		loop (let index = 0; index < parser->positionals->length; index++) {
 			let positional = parser->positionals[index];
-			output += "  " + positionalLabel(positional);
+			output += "  " + __positionalLabel(positional);
 			if (positional->help != null) {
 				output += "  " + positional->help;
 			}
@@ -308,7 +309,7 @@ var formatHelp::fn(parser) {
 				}
 				flags += spec->flags[flagIndex];
 			}
-			if (takesValue(spec)) {
+			if (__takesValue(spec)) {
 				let metavar = spec->metavar;
 				if (metavar == null) {
 					metavar = "VALUE";
@@ -325,7 +326,7 @@ var formatHelp::fn(parser) {
 	return output;
 };
 
-var minCount::fn(positional) {
+var __minCount::fn(positional) {
 	let nargs = positional->nargs;
 	if (nargs == "?" || nargs == "*") {
 		return 0;
@@ -337,7 +338,7 @@ var minCount::fn(positional) {
 };
 
 // Distribute collected positional tokens across positional specs.
-var assignPositionals::fn(parser, tokens, namespace) {
+var __assignPositionals::fn(parser, tokens, namespace) {
 	let positionals = parser->positionals;
 	let used = 0;
 	let missing = [];
@@ -346,7 +347,7 @@ var assignPositionals::fn(parser, tokens, namespace) {
 		let nargs = positional->nargs;
 		let reserve = 0;
 		loop (let later = index + 1; later < positionals->length; later++) {
-			reserve += minCount(positionals[later]);
+			reserve += __minCount(positionals[later]);
 		}
 		let avail = tokens->length - used - reserve;
 		if (avail < 0) {
@@ -366,7 +367,7 @@ var assignPositionals::fn(parser, tokens, namespace) {
 			if (avail >= nargs) { take = nargs; } else { failed = true; }
 		}
 		if (failed) {
-			missing = [...missing, positionalLabel(positional)];
+			missing = [...missing, __positionalLabel(positional)];
 			continue;
 		}
 		let raw = [];
@@ -374,7 +375,7 @@ var assignPositionals::fn(parser, tokens, namespace) {
 			raw = [...raw, tokens[used + offset]];
 		}
 		used += take;
-		let converted = convertAll(positional, raw);
+		let converted = __convertAll(positional, raw);
 		if (converted->error != null) {
 			return {error: converted->error};
 		}
@@ -398,7 +399,7 @@ var assignPositionals::fn(parser, tokens, namespace) {
 	return {error: null, missing: missing, extras: extras};
 };
 
-var joinWords::fn(words, separator) {
+var __joinWords::fn(words, separator) {
 	let out = "";
 	loop (let index = 0; index < words->length; index++) {
 		if (index > 0) {
@@ -409,7 +410,7 @@ var joinWords::fn(words, separator) {
 	return out;
 };
 
-var parseInternal::fn(parser, input, allowUnknown) {
+var __parseInternal::fn(parser, input, allowUnknown) {
 	if (input == null) {
 		input = argv;
 	}
@@ -422,7 +423,7 @@ var parseInternal::fn(parser, input, allowUnknown) {
 
 	loop (let specIndex = 0; specIndex < parser->options->length; specIndex++) {
 		let spec = parser->options[specIndex];
-		let action = actionOf(spec);
+		let action = __actionOf(spec);
 		if (action == "help") {
 			continue;
 		}
@@ -457,22 +458,22 @@ var parseInternal::fn(parser, input, allowUnknown) {
 			continue;
 		}
 
-		let split = splitOption(token);
+		let split = __splitOption(token);
 		let spec = null;
-		if (!positionalOnly && isOptionToken(parser, token)) {
-			let match = matchOption(parser, split->name);
+		if (!positionalOnly && __isOptionToken(parser, token)) {
+			let match = __matchOption(parser, split->name);
 			if (match->ambiguous) {
-				return makeError("ambiguous option: " + split->name + " could match multiple options");
+				return __makeError("ambiguous option: " + split->name + " could match multiple options");
 			}
 			spec = match->spec;
 			// short option with attached value or cluster: -n5, -abc
 			if (spec == null && length(split->name) > 2 && codePointAt(split->name, 1) != 45) {
 				let first = "-" + fromCodePoint(codePointAt(split->name, 1));
-				let shortSpec = findExact(parser, first);
+				let shortSpec = __findExact(parser, first);
 				if (shortSpec != null) {
 					spec = shortSpec;
-					let rest = substring(token, 2);
-					if (takesValue(shortSpec)) {
+					let rest = __substring(token, 2);
+					if (__takesValue(shortSpec)) {
 						split = {name: first, value: rest, hasValue: true};
 					} else {
 						split = {name: first, value: "", hasValue: false};
@@ -483,14 +484,14 @@ var parseInternal::fn(parser, input, allowUnknown) {
 		}
 
 		if (spec != null) {
-			let action = actionOf(spec);
+			let action = __actionOf(spec);
 			seen[spec->dest] = true;
 			if (action == "help") {
-				return {help: formatHelp(parser), namespace: namespace};
+				return {help: __formatHelp(parser), namespace: namespace};
 			}
-			if (!takesValue(spec)) {
+			if (!__takesValue(spec)) {
 				if (split->hasValue) {
-					return makeError("argument " + split->name + ": ignored explicit argument '" + split->value + "'");
+					return __makeError("argument " + split->name + ": ignored explicit argument '" + split->value + "'");
 				}
 				if (action == "store_true") {
 					namespace[spec->dest] = true;
@@ -506,7 +507,7 @@ var parseInternal::fn(parser, input, allowUnknown) {
 					}
 					namespace[spec->dest]++;
 				} else {
-					return makeError("unsupported action: " + action);
+					return __makeError("unsupported action: " + action);
 				}
 			} else {
 				let nargs = spec->nargs;
@@ -514,7 +515,7 @@ var parseInternal::fn(parser, input, allowUnknown) {
 				if (nargs == "?") {
 					if (split->hasValue) {
 						values = [split->value];
-					} else if (argIndex + 1 < input->length && !isOptionToken(parser, input[argIndex + 1])) {
+					} else if (argIndex + 1 < input->length && !__isOptionToken(parser, input[argIndex + 1])) {
 						argIndex++;
 						values = [input[argIndex]];
 					}
@@ -522,12 +523,12 @@ var parseInternal::fn(parser, input, allowUnknown) {
 					if (split->hasValue) {
 						values = [split->value];
 					}
-					loop (argIndex + 1 < input->length && !isOptionToken(parser, input[argIndex + 1])) {
+					loop (argIndex + 1 < input->length && !__isOptionToken(parser, input[argIndex + 1])) {
 						argIndex++;
 						values = [...values, input[argIndex]];
 					}
 					if (nargs == "+" && values->length == 0) {
-						return makeError("argument " + split->name + ": expected at least one argument");
+						return __makeError("argument " + split->name + ": expected at least one argument");
 					}
 				} else {
 					let wanted = nargs;
@@ -536,25 +537,25 @@ var parseInternal::fn(parser, input, allowUnknown) {
 					}
 					if (split->hasValue) {
 						if (wanted != 1) {
-							return makeError("argument " + split->name + ": ignored explicit argument '" + split->value + "'");
+							return __makeError("argument " + split->name + ": ignored explicit argument '" + split->value + "'");
 						}
 						values = [split->value];
 					} else {
 						loop (let consumed = 0; consumed < wanted; consumed++) {
-							if (argIndex + 1 >= input->length || isOptionToken(parser, input[argIndex + 1])) {
+							if (argIndex + 1 >= input->length || __isOptionToken(parser, input[argIndex + 1])) {
 								if (wanted == 1) {
-									return makeError("argument " + split->name + ": expected one argument");
+									return __makeError("argument " + split->name + ": expected one argument");
 								}
-								return makeError("argument " + split->name + ": expected " + wanted + " arguments");
+								return __makeError("argument " + split->name + ": expected " + wanted + " arguments");
 							}
 							argIndex++;
 							values = [...values, input[argIndex]];
 						}
 					}
 				}
-				let converted = convertAll(spec, values);
+				let converted = __convertAll(spec, values);
 				if (converted->error != null) {
-					return makeError("argument " + split->name + ": " + converted->error);
+					return __makeError("argument " + split->name + ": " + converted->error);
 				}
 				let storedValue = null;
 				if (nargs != null && nargs != "?") {
@@ -576,7 +577,7 @@ var parseInternal::fn(parser, input, allowUnknown) {
 			continue;
 		}
 
-		if (!positionalOnly && isOptionToken(parser, token)) {
+		if (!positionalOnly && __isOptionToken(parser, token)) {
 			unknown = [...unknown, token];
 			argIndex++;
 			continue;
@@ -585,22 +586,22 @@ var parseInternal::fn(parser, input, allowUnknown) {
 		argIndex++;
 	}
 
-	let assigned = assignPositionals(parser, positionalTokens, namespace);
+	let assigned = __assignPositionals(parser, positionalTokens, namespace);
 	if (assigned->error != null) {
-		return makeError(assigned->error);
+		return __makeError(assigned->error);
 	}
 	let missing = assigned->missing;
 	loop (let specIndex = 0; specIndex < parser->options->length; specIndex++) {
 		let spec = parser->options[specIndex];
 		if (spec->required == true && seen[spec->dest] != true) {
-			missing = [...missing, joinWords(spec->flags, "/")];
+			missing = [...missing, __joinWords(spec->flags, "/")];
 		}
 	}
 	if (missing->length > 0) {
 		if (!allowUnknown) {
-			println(formatHelp(parser));
+			println(__formatHelp(parser));
 		}
-		return makeError("the following arguments are required: " + joinWords(missing, ", "));
+		return __makeError("the following arguments are required: " + __joinWords(missing, ", "));
 	}
 	loop (let index = 0; index < assigned->extras->length; index++) {
 		unknown = [...unknown, assigned->extras[index]];
@@ -609,12 +610,12 @@ var parseInternal::fn(parser, input, allowUnknown) {
 		return {namespace: namespace, unknown: unknown};
 	}
 	if (unknown->length > 0) {
-		return makeError("unrecognized arguments: " + joinWords(unknown, " "));
+		return __makeError("unrecognized arguments: " + __joinWords(unknown, " "));
 	}
 	return namespace;
 };
 
-var Parser::class {
+var __Parser::class {
 	constructor: fn() {
 		this->prog = "program";
 		this->description = "";
@@ -626,7 +627,7 @@ var Parser::class {
 	add_argument: fn(definition) {
 		if (definition->flags != null) {
 			if (definition->dest == null) {
-				definition->dest = deriveDest(definition->flags);
+				definition->dest = __deriveDest(definition->flags);
 			}
 			this->options = [...this->options, definition];
 		} else {
@@ -634,7 +635,7 @@ var Parser::class {
 				definition->dest = definition->name;
 			}
 			if (definition->dest == null) {
-				return makeError("argument definition requires flags, name, or dest");
+				return __makeError("argument definition requires flags, name, or dest");
 			}
 			this->positionals = [...this->positionals, definition];
 		}
@@ -642,11 +643,11 @@ var Parser::class {
 	},
 	// Return the usage and argument description without printing it.
 	format_help: fn() {
-		return formatHelp(this);
+		return __formatHelp(this);
 	},
 	// Return the formatted help text. This currently does not write to stdout.
 	print_help: fn() {
-		return formatHelp(this);
+		return __formatHelp(this);
 	},
 	// Parse the provided array, or argv when omitted; return namespace or {error}.
 	parse_args: fn(args...) {
@@ -654,7 +655,7 @@ var Parser::class {
 		if (args->length > 0) {
 			input = args[0];
 		}
-		return parseInternal(this, input, false);
+		return __parseInternal(this, input, false);
 	},
 	// Parse like parse_args, but return unrecognized tokens in an unknown array.
 	parse_known_args: fn(args...) {
@@ -662,13 +663,13 @@ var Parser::class {
 		if (args->length > 0) {
 			input = args[0];
 		}
-		return parseInternal(this, input, true);
+		return __parseInternal(this, input, true);
 	}
 };
 
 // Create a configured parser and add -h/--help unless add_help is false.
 var ArgumentParser::fn(config...) {
-	let parser = Parser();
+	let parser = __Parser();
 	let addHelp = true;
 	if (config->length > 0) {
 		let settings = config[0];

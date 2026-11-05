@@ -26,6 +26,7 @@ const (
 	AstPostDec
 	AstNot
 	AstBitNot
+	AstTypeOf
 	AstAwait
 	AstSpread
 	AstMul

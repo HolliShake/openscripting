@@ -49,6 +49,9 @@ if (doubled[0] != 3 || doubled[3] != 15 || throughHelper[0] != 4 || throughHelpe
 if (values[0] != 1 || values[3] != 4 || values->find(fn(value) { return value > 10; }) != null) {
 	println("FAIL: array method source or missing result");
 }
+if (!values->contains(1) || !values->contains(4) || values->contains(5) || ![null, true, "value"]->contains(null) || [null, true, "value"]->contains(false)) {
+	println("FAIL: array contains");
+}
 try {
 	values->map(fn(value) {
 		return fail(value - 2);
@@ -69,6 +72,10 @@ if (nestedPending[0]->then == null || nestedPending[3]->then == null) {
 }
 
 const record = { alpha: 2, beta: 4, gamma: 6 };
+const recordKeys = record->keys();
+if (recordKeys->len() != 3 || recordKeys[0] != "alpha" || recordKeys[1] != "beta" || recordKeys[2] != "gamma" || {}->keys()->len() != 0) {
+	println("FAIL: object keys");
+}
 const mappedRecord = record->map(fn(value, key, source) {
 	if (source->beta != 4) {
 		return 0;

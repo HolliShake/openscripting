@@ -45,7 +45,6 @@ const (
 	OpBinBitAnd
 	OpBinBitXor
 	OpBinBitOr
-
 	OpDupTop
 	OpDup2
 	OpPopTop
@@ -59,6 +58,7 @@ const (
 	OpStoreLocal
 	OpStdWrite
 	OpReturn
+	OpTypeOf
 	OpAwait
 	OpCallSuper
 	OpLoadBuiltin

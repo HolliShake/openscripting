@@ -740,7 +740,7 @@ func (p *Parser) postfix() *Ast {
 }
 
 func (p *Parser) unary() *Ast {
-	if p.match("+") || p.match("++") || p.match("-") || p.match("--") || p.match("!") || p.match("~") || p.match(KeyAwait) {
+	if p.match("+") || p.match("++") || p.match("-") || p.match("--") || p.match("!") || p.match("~") || p.match(KeyAwait) || p.match(KeyTypeOf) {
 		opt := p.lookahead.Value
 		switch opt {
 		case "+":
@@ -757,6 +757,8 @@ func (p *Parser) unary() *Ast {
 			p.expect("~")
 		case KeyAwait:
 			p.expect(KeyAwait)
+		case KeyTypeOf:
+			p.expect(KeyTypeOf)
 		}
 
 		operand := p.unary()
@@ -1918,6 +1920,8 @@ func unaryOperator(opt string) AstType {
 		return AstNot
 	case "~":
 		return AstBitNot
+	case KeyTypeOf:
+		return AstTypeOf
 	case KeyAwait:
 		return AstAwait
 	}

@@ -21,6 +21,7 @@ func getBuiltinModule(name string) (map[string]OSValue, bool) {
 			"core:socket":  getCoreSocket(),
 			"core:sys":     getCoreSys(),
 			"core:unicode": getCoreUnicode(),
+			"core:typing":  getCoreTyping(),
 			"core:path":    getCorePath(),
 			"core:json":    getCoreJSON(),
 			"core:regex":   getCoreRegex(),

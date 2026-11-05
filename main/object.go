@@ -26,6 +26,17 @@ func (obj *Object) Set(key string, value OSValue) {
 	obj.Values[key] = value
 }
 
+func ObjectKeys(this OSValue, _ *VM, _ []OSValue) OSValue {
+	object := (*Object)(this.Opaque)
+	keys := make([]OSValue, 0, len(object.Keys))
+	for _, key := range object.Keys {
+		if _, exists := object.Values[key]; exists {
+			keys = append(keys, objectString(key))
+		}
+	}
+	return OSValue{Type: OSVArray, Opaque: unsafe.Pointer(&Array{Elements: keys})}
+}
+
 func ObjectMap(this OSValue, vm *VM, args []OSValue) OSValue {
 	object := (*Object)(this.Opaque)
 	if !validateArrayCallback(args[0], vm) {

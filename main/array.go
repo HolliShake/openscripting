@@ -9,6 +9,16 @@ type Array struct {
 	Methods map[string]OSValue
 }
 
+func ArrayContains(this OSValue, vm *VM, args []OSValue) OSValue {
+	array := (*Array)(this.Opaque)
+	for _, value := range array.Elements {
+		if valuesEqual(value, args[0]) {
+			return vm.True
+		}
+	}
+	return vm.False
+}
+
 func ArrayMap(this OSValue, vm *VM, args []OSValue) OSValue {
 	array := (*Array)(this.Opaque)
 	if !validateArrayCallback(args[0], vm) {

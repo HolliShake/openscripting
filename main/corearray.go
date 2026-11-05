@@ -10,10 +10,11 @@ var (
 func getCoreArrayClass() *Class {
 	coreArrayClassOnce.Do(func() {
 		coreArrayClass = &Class{Name: "Array", Template: map[string]OSValue{
-			"len":    nativeMethodTemplate(0, arrayLen),
-			"map":    nativeMethodTemplate(1, ArrayMap),
-			"filter": nativeMethodTemplate(1, ArrayFilter),
-			"find":   nativeMethodTemplate(1, ArrayFind),
+			"len":      nativeMethodTemplate(0, arrayLen),
+			"contains": nativeMethodTemplate(1, ArrayContains),
+			"map":      nativeMethodTemplate(1, ArrayMap),
+			"filter":   nativeMethodTemplate(1, ArrayFilter),
+			"find":     nativeMethodTemplate(1, ArrayFind),
 		}}
 	})
 	return coreArrayClass

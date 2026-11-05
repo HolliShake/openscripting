@@ -1332,6 +1332,11 @@ func visitExpression(s *State, scope *Scope, fn *Function, ast *Ast) {
 				emitInt(fn, OpCall, argCount)
 			}
 		}
+	case AstTypeOf:
+		{
+			visitExpression(s, scope, fn, ast.A)
+			emit(fn, OpTypeOf)
+		}
 	case AstAwait:
 		{
 			if !fn.Async {
@@ -2244,7 +2249,7 @@ func visitImport(s *State, scope *Scope, fn *Function, ast *Ast) {
 			exportName = objectKey(item.A)
 			localName = item.B.Value
 		}
-		if _, exists := module.Exports[exportName]; !exists {
+		if _, exists := module.Exports[exportName]; !exists || (exists && strings.HasPrefix(exportName, "__") && !strings.HasSuffix(exportName, "__")) {
 			ThrowError(fn.File, "module does not export requested name", item.Pos)
 		}
 		if scope.ExistsLocal(localName) {
