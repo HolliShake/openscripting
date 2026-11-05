@@ -28,6 +28,30 @@
             box-sizing: border-box;
         }
 
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: #3b3b3b #0a0a0a;
+        }
+
+        *::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        *::-webkit-scrollbar-track {
+            background: #0a0a0a;
+        }
+
+        *::-webkit-scrollbar-thumb {
+            background: #3b3b3b;
+            border: 2px solid #0a0a0a;
+            border-radius: 8px;
+        }
+
+        *::-webkit-scrollbar-thumb:hover {
+            background: #606060;
+        }
+
         html {
             scroll-behavior: smooth;
         }
@@ -117,6 +141,16 @@
         nav ol {
             margin: 0;
             padding-left: 20px;
+        }
+
+        nav ol ol {
+            margin: 3px 0 8px;
+            padding-left: 18px;
+            list-style: none;
+        }
+
+        nav ol ol li {
+            font-size: .82rem;
         }
 
         nav li {
@@ -326,6 +360,105 @@
             font-size: .88rem;
         }
 
+        .core-reference {
+            margin-top: 24px;
+        }
+
+        .core-module {
+            padding: 28px 0 34px;
+            border-top: 1px solid var(--line);
+            scroll-margin-top: 24px;
+        }
+
+        .core-module__heading {
+            margin-bottom: 18px;
+        }
+
+        .core-module__heading p {
+            color: var(--muted);
+        }
+
+        .core-module__layout {
+            display: grid;
+            grid-template-columns: minmax(150px, 210px) minmax(0, 1fr);
+            gap: 28px;
+        }
+
+        .core-api-nav {
+            position: sticky;
+            top: 20px;
+            align-self: start;
+            max-height: calc(100vh - 40px);
+            overflow: auto;
+            padding: 8px 0;
+        }
+
+        .core-api-nav h3 {
+            margin: 0 0 8px;
+            color: #737373;
+            font-size: .78rem;
+            text-transform: uppercase;
+        }
+
+        .core-api-nav ul {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .core-api-nav li {
+            margin: 2px 0;
+        }
+
+        .core-api-nav a {
+            display: block;
+            padding: 5px 8px;
+            color: #a1a1a1;
+            border-left: 2px solid transparent;
+            font: .78rem var(--mono);
+            text-decoration: none;
+            overflow-wrap: anywhere;
+        }
+
+        .core-api-nav a:hover {
+            color: #fff;
+            background: #111;
+        }
+
+        .core-api-item {
+            padding: 0 0 24px;
+            margin: 0 0 24px;
+            border-bottom: 1px solid var(--line);
+            scroll-margin-top: 24px;
+        }
+
+        .core-api-item h4 {
+            margin: 0 0 8px;
+            font: 1rem var(--mono);
+            overflow-wrap: anywhere;
+        }
+
+        .core-api-item p {
+            margin: 8px 0;
+        }
+
+        .core-api-item__kind {
+            margin-left: 8px;
+            color: #888;
+            font: .72rem var(--sans);
+            text-transform: uppercase;
+        }
+
+        .core-api-item__usage {
+            margin-top: 14px;
+            color: #a1a1a1;
+            font-size: .82rem;
+        }
+
+        .core-api-item pre {
+            margin-top: 8px;
+        }
+
         .behavior-list {
             margin: 0;
             padding-left: 1.1em;
@@ -383,11 +516,33 @@
             nav li {
                 break-inside: avoid;
             }
+
+            .core-module__layout {
+                display: block;
+            }
+
+            .core-api-nav {
+                position: static;
+                max-height: none;
+                margin-bottom: 22px;
+                padding: 12px 0;
+                border-bottom: 1px solid var(--line);
+            }
+
+            .core-api-nav ul {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 2px 12px;
+            }
         }
 
         @media (max-width: 480px) {
             nav ol {
                 columns: 1;
+            }
+
+            .core-api-nav ul {
+                grid-template-columns: 1fr;
             }
 
             .snippet-tabs__list {
@@ -448,7 +603,7 @@
                 <li><a href="#control">Control flow</a></li>
                 <li><a href="#switch">Switch</a></li>
                 <li><a href="#exceptions">Exceptions</a></li>
-                <li><a href="#modules">Modules and imports</a></li>
+                <li id="modules-nav-item"><a href="#modules">Modules and imports</a></li>
                 <li><a href="#runtime">Runtime features</a></li>
                 <li><a href="#limits">Implementation notes</a></li>
             </ol>
@@ -850,6 +1005,9 @@ loop (;;) {
                 </table>
                 <h3>Usage examples</h3>
                 <div id="core-snippets" aria-label="Core module usage examples"></div>
+                <h3>API reference</h3>
+                <p>Choose an API from its module submenu to read its behavior and a runnable usage example.</p>
+                <div id="core-reference" class="core-reference"></div>
                 <h3>Bundled libraries</h3>
                 <p>Library modules are imported with the <code>lib:name</code> form and loaded from the executable's
                     <code>lib</code> directory. The shipped modules provide these primary interfaces:
@@ -1317,6 +1475,41 @@ println(quoteMeta("a+b"));`,
             }
         ];
 
+        const libraryModules = [
+            {
+                name: "lib:argparse",
+                exports: ["ArgumentParser(config?)", "ArgumentError(message)"],
+                behavior: [
+                    { name: "ArgumentParser(config?)", doc: `Creates a command-line parser. Config accepts <code>prog</code>, <code>description</code>, <code>allow_abbrev</code>, and <code>add_help</code>. By default, parsing reads <code>core:sys.argv</code>.`, usage: `import { ArgumentParser } from "lib:argparse";\n\nconst parser = ArgumentParser({ prog: "greet", description: "Greet a person" });\nparser->add_argument({ name: "name", help: "person to greet" });\nconst args = parser->parse_args(["Ada"]);\nprintln(args->name);` },
+                    { name: "ArgumentError(message)", doc: `Creates an error result object with an <code>error</code> field. Parsing errors are returned as values rather than thrown.`, usage: `import { ArgumentError } from "lib:argparse";\n\nconst result = ArgumentError("missing input");\nprintln(result->error);` },
+                    { name: "add_argument(definition)", doc: `Registers a positional argument using <code>name</code> or <code>dest</code>, or an option using a <code>flags</code> array. Definitions support <code>help</code>, <code>metavar</code>, <code>default</code>, <code>type</code>, <code>choices</code>, <code>nargs</code>, <code>required</code>, <code>action</code>, and <code>const</code>. Types include string, int, float, and bool. Actions include store, append, store_true, store_false, store_const, append_const, count, and help.`, usage: `import { ArgumentParser } from "lib:argparse";\n\nconst parser = ArgumentParser();\nparser->add_argument({ flags: ["-v", "--verbose"], action: "count", help: "increase detail" });\nparser->add_argument({ name: "files", nargs: "+", help: "input files" });` },
+                    { name: "parse_args(args?)", doc: `Parses all supplied tokens, or the process arguments when omitted. Returns a namespace object, a result with an <code>error</code> field on failure, or a result with a <code>help</code> field when the help action is used.`, usage: `import { ArgumentParser } from "lib:argparse";\n\nconst parser = ArgumentParser({ prog: "sum" });\nparser->add_argument({ name: "left", type: "int" });\nparser->add_argument({ name: "right", type: "int" });\nconst result = parser->parse_args(["4", "7"]);\nif (result->error == null) println(result->left + result->right);` },
+                    { name: "parse_known_args(args?)", doc: `Parses recognized arguments and returns <code>{ namespace, unknown }</code>. Unknown option tokens and extra positional tokens are preserved in <code>unknown</code>.`, usage: `import { ArgumentParser } from "lib:argparse";\n\nconst parser = ArgumentParser();\nparser->add_argument({ flags: ["--mode"] });\nconst result = parser->parse_known_args(["--mode", "fast", "--extra"]);\nprintln(result->namespace->mode);\nprintln(result->unknown);` },
+                    { name: "format_help()", doc: `Returns formatted usage and help text for the parser and its registered arguments.`, usage: `import { ArgumentParser } from "lib:argparse";\n\nconst parser = ArgumentParser({ prog: "tool", description: "Example tool" });\nparser->add_argument({ flags: ["--version"], help: "show version" });\nprintln(parser->format_help());` },
+                    { name: "print_help()", doc: `Writes the formatted help text through <code>core:io.println</code>.`, usage: `import { ArgumentParser } from "lib:argparse";\n\nconst parser = ArgumentParser({ prog: "tool" });\nparser->add_argument({ name: "input", help: "input path" });\nparser->print_help();` },
+                    `Options support <code>--name=value</code>, short-option clusters, and optional long-option abbreviation. Conversion and choice failures are returned in the <code>error</code> field.`
+                ],
+                example: {
+                    code: `import { ArgumentParser } from "lib:argparse";\nimport { println } from "core:io";\n\nconst parser = ArgumentParser({ prog: "greet", description: "Greet a person" });\nparser->add_argument({ name: "name", help: "person to greet" });\nparser->add_argument({ flags: ["-u", "--uppercase"], action: "store_true" });\nconst args = parser->parse_args(["Ada", "--uppercase"]);\nif (args->uppercase) println("HELLO", args->name);\nelse println("Hello", args->name);`
+                }
+            },
+            {
+                name: "lib:number",
+                exports: ["isEven(value)", "isOdd(value)", "isPositive(value)", "isNegative(value)", "isZero(value)", "isInteger(value)"],
+                behavior: [
+                    { name: "isEven(value)", doc: `Returns true when the numeric remainder modulo two is zero. Negative and fractional numeric values are accepted according to remainder arithmetic.`, usage: `import { isEven } from "lib:number";\n\nprintln(isEven(8));\nprintln(isEven(-4));` },
+                    { name: "isOdd(value)", doc: `Returns true when the value is integral and has a nonzero remainder modulo two.`, usage: `import { isOdd } from "lib:number";\n\nprintln(isOdd(7));\nprintln(isOdd(8));` },
+                    { name: "isPositive(value)", doc: `Returns true when the value is greater than zero. Zero is not positive.`, usage: `import { isPositive } from "lib:number";\n\nprintln(isPositive(2));\nprintln(isPositive(0));` },
+                    { name: "isNegative(value)", doc: `Returns true when the value is less than zero. Zero is not negative.`, usage: `import { isNegative } from "lib:number";\n\nprintln(isNegative(-2));\nprintln(isNegative(0));` },
+                    { name: "isZero(value)", doc: `Returns true when the value compares equal to zero.`, usage: `import { isZero } from "lib:number";\n\nprintln(isZero(0));\nprintln(isZero(0.5));` },
+                    { name: "isInteger(value)", doc: `Returns true when the value has no fractional part, using remainder modulo one.`, usage: `import { isInteger } from "lib:number";\n\nprintln(isInteger(4));\nprintln(isInteger(4.5));` }
+                ],
+                example: {
+                    code: `import { isEven, isOdd, isPositive, isNegative, isZero, isInteger } from "lib:number";\nimport { println } from "core:io";\n\nprintln(isEven(8), isOdd(7));\nprintln(isPositive(3), isNegative(-3), isZero(0));\nprintln(isInteger(4.5));`
+                }
+            }
+        ];
+
         /* ==========================================================================
          * RENDERING — nothing below needs editing when adding modules.
          * ========================================================================== */
@@ -1352,6 +1545,110 @@ println(quoteMeta("a+b"));`,
                 return el("tr", {}, el("td", {}, el("code", { textContent: name })), exportsCell, behaviorCell);
             });
             tbody.replaceChildren(...rows);
+        }
+
+        function splitApiNames(value) {
+            const names = [];
+            let depth = 0;
+            let start = 0;
+            for (let index = 0; index < value.length; index++) {
+                if (value[index] === "(") depth++;
+                else if (value[index] === ")") depth--;
+                else if (value[index] === "," && depth === 0) {
+                    names.push(value.slice(start, index).trim());
+                    start = index + 1;
+                }
+            }
+            names.push(value.slice(start).trim());
+            return names.filter(Boolean);
+        }
+
+        function apiItems(module) {
+            const items = new Map();
+            const addItem = (name, source) => {
+                const normalizedName = name.replace(/-&gt;/g, "->").trim();
+                if (!normalizedName || items.has(normalizedName)) return;
+                const isMethod = normalizedName.includes("->");
+                const isFunction = /\w+\s*\(/.test(normalizedName);
+                items.set(normalizedName, {
+                    name: normalizedName,
+                    kind: isMethod ? "Method" : isFunction ? "Function" : "Exported value",
+                    doc: source?.doc || (module.name === "core:crypto" && normalizedName === "CryptoJS"
+                        ? `The CryptoJS-compatible namespace for the implemented hash, key-derivation, WordArray, and encoder APIs.`
+                        : "Public module value. See the usage example for the module's supported workflow."),
+                    usage: source?.usage,
+                    id: `api-${module.name.replace(/[^a-z0-9]+/gi, "-")}-${normalizedName.replace(/[^a-z0-9]+/gi, "-")}`
+                });
+            };
+
+            for (const name of module.exports.flatMap(splitApiNames)) {
+                let source = module.behavior.find((item) => typeof item !== "string" &&
+                    splitApiNames(item.name.replace(/-&gt;/g, "->")).some((entry) =>
+                        entry === name || entry.split("(")[0] === name.split("(")[0]));
+                if (!source && module.name === "core:crypto") {
+                    if (/^(MD5|SHA\d+|RIPEMD\d+|Hmac)/.test(name)) {
+                        source = module.behavior.find((item) => item.name === "Hashes and HMAC");
+                    } else if (name === "WordArray" || name === "enc") {
+                        source = module.behavior.find((item) => item.name === "WordArray and encoders");
+                    }
+                }
+                addItem(name, source);
+            }
+
+            for (const source of module.behavior) {
+                if (typeof source === "string") continue;
+                for (const name of splitApiNames(source.name.replace(/-&gt;/g, "->"))) {
+                    if (name.includes("->") || /^[A-Za-z_$][\w$]*(?:\([^)]*\))?$/.test(name)) {
+                        addItem(name, source);
+                    }
+                }
+            }
+            return [...items.values()];
+        }
+
+        function renderCoreReference(container, modules) {
+            const allModules = [...modules, ...libraryModules];
+            const moduleSections = allModules.map((module) => {
+                const items = apiItems(module);
+                const moduleId = `module-${module.name.replace(/[^a-z0-9]+/gi, "-")}`;
+                const moduleNotes = module.behavior.filter((item) => typeof item === "string");
+                const nav = el("nav", { className: "core-api-nav", "aria-label": `${module.name} API` },
+                    el("h3", { textContent: `${module.name} API` }),
+                    el("ul", {}, ...items.map((item) => el("li", {},
+                        el("a", { href: `#${item.id}`, textContent: item.name })))));
+                const details = items.map((item) => {
+                    return el("article", { className: "core-api-item", id: item.id },
+                        el("h4", {}, el("code", { textContent: item.name }), el("span", { className: "core-api-item__kind", textContent: item.kind })),
+                        el("p", {}, "import from ", el("code", { textContent: module.name }), "."),
+                        el("div", { className: "core-api-item__doc" }));
+                });
+
+                details.forEach((article, index) => {
+                    const item = items[index];
+                    const doc = article.querySelector(".core-api-item__doc");
+                    doc.insertAdjacentHTML("beforeend", item.doc);
+                    const code = item.usage || module.example?.code || `import { ${item.name.split("(")[0]} } from "${module.name}";`;
+                    article.append(
+                        el("p", { className: "core-api-item__usage", textContent: "Runnable module example" }),
+                        el("pre", {}, el("code", { textContent: code }))
+                    );
+                });
+
+                const heading = el("div", { className: "core-module__heading" },
+                    el("h3", { id: moduleId }, el("code", { textContent: module.name })),
+                    el("p", {}, "Named exports and supported methods. Select an entry in the submenu for its documentation and usage."),
+                    ...moduleNotes.map((note) => el("p", {}, note)));
+                return el("section", { className: "core-module", "aria-labelledby": moduleId },
+                    heading,
+                    el("div", { className: "core-module__layout" }, nav, el("div", {}, ...details)));
+            });
+            container.replaceChildren(...moduleSections);
+
+            const moduleNav = el("ol", {}, ...allModules.map((module, index) => {
+                const moduleId = `module-${module.name.replace(/[^a-z0-9]+/gi, "-")}`;
+                return el("li", {}, el("a", { href: `#${moduleId}`, textContent: `${12}.${index + 1} ${module.name}` }));
+            }));
+            document.getElementById("modules-nav-item").append(moduleNav);
         }
 
         // Builds an accessible tabbed code-example widget from { label, code, note? } items.
@@ -1423,6 +1720,7 @@ println(quoteMeta("a+b"));`,
         };
 
         renderModuleTable(document.getElementById("core-modules-body"), coreModules);
+        renderCoreReference(document.getElementById("core-reference"), coreModules);
 
         snippetTabs.mount(
             document.getElementById("core-snippets"),
