@@ -39,11 +39,10 @@ func (s *Scope) ExistsFunction(name string) bool {
 	for currentFunctionScope != nil {
 		if currentFunctionScope.Type == ScopeTypeFunction || currentFunctionScope.Type == ScopeTypeGlobal || currentFunctionScope.Type == ScopeTypeModule {
 			return currentFunctionScope.ExistsLocal(name)
-		} else {
-			// Skip non-function and non-global scopes
-			if currentFunctionScope.ExistsLocal(name) {
-				return true
-			}
+		}
+		// Skip non-function and non-global scopes
+		if currentFunctionScope.ExistsLocal(name) {
+			return true
 		}
 		currentFunctionScope = currentFunctionScope.Parent
 	}
