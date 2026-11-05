@@ -42,6 +42,33 @@ func (v OSValue) StringValue() string {
 	return unsafe.String((*byte)(v.Opaque), int(v.Number))
 }
 
+func (v OSValue) TypeName() string {
+	switch v.Type {
+	case OSVInt, OSVNum:
+		return "number"
+	case OSVBigInt:
+		return "bigint"
+	case OSVBool:
+		return "boolean"
+	case OSVString:
+		return "string"
+	case OSVArray:
+		return "array"
+	case OSVObject:
+		return "object"
+	case OSVFunction, OSVNativeFunction, OSVMethod, OSVNativeMethod:
+		return "function"
+	case OSVClass:
+		return KeyClass
+	case OSVPromise:
+		return "promise"
+	case OSVNull:
+		return KeyNull
+	default:
+		return "unknown"
+	}
+}
+
 func promiseState(value OSValue) string {
 	if value.Opaque == nil {
 		return "Pending"

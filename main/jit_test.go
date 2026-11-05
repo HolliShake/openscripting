@@ -129,8 +129,8 @@ func TestNativeJITExecutesConditionalReturns(t *testing.T) {
 		flag float64
 		want float64
 	}{
-		{name: "true", flag: 1, want: 12},
-		{name: "false", flag: 0, want: 7},
+		{name: KeyTrue, flag: 1, want: 12},
+		{name: KeyFalse, flag: 0, want: 7},
 		{name: "NaN is truthy", flag: math.NaN(), want: 12},
 	} {
 		t.Run(test.name, func(t *testing.T) {

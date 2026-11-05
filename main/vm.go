@@ -207,33 +207,6 @@ func valuesEqual(left, right OSValue) bool {
 	return IsEqual(left, right)
 }
 
-func valueTypeName(value OSValue) string {
-	switch value.Type {
-	case OSVInt, OSVNum:
-		return "number"
-	case OSVBigInt:
-		return "bigint"
-	case OSVBool:
-		return "boolean"
-	case OSVString:
-		return "string"
-	case OSVArray:
-		return "array"
-	case OSVObject:
-		return "object"
-	case OSVFunction, OSVNativeFunction, OSVMethod, OSVNativeMethod:
-		return "function"
-	case OSVClass:
-		return "class"
-	case OSVPromise:
-		return "promise"
-	case OSVNull:
-		return "null"
-	default:
-		return "unknown"
-	}
-}
-
 func finishBigIntBinary(stack []OSValue, sp int, op int32, left, right *big.Int) int {
 	var result *big.Int
 	switch op {
@@ -1230,7 +1203,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 				if sp <= 0 {
 					panic(msgUnderflow)
 				}
-				stack[sp-1] = mkStringValue(valueTypeName(stack[sp-1]))
+				stack[sp-1] = mkStringValue(stack[sp-1].TypeName())
 			}
 		case OpLoadVar:
 			{
