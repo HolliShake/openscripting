@@ -898,8 +898,9 @@ loop (;;) {
                         <code>core:math</code>, <code>core:number</code>, <code>core:unicode</code>,
                         <code>core:sys</code>, <code>core:path</code>, <code>core:json</code>,
                         <code>core:regex</code>, <code>core:error</code>, <code>core:http</code>, and
-                        <code>core:socket</code> provide I/O, filesystem, numeric, Unicode, host-system, path, JSON,
-                        regular-expression, error, HTTP, and loopback TCP operations.
+                        <code>core:socket</code> and <code>core:crypto</code> provide I/O, filesystem, numeric, Unicode,
+                        host-system, path, JSON, regular-expression, error, HTTP, loopback TCP, and cryptographic
+                        operations.
                     </li>
                     <li><strong>Built-in value methods:</strong> arrays provide indexed access, mutation, and
                         <code>len</code>/<code>map</code>/<code>filter</code>/<code>find</code>; objects provide
@@ -1053,12 +1054,13 @@ remove(path);`
             },
             {
                 name: "core:math",
-                exports: ["PI", "E", "abs", "ceil", "floor", "round", "sqrt", "sin", "cos", "tan", "logarithm", "exp", "pow", "min", "max"],
+                exports: ["PI", "E", "abs", "ceil", "floor", "round", "sqrt", "sin", "cos", "tan", "logarithm", "exp", "pow", "random", "min", "max"],
                 behavior: [
                     { name: "PI, E", doc: `Mathematical constants.` },
                     { name: "abs, ceil, floor, round, sqrt, logarithm, exp", doc: `Unary functions; each takes one number.` },
                     { name: "sin, cos, tan", doc: `Take one number, interpreted as radians.` },
                     { name: "pow(base, exponent)", doc: `Takes two numbers.` },
+                    { name: "random()", doc: `Returns a pseudo-random number greater than or equal to 0 and less than 1.` },
                     { name: "min(...numbers), max(...numbers)", doc: `Accept one or more numbers.` },
                     `Invalid types and non-finite operation results raise catchable runtime errors.`
                 ],
@@ -1069,6 +1071,28 @@ import { println } from "core:io";
 println(sqrt(81));
 println(sin(PI / 2));
 println(pow(2, 8), min(4, 2, 9), max(4, 2, 9));`
+                }
+            },
+            {
+                name: "core:crypto",
+                exports: ["CryptoJS", "WordArray", "MD5", "SHA1", "SHA224", "SHA256", "SHA384", "SHA512", "SHA3", "RIPEMD160", "Hmac*", "PBKDF2", "EvpKDF", "enc"],
+                behavior: [
+                    { name: "Hashes and HMAC", doc: `MD5, SHA-1/224/256/384/512, RIPEMD-160 and HMAC variants return a <code>WordArray</code>. SHA3 follows CryptoJS legacy Keccak padding and supports 256- and 512-bit output.` },
+                    { name: "Incremental hashing", doc: `<code>algo.SHA256.create()</code> returns a hasher with <code>update(value)</code> and <code>finalize(value?)</code>. The same pattern is available for the other listed hashes.` },
+                    { name: "PBKDF2(password, salt, config)", doc: `Returns a <code>WordArray</code>. Config supports <code>keySize</code> in 32-bit words, <code>iterations</code>, and a hasher from <code>algo</code>; defaults are 4 words, 1 iteration, and SHA-1.` },
+                    { name: "EvpKDF(password, salt, config)", doc: `Returns a <code>WordArray</code>; supports <code>keySize</code>, <code>iterations</code>, and the listed hashers.` },
+                    { name: "WordArray and encoders", doc: `<code>WordArray.create(words, sigBytes)</code>, <code>WordArray.random(byteCount)</code>, <code>concat</code>, <code>clone</code>, <code>clamp</code>, and <code>toString(encoder?)</code> are available. Encoders include Hex, Latin1, Utf8, Utf16/BE/LE, Base64, and Base64url.` },
+                    `Import the same namespace as <code>CryptoJS</code> from <code>lib:crypto</code>. MD5, SHA-1, and RIPEMD-160 are legacy primitives and should not be used for new security designs. AES/DES/TripleDES, stream ciphers, cipher modes/padding, OpenSSL format, and x64 helpers are not implemented.`
+                ],
+                example: {
+                    code: `import { SHA256, CryptoJS } from "lib:crypto";
+import { println } from "core:io";
+
+println(SHA256("abc")->toString());
+const hasher = CryptoJS->algo->SHA256->create();
+hasher->update("a")->update("bc");
+println(hasher->finalize()->toString());
+println(CryptoJS->enc->Hex->stringify(CryptoJS->enc->Utf8->parse("abc")));`
                 }
             },
             {

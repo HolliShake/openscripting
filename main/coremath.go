@@ -2,6 +2,7 @@ package main
 
 import (
 	"math"
+	"math/rand/v2"
 	"unsafe"
 )
 
@@ -43,6 +44,10 @@ func nativeMathPow(vm *VM, args []OSValue) OSValue {
 	return OSValue{Type: OSVNum, Number: result}
 }
 
+func nativeMathRandom(_ *VM, _ []OSValue) OSValue {
+	return OSValue{Type: OSVNum, Number: rand.Float64()}
+}
+
 func nativeMathMinMax(isMin bool) func(vm *VM, args []OSValue) OSValue {
 	return func(vm *VM, args []OSValue) OSValue {
 		if len(args) == 0 {
@@ -82,6 +87,7 @@ func getCoreMath() map[string]OSValue {
 		"logarithm": coreMathFunction(1, nativeMathUnary("logarithm", math.Log)),
 		"exp":       coreMathFunction(1, nativeMathUnary("exp", math.Exp)),
 		"pow":       coreMathFunction(2, nativeMathPow),
+		"random":    coreMathFunction(0, nativeMathRandom),
 		"min":       coreMathFunction(-1, nativeMathMinMax(true)),
 		"max":       coreMathFunction(-1, nativeMathMinMax(false)),
 	}
