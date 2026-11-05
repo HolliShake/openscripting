@@ -118,8 +118,8 @@ func ensureCoreHTTPClass() *Class {
 			Constructor: OSValue{
 				Type: OSVNativeFunction,
 				Opaque: unsafe.Pointer(&NativeFunction{
-					Paramc:   0,
-					Callable: nativeHTTPConstructor,
+					ParamCount: 0,
+					Callable:   nativeHTTPConstructor,
 				}),
 			},
 		}
@@ -135,7 +135,7 @@ func coreHTTPString(value string) OSValue {
 	}
 }
 
-func nativeHTTPConstructor(vm *VM, _ []OSValue) OSValue {
+func nativeHTTPConstructor(_ *VM, _ []OSValue) OSValue {
 	state := &httpAppState{routes: make(map[string]httpRoute)}
 	instance := &Object{
 		ClassName: "Express",
@@ -153,13 +153,13 @@ func nativeHTTPConstructor(vm *VM, _ []OSValue) OSValue {
 	return value
 }
 
-func httpBoundMethod(this OSValue, paramc int, callable func(OSValue, *VM, []OSValue) OSValue) OSValue {
+func httpBoundMethod(this OSValue, paramCount int, callable func(OSValue, *VM, []OSValue) OSValue) OSValue {
 	return OSValue{
 		Type: OSVNativeMethod,
 		Opaque: unsafe.Pointer(&NativeMethod{
-			This:     this,
-			Paramc:   paramc,
-			Callable: callable,
+			This:       this,
+			ParamCount: paramCount,
+			Callable:   callable,
 		}),
 	}
 }
@@ -450,12 +450,12 @@ func getCoreHTTP() map[string]OSValue {
 	}
 }
 
-func coreHTTPFunction(paramc int, callable func(vm *VM, args []OSValue) OSValue) OSValue {
+func coreHTTPFunction(paramCount int, callable func(vm *VM, args []OSValue) OSValue) OSValue {
 	return OSValue{
 		Type: OSVNativeFunction,
 		Opaque: unsafe.Pointer(&NativeFunction{
-			Paramc:   paramc,
-			Callable: callable,
+			ParamCount: paramCount,
+			Callable:   callable,
 		}),
 	}
 }
@@ -512,10 +512,12 @@ func nativeHTTPFetch(vm *VM, args []OSValue) OSValue {
 			vm.HTTPFetches <- httpFetchResult{promise: promise, err: err}
 			return
 		}
-		defer response.Body.Close()
 		responseBody, err := io.ReadAll(io.LimitReader(response.Body, maxFetchResponseBytes+1))
 		if err == nil && len(responseBody) > maxFetchResponseBytes {
 			err = errors.New("response body exceeds 10 MiB limit")
+		}
+		if closeErr := response.Body.Close(); err == nil {
+			err = closeErr
 		}
 		vm.HTTPFetches <- httpFetchResult{
 			promise: promise, status: response.StatusCode, statusText: response.Status,

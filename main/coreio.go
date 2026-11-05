@@ -56,22 +56,22 @@ func getCoreIo() map[string]OSValue {
 		"scan": {
 			Type: OSVNativeFunction,
 			Opaque: unsafe.Pointer(&NativeFunction{
-				Paramc:   1,
-				Callable: nativeScan,
+				ParamCount: 1,
+				Callable:   nativeScan,
 			}),
 		},
 		"print": {
 			Type: OSVNativeFunction,
 			Opaque: unsafe.Pointer(&NativeFunction{
-				Paramc:   -1,
-				Callable: nativePrint,
+				ParamCount: -1,
+				Callable:   nativePrint,
 			}),
 		},
 		"println": {
 			Type: OSVNativeFunction,
 			Opaque: unsafe.Pointer(&NativeFunction{
-				Paramc:   -1,
-				Callable: nativePrintln,
+				ParamCount: -1,
+				Callable:   nativePrintln,
 			}),
 		},
 	}

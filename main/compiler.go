@@ -108,14 +108,17 @@ func constEqual(a, b constVal) bool {
 		{
 			return a.b == b.b
 		}
+	default:
+		{
+			return false
+		}
 	}
-	return false
 }
 
 /******************* Pooling ***/
 
 // acquireScope returns a clean scope. The caller sets Type (and any other
-// fields) afterwards. VarCount starts at 0.
+// fields) afterward. VarCount starts at 0.
 // Pooled scopes are always cleared by releaseScope, so Variables is empty here.
 func acquireScope(parent *Scope) *Scope {
 	s, _ := scopePool.Get().(*Scope)
@@ -228,7 +231,7 @@ func detach[T any](s []T, maxKeep int) (exact, scratch []T) {
 
 // finalizeFunction moves the compiled code into exactly sized slices and
 // returns the scratch buffers to the pool. fn must not be appended to
-// afterwards.
+// afterward.
 func finalizeFunction(fn *Function, buf *codeBuf) {
 	fn.Bytecode, buf.bc = detach(fn.Bytecode, maxPooledBytecode)
 	fn.Lines, buf.lines = detach(fn.Lines, maxPooledLines)
@@ -316,19 +319,13 @@ func emitRunes(fn *Function, s string) {
 	fn.Bytecode = slices.Grow(fn.Bytecode, n+1)
 	fn.Bytecode = append(fn.Bytecode, int32(n))
 	for _, r := range s {
-		fn.Bytecode = append(fn.Bytecode, int32(r))
+		fn.Bytecode = append(fn.Bytecode, r)
 	}
 }
 
 func emitString(fn *Function, value string) {
 	emit(fn, OpLoadStr)
 	emitRunes(fn, value)
-}
-
-func emitBytes(fn *Function, value []int32) {
-	fn.Bytecode = slices.Grow(fn.Bytecode, len(value)+1)
-	fn.Bytecode = append(fn.Bytecode, int32(len(value)))
-	fn.Bytecode = append(fn.Bytecode, value...)
 }
 
 func objectKey(ast *Ast) string {
@@ -446,8 +443,11 @@ func binaryOpcode(astType AstType) int32 {
 		{
 			return OpBinBitOr
 		}
+	default:
+		{
+			panic("invalid binary operator")
+		}
 	}
-	panic("invalid binary operator")
 }
 
 func compoundAssignOpcode(astType AstType) int32 {
@@ -492,9 +492,12 @@ func compoundAssignOpcode(astType AstType) int32 {
 		{
 			return OpBinBitOr
 		}
+	default:
+		{
+			unexpected("invalid assignment operator", astType)
+			return 0
+		}
 	}
-	unexpected("invalid assignment operator", astType)
-	return 0
 }
 
 /******************* Constant folding ***/
@@ -515,8 +518,11 @@ func mayFold(t AstType) bool {
 		{
 			return true
 		}
+	default:
+		{
+			return false
+		}
 	}
-	return false
 }
 
 // tryFold returns a constant if the expression can be evaluated at compile time.
@@ -548,7 +554,7 @@ func tryFold(fn *Function, ast *Ast) constVal {
 		}
 	case AstArray:
 		{
-			// Presized: one allocation instead of ~log2(n) regrowths.
+			// Sized in advance: one allocation instead of repeated growth.
 			n := 0
 			for element := ast.A; element != nil; element = element.Next {
 				n++
@@ -622,6 +628,10 @@ func tryFold(fn *Function, ast *Ast) constVal {
 					}
 					ThrowError(fn.File, "invalid operand for bitwise not", ast.Pos)
 				}
+			default:
+				{
+					return noConst
+				}
 			}
 		}
 	case AstMul, AstDiv, AstMod, AstAdd, AstSub:
@@ -667,6 +677,10 @@ func tryFold(fn *Function, ast *Ast) constVal {
 			case AstSub:
 				{
 					return numConst(left - right)
+				}
+			default:
+				{
+					return noConst
 				}
 			}
 		}
@@ -715,6 +729,10 @@ func tryFold(fn *Function, ast *Ast) constVal {
 				{
 					return boolConst(!constEqual(lhs, rhs))
 				}
+			default:
+				{
+					return noConst
+				}
 			}
 		}
 	case AstBitAnd, AstBitXor, AstBitOr, AstShiftLeft, AstShiftRight:
@@ -752,6 +770,10 @@ func tryFold(fn *Function, ast *Ast) constVal {
 				{
 					return numConst(float64(left >> uint(right)))
 				}
+			default:
+				{
+					return noConst
+				}
 			}
 		}
 	case AstAnd, AstOr:
@@ -778,6 +800,10 @@ func tryFold(fn *Function, ast *Ast) constVal {
 				ThrowError(fn.File, "invalid right operand for logical operation", ast.Pos)
 			}
 			return rhs
+		}
+	default:
+		{
+			return noConst
 		}
 	}
 	return noConst
@@ -834,6 +860,10 @@ func resolveVar(scope *Scope, fn *Function, ast *Ast) (offset int, isConst bool)
 // Function saved in the parser state and returns its offset. Shared by both
 // visitors, which used to carry identical copies of this code.
 func compileFunction(s *State, scope *Scope, fn *Function, name string, async bool, implicitThis, staticThis, classConstructor bool, parmNode, bodyNode *Ast) int {
+	parameterPos := Position{}
+	if parmNode != nil {
+		parameterPos = parmNode.Pos
+	}
 	buf := acquireCodeBuf()
 	function := newFunction(fn.File, name, buf)
 	funcOffset := s.SaveFunction(function)
@@ -844,7 +874,7 @@ func compileFunction(s *State, scope *Scope, fn *Function, name string, async bo
 	staticThisOffset := -1
 	if staticThis {
 		if localScope.ExistsLocal(KeyThis) {
-			ThrowError(fn.File, "this is reserved in class methods", parmNode.Pos)
+			ThrowError(fn.File, "this is reserved in class methods", parameterPos)
 		}
 		staticThisOffset = localScope.GetVarCount()
 		localScope.AddLocal(KeyThis, Symbol{Name: KeyThis, Offset: staticThisOffset})
@@ -855,7 +885,7 @@ func compileFunction(s *State, scope *Scope, fn *Function, name string, async bo
 	reverse := paramBuf[:0]
 	if implicitThis {
 		if localScope.ExistsLocal(KeyThis) {
-			ThrowError(fn.File, "this is reserved in class methods", parmNode.Pos)
+			ThrowError(fn.File, "this is reserved in class methods", parameterPos)
 		}
 		localScope.AddLocal(KeyThis, Symbol{Name: KeyThis, Offset: 0})
 		reverse = append(reverse, 0)
@@ -1085,7 +1115,7 @@ func visitSwitchExpr(s *State, scope *Scope, fn *Function, ast *Ast) {
 			continue
 		}
 
-		// Consumed (labelled) before the next case, so one buffer is reused.
+		// Consumed (labeled) before the next case, so one buffer is reused.
 		jumpExpr := exprBuf[:0]
 		for condition := head.A; condition != nil; condition = condition.Next {
 			visitExpression(s, scope, fn, condition)
@@ -1540,6 +1570,9 @@ func assignVar(s *State, scope *Scope, fn *Function, lhs *Ast, rhs *Ast) {
 			visitExpression(s, scope, fn, lhs.A)
 			visitExpression(s, scope, fn, lhs.B)
 		}
+	default:
+		{
+		}
 	}
 	visitExpression(s, scope, fn, rhs)
 	emit(fn, OpDupTop)
@@ -1702,6 +1735,9 @@ func visitVarObjectDestructDeclaration(s *State, scope *Scope, fn *Function, ast
 				name = head.B.Value
 				emit(fn, OpGetAttr)
 				emitRunes(fn, objectKey(head.A))
+			}
+		default:
+			{
 			}
 		}
 
@@ -1870,6 +1906,7 @@ func visitBreak(_ *State, scope *Scope, fn *Function, ast *Ast) {
 	}
 	if breakScope == nil {
 		ThrowError(fn.File, "break statement not within a loop or switch", ast.Pos)
+		return
 	}
 	jmpSlot := emitJump(fn, OpJmp)
 	breakScope.BreakStart = append(breakScope.BreakStart, jmpSlot)
@@ -1882,6 +1919,7 @@ func visitContinue(_ *State, scope *Scope, fn *Function, ast *Ast) {
 	}
 	if continueScope == nil {
 		ThrowError(fn.File, "continue statement not within a loop or switch case", ast.Pos)
+		return
 	}
 	if continueScope.Type == ScopeTypeCase {
 		continueScope.ContinueStart = append(continueScope.ContinueStart, emitJump(fn, OpJmp))
@@ -1981,6 +2019,10 @@ func moduleDeclarationNames(ast *Ast, names []string) []string {
 						names = append(names, item.Value)
 					}
 				}
+			}
+		default:
+			{
+				break
 			}
 		}
 	}
@@ -2274,7 +2316,7 @@ func visitDeclarationOrStatement(s *State, scope *Scope, fn *Function, ast *Ast)
 			visitExpression(s, scope, fn, ast.A)
 			emit(fn, OpStdWrite)
 		}
-	case AstExpressionStmnt:
+	case AstExpressionStmt:
 		{
 			visitExpressionDiscard(s, scope, fn, ast.A)
 		}

@@ -45,7 +45,7 @@ type Coroutine struct {
 	SyncResult OSValue
 	// SyncBoundary carries an uncaught callback error back to the collection method without a process panic.
 	SyncBoundary *Promise
-	// snapshot memoizes this coroutine's immutable lexical snapshot (see
+	// snapshot caches this coroutine's immutable lexical snapshot (see
 	// SnapshotLexicalChain). Function and Env never change during a
 	// coroutine's life, so the snapshot can be built once and shared.
 	snapshot *Coroutine

@@ -7,7 +7,6 @@ import (
 )
 
 const ExitFailure = 1
-const ExitSuccess = 0
 
 // errScratch is static because passing w.buf to os.Stderr.Write forces a local errWriter onto the heap.
 var errScratch errWriter
@@ -166,10 +165,6 @@ func formatError(file *File, position Position, message string, parts ...string)
 	w.byte('\n')
 	w.snippet(file, position)
 	w.flush()
-}
-
-func FormatError(file *File, message string, position Position) {
-	formatError(file, position, message)
 }
 
 func ThrowError(file *File, message string, position Position, parts ...string) {

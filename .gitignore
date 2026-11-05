@@ -4,6 +4,7 @@
 *.obj
 *.so
 *.dylib
+/dist/
 *.txt
 build.txt
 debug.log

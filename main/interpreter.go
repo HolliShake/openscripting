@@ -11,7 +11,7 @@ import (
 	"unsafe"
 )
 
-var StackSize int = 1024
+var StackSize = 1024
 
 const (
 	msgUnderflow   = "operand stack underflow"
@@ -89,14 +89,14 @@ type VM struct {
 }
 
 // strTable returns the literal cache for the given bytecode.
-func (vm *VM) strTable(bcode []int32) []string {
-	key := unsafe.Pointer(unsafe.SliceData(bcode))
+func (vm *VM) strTable(bytecode []int32) []string {
+	key := unsafe.Pointer(unsafe.SliceData(bytecode))
 	if key == vm.lastKey && vm.lastTab != nil {
 		return vm.lastTab
 	}
 	t := vm.strs[key]
 	if t == nil {
-		t = make([]string, len(bcode))
+		t = make([]string, len(bytecode))
 		vm.strs[key] = t
 	}
 	vm.lastKey, vm.lastTab = key, t
@@ -163,6 +163,82 @@ func isBigIntPair(left, right OSValue) bool {
 	return left.Type == OSVBigInt && left.Opaque != nil && right.Type == OSVBigInt && right.Opaque != nil
 }
 
+func valuesEqual(left, right OSValue) bool {
+	if left.Type == OSVNum && right.Type == OSVNum {
+		return left.Number == right.Number
+	}
+	return IsEqual(left, right)
+}
+
+func finishBigIntBinary(stack []OSValue, sp int, op int32, left, right *big.Int) int {
+	var result *big.Int
+	switch op {
+	case OpBinMul:
+		result = new(big.Int).Mul(left, right)
+	case OpBinSub:
+		result = new(big.Int).Sub(left, right)
+	case OpBinMod:
+		result = new(big.Int).Rem(left, right)
+	default:
+		result = new(big.Int).Quo(left, right)
+	}
+	stack[sp-2] = bigIntValue(result)
+	sp--
+	stack[sp] = OSValue{}
+	return sp
+}
+
+func extendOperands(stack []OSValue, sp int, valueType OSValueType, typeName, opcode string) (src, dst OSValue) {
+	if sp < 2 {
+		panic(msgUnderflow)
+	}
+	src, dst = stack[sp-1], stack[sp-2]
+	if dst.Type != valueType || dst.Opaque == nil {
+		panic("invalid destination " + typeName + " for " + opcode)
+	}
+	if src.Type != valueType || src.Opaque == nil {
+		panic("invalid source " + typeName + " for " + opcode)
+	}
+	return src, dst
+}
+
+func compareNumbers(op int32, left, right float64) bool {
+	switch op {
+	case OpBinLess:
+		return left < right
+	case OpBinLessEqual:
+		return left <= right
+	case OpBinGreater:
+		return left > right
+	default:
+		return left >= right
+	}
+}
+
+func compareBigIntResult(op int32, comparison int) bool {
+	switch op {
+	case OpBinLess:
+		return comparison < 0
+	case OpBinLessEqual:
+		return comparison <= 0
+	case OpBinGreater:
+		return comparison > 0
+	default:
+		return comparison >= 0
+	}
+}
+
+func applyNumericBitwise(op int32, left, right int64) int64 {
+	switch op {
+	case OpBinBitAnd:
+		return left & right
+	case OpBinBitXor:
+		return left ^ right
+	default:
+		return left | right
+	}
+}
+
 //go:noinline
 func argcMessage(expected, got int) string {
 	return fmt.Sprintf("function expects %d arguments, got %d", expected, got)
@@ -179,11 +255,11 @@ func writeLog(s string) {
 }
 
 // operand reads the operand word at ip (the caller advances ip).
-func operand(bcode []int32, ip, bsize int) int {
+func operand(bytecode []int32, ip, bsize int) int {
 	if ip >= bsize {
 		panic("unexpected end of bytecode")
 	}
-	return int(bcode[ip])
+	return int(bytecode[ip])
 }
 
 // lineForOffset maps a bytecode offset to its source line (0 if before the
@@ -220,7 +296,7 @@ func decodeRunes(runes []int32) string {
 	for _, value := range runes {
 		if uint32(value) < utf8.RuneSelf {
 			byteSize++
-		} else if n := utf8.RuneLen(rune(value)); n > 0 {
+		} else if n := utf8.RuneLen(value); n > 0 {
 			byteSize += n
 		} else {
 			byteSize += 3 // utf8.RuneError
@@ -239,7 +315,7 @@ func decodeRunes(runes []int32) string {
 
 	byteOffset := 0
 	for _, value := range runes {
-		byteOffset += utf8.EncodeRune(buf[byteOffset:], rune(value))
+		byteOffset += utf8.EncodeRune(buf[byteOffset:], value)
 	}
 
 	return unsafe.String(unsafe.SliceData(buf), byteSize)
@@ -248,13 +324,13 @@ func decodeRunes(runes []int32) string {
 // readString reads the string literal whose length word is at ip. It returns
 // the string, the (possibly newly looked up) literal table and the ip after
 // the literal.
-func readString(vm *VM, bcode []int32, ip, bsize int, strTab []string) (string, []string, int) {
+func readString(vm *VM, bytecode []int32, ip, bsize int, strTab []string) (string, []string, int) {
 	if ip >= bsize {
 		panic("unexpected end of bytecode")
 	}
 
 	at := ip
-	size := int(bcode[ip])
+	size := int(bytecode[ip])
 	ip++
 
 	if size < 0 || ip+size > bsize {
@@ -262,14 +338,14 @@ func readString(vm *VM, bcode []int32, ip, bsize int, strTab []string) (string, 
 	}
 
 	if strTab == nil {
-		strTab = vm.strTable(bcode)
+		strTab = vm.strTable(bytecode)
 	}
 
 	if s := strTab[at]; s != "" || size == 0 {
 		return s, strTab, ip + size
 	}
 
-	s := decodeRunes(bcode[ip : ip+size])
+	s := decodeRunes(bytecode[ip : ip+size])
 	strTab[at] = s
 	return s, strTab, ip + size
 }
@@ -291,7 +367,7 @@ func raise(vm *VM, co *Coroutine, instruction int, stack []OSValue, sp int, mess
 			continue
 		}
 
-		if handler.CatchLocal >= 0 && int(handler.CatchLocal) < len(frame.Env) && frame.Env[handler.CatchLocal] != nil {
+		if handler.CatchLocal >= 0 && handler.CatchLocal < len(frame.Env) && frame.Env[handler.CatchLocal] != nil {
 			frame.Env[handler.CatchLocal].Value = newErrorValue(message, int64(line+1))
 		}
 		clear(stack[:sp])
@@ -529,21 +605,48 @@ func runCoroutine(state *State, vm *VM, co *Coroutine) {
 	runCoroutineLoop(state, vm, co)
 }
 
+func finishNativeCall(co *Coroutine, stack []OSValue, sp, argStart int, result OSValue) ([]OSValue, int) {
+	clear(stack[argStart:sp])
+	sp = argStart
+	if sp >= len(stack) {
+		stack = growStack(co)
+	}
+	stack[sp] = result
+	return stack, sp + 1
+}
+
+func consumeNativeError(vm *VM, stack []OSValue, sp, argStart int) string {
+	message := vm.NativeError
+	vm.NativeError = ""
+	clear(stack[argStart:sp])
+	return message
+}
+
+func finishNumericBinary(stack []OSValue, sp int, left, right, result OSValue) int {
+	stack[sp-2] = result
+	sp--
+	if left.Type != OSVNum || right.Type != OSVNum {
+		stack[sp] = OSValue{}
+	}
+	return sp
+}
+
 func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 	if co == nil || co.Frame.Function == nil {
 		panic("invalid coroutine or call frame")
 	}
+	co.State = CoroutineStateRunning
 
 	frame := &co.Frame
-	bcode := frame.Function.Bytecode
+	bytecode := frame.Function.Bytecode
 
 	ip := frame.Ip
 	sp := co.Sp
 	stack := co.OperandStack
-	bsize := len(bcode)
+	bsize := len(bytecode)
 	currentInstruction := ip
 
-	// Local environment of the current frame, cached next to bcode/stack and
+	// Local environment of the current frame, cached next to bytecode/stack and
 	// refreshed at every frame switch (call / return).
 	env := frame.Env
 
@@ -582,14 +685,14 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 	for ip < bsize {
 		currentInstruction = ip
 		frame.Ip = currentInstruction
-		op := bcode[ip]
+		op := bytecode[ip]
 		ip++
 
 		switch op {
 		case OpLoadNum:
 			{
-				a := bcode[ip]
-				b := bcode[ip+1]
+				a := bytecode[ip]
+				b := bytecode[ip+1]
 				ip += 2
 
 				if sp >= len(stack) {
@@ -604,7 +707,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 		case OpLoadBigInt:
 			{
 				var value string
-				value, strTab, ip = readString(vm, bcode, ip, bsize, strTab)
+				value, strTab, ip = readString(vm, bytecode, ip, bsize, strTab)
 				integer, ok := new(big.Int).SetString(value, 10)
 				if !ok {
 					errMsg = "invalid BigInt literal"
@@ -618,7 +721,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpLoadConst:
 			{
-				index := operand(bcode, ip, bsize)
+				index := operand(bytecode, ip, bsize)
 				ip++
 				constants := frame.Function.Constants
 				if uint(index) >= uint(len(constants)) {
@@ -632,7 +735,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpMakeClass:
 			{
-				methodCount := operand(bcode, ip, bsize)
+				methodCount := operand(bytecode, ip, bsize)
 				ip++
 				if methodCount < 0 || sp < 2+2*methodCount {
 					panic("invalid class construction operands")
@@ -672,7 +775,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 		case OpLoadStr:
 			{
 				var value string
-				value, strTab, ip = readString(vm, bcode, ip, bsize, strTab)
+				value, strTab, ip = readString(vm, bytecode, ip, bsize, strTab)
 
 				if sp >= len(stack) {
 					stack = growStack(co)
@@ -706,19 +809,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpExtendArray:
 			{
-				if sp < 2 {
-					panic(msgUnderflow)
-				}
-				src := stack[sp-1]
-				dst := stack[sp-2]
-
-				if dst.Type != OSVArray || dst.Opaque == nil {
-					panic("invalid destination array for OpExtendArray")
-				}
-
-				if src.Type != OSVArray || src.Opaque == nil {
-					panic("invalid source array for OpExtendArray")
-				}
+				src, dst := extendOperands(stack, sp, OSVArray, "array", "OpExtendArray")
 
 				dstArray := (*Array)(dst.Opaque)
 				srcArray := (*Array)(src.Opaque)
@@ -730,7 +821,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpMakeArray:
 			{
-				size := operand(bcode, ip, bsize)
+				size := operand(bytecode, ip, bsize)
 				ip++
 
 				if size < 0 || sp < size {
@@ -755,19 +846,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpExtendObject:
 			{
-				if sp < 2 {
-					panic(msgUnderflow)
-				}
-				src := stack[sp-1]
-				dst := stack[sp-2]
-
-				if dst.Type != OSVObject || dst.Opaque == nil {
-					panic("invalid destination object for OpExtendObject")
-				}
-
-				if src.Type != OSVObject || src.Opaque == nil {
-					panic("invalid source object for OpExtendObject")
-				}
+				src, dst := extendOperands(stack, sp, OSVObject, "object", "OpExtendObject")
 
 				dstObj := (*Object)(dst.Opaque)
 				srcObj := (*Object)(src.Opaque)
@@ -784,7 +863,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpMakeObject:
 			{
-				size := operand(bcode, ip, bsize)
+				size := operand(bytecode, ip, bsize)
 				ip++
 
 				if size < 0 || sp < 2*size {
@@ -821,7 +900,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 				}
 
 				var attr string
-				attr, strTab, ip = readString(vm, bcode, ip, bsize, strTab)
+				attr, strTab, ip = readString(vm, bytecode, ip, bsize, strTab)
 
 				// Plain objects are by far the most common receiver. The
 				// value types are mutually exclusive, so checking them
@@ -879,7 +958,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 		case OpSetAttr:
 			{
 				var attr string
-				attr, strTab, ip = readString(vm, bcode, ip, bsize, strTab)
+				attr, strTab, ip = readString(vm, bytecode, ip, bsize, strTab)
 
 				if sp < 2 {
 					panic(msgUnderflow)
@@ -1021,7 +1100,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpLoadFunction:
 			{
-				funcIndex := operand(bcode, ip, bsize)
+				funcIndex := operand(bytecode, ip, bsize)
 				ip++
 
 				if funcIndex < 0 || funcIndex >= len(state.Functions) {
@@ -1087,7 +1166,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 				// A bad index or a nil cell panics on its own (bounds check /
 				// nil dereference) and is reported by the recover in
 				// runCoroutine, so no explicit validation is needed here.
-				cell := env[bcode[ip]]
+				cell := env[bytecode[ip]]
 				ip++
 
 				if sp >= len(stack) {
@@ -1154,19 +1233,23 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 					goto throwError
 				}
 			}
-		case OpInc:
+		case OpInc, OpDec:
 			{
 				if sp <= 0 {
 					panic(msgUnderflow)
 				}
 
+				delta := 1.0
+				if op == OpDec {
+					delta = -1
+				}
 				top := &stack[sp-1]
 				if top.Type == OSVNum {
-					top.Number++
+					top.Number += delta
 					continue
 				}
 				if top.Type == OSVBigInt && top.Opaque != nil {
-					updated := new(big.Int).Add((*big.Int)(top.Opaque), big.NewInt(1))
+					updated := new(big.Int).Add((*big.Int)(top.Opaque), big.NewInt(int64(delta)))
 					*top = bigIntValue(updated)
 					continue
 				}
@@ -1174,39 +1257,20 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 					errMsg = msgIncDec
 					goto throwError
 				}
-				top.Number++
 			}
-		case OpDec:
+		case OpPostInc, OpPostDec:
 			{
 				if sp <= 0 {
 					panic(msgUnderflow)
 				}
 
-				top := &stack[sp-1]
-				if top.Type == OSVNum {
-					top.Number--
-					continue
+				delta := 1.0
+				if op == OpPostDec {
+					delta = -1
 				}
-				if top.Type == OSVBigInt && top.Opaque != nil {
-					updated := new(big.Int).Sub((*big.Int)(top.Opaque), big.NewInt(1))
-					*top = bigIntValue(updated)
-					continue
-				}
-				if !IsNumber(*top) {
-					errMsg = msgIncDec
-					goto throwError
-				}
-				top.Number--
-			}
-		case OpPostInc:
-			{
-				if sp <= 0 {
-					panic(msgUnderflow)
-				}
-
 				old := stack[sp-1]
 				if old.Type == OSVBigInt && old.Opaque != nil {
-					updated := new(big.Int).Add((*big.Int)(old.Opaque), big.NewInt(1))
+					updated := new(big.Int).Add((*big.Int)(old.Opaque), big.NewInt(int64(delta)))
 					if sp >= len(stack) {
 						stack = growStack(co)
 					}
@@ -1220,41 +1284,8 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 					goto throwError
 				}
 
-				// [..., v] -> [..., v+1, v]
 				updated := old
-				updated.Number++
-				if sp >= len(stack) {
-					stack = growStack(co)
-				}
-				stack[sp-1] = updated
-				stack[sp] = old
-				sp++
-			}
-		case OpPostDec:
-			{
-				if sp <= 0 {
-					panic(msgUnderflow)
-				}
-
-				old := stack[sp-1]
-				if old.Type == OSVBigInt && old.Opaque != nil {
-					updated := new(big.Int).Sub((*big.Int)(old.Opaque), big.NewInt(1))
-					if sp >= len(stack) {
-						stack = growStack(co)
-					}
-					stack[sp-1] = bigIntValue(updated)
-					stack[sp] = old
-					sp++
-					continue
-				}
-				if old.Type != OSVNum && !IsNumber(old) {
-					errMsg = msgIncDec
-					goto throwError
-				}
-
-				// [..., v] -> [..., v-1, v]
-				updated := old
-				updated.Number--
+				updated.Number += delta
 				if sp >= len(stack) {
 					stack = growStack(co)
 				}
@@ -1264,7 +1295,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpCallSuper:
 			{
-				argCount := operand(bcode, ip, bsize)
+				argCount := operand(bytecode, ip, bsize)
 				ip++
 
 				if !frame.Function.ClassConstructor || frame.Function.ClassSuperOffset >= len(env) ||
@@ -1302,7 +1333,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpCall:
 			{
-				argCount := operand(bcode, ip, bsize)
+				argCount := operand(bytecode, ip, bsize)
 				ip++
 
 				// Expected stack layout:
@@ -1483,8 +1514,8 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 						vm.Current = callee
 						co = callee
 						frame = &callee.Frame
-						bcode = frame.Function.Bytecode
-						bsize = len(bcode)
+						bytecode = frame.Function.Bytecode
+						bsize = len(bytecode)
 						ip = frame.Ip
 						sp = callee.Sp
 						stack = callee.OperandStack
@@ -1502,8 +1533,8 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 							errMsg = "attempted to call a native function without an implementation"
 							goto throwError
 						}
-						if native.Paramc >= 0 && native.Paramc != argCount {
-							errMsg = argcMessage(native.Paramc, argCount)
+						if native.ParamCount >= 0 && native.ParamCount != argCount {
+							errMsg = argcMessage(native.ParamCount, argCount)
 							goto throwError
 						}
 						if argCount < 0 || argCount > sp {
@@ -1515,19 +1546,11 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 						vm.NativeError = ""
 						result := native.Callable(vm, stack[argStart:sp])
 						if vm.NativeError != "" {
-							errMsg = vm.NativeError
-							vm.NativeError = ""
-							clear(stack[argStart:sp])
+							errMsg = consumeNativeError(vm, stack, sp, argStart)
 							sp = argStart
 							goto throwError
 						}
-						clear(stack[argStart:sp])
-						sp = argStart
-						if sp >= len(stack) {
-							stack = growStack(co)
-						}
-						stack[sp] = result
-						sp++
+						stack, sp = finishNativeCall(co, stack, sp, argStart, result)
 						continue
 					}
 				case OSVNativeMethod:
@@ -1537,7 +1560,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 							errMsg = "attempted to call a nil native method"
 							goto throwError
 						}
-						if nativeMethod.Paramc >= 0 && nativeMethod.Paramc != argCount {
+						if nativeMethod.ParamCount >= 0 && nativeMethod.ParamCount != argCount {
 							errMsg = "invalid argument count for native method"
 							goto throwError
 						}
@@ -1550,19 +1573,11 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 						vm.NativeError = ""
 						result := nativeMethod.Callable(nativeMethod.This, vm, stack[argStart:sp])
 						if vm.NativeError != "" {
-							errMsg = vm.NativeError
-							vm.NativeError = ""
-							clear(stack[argStart:sp])
+							errMsg = consumeNativeError(vm, stack, sp, argStart)
 							sp = argStart
 							goto throwError
 						}
-						clear(stack[argStart:sp])
-						sp = argStart
-						if sp >= len(stack) {
-							stack = growStack(co)
-						}
-						stack[sp] = result
-						sp++
+						stack, sp = finishNativeCall(co, stack, sp, argStart, result)
 						continue
 					}
 				default:
@@ -1572,44 +1587,45 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 					}
 				}
 			}
-		case OpBinMul:
+		case OpBinMul, OpBinSub:
 			{
 				if sp < 2 {
 					panic(msgUnderflow)
 				}
 				l, r := stack[sp-2], stack[sp-1]
-				if l.Type == OSVNum && r.Type == OSVNum {
-					stack[sp-2] = OSValue{Type: OSVNum, Number: l.Number * r.Number}
-					sp--
+				multiply := op == OpBinMul
+				if IsNumber(l) && IsNumber(r) {
+					result := l.Number - r.Number
+					if multiply {
+						result = l.Number * r.Number
+					}
+					sp = finishNumericBinary(stack, sp, l, r, OSValue{Type: OSVNum, Number: result})
 					continue
 				}
 				if isBigIntPair(l, r) {
-					stack[sp-2] = bigIntValue(new(big.Int).Mul((*big.Int)(l.Opaque), (*big.Int)(r.Opaque)))
-					sp--
-					stack[sp] = OSValue{}
+					sp = finishBigIntBinary(stack, sp, op, (*big.Int)(l.Opaque), (*big.Int)(r.Opaque))
 					continue
 				}
-				if !(IsNumber(l) && IsNumber(r)) {
-					errMsg = msgArith
-					goto throwError
-				}
-				stack[sp-2] = OSValue{Type: OSVNum, Number: l.Number * r.Number}
-				sp--
-				stack[sp] = OSValue{}
+				errMsg = msgArith
+				goto throwError
 			}
-		case OpBinDiv:
+		case OpBinDiv, OpBinMod:
 			{
 				if sp < 2 {
 					panic(msgUnderflow)
 				}
 				l, r := stack[sp-2], stack[sp-1]
-				if l.Type == OSVNum && r.Type == OSVNum {
+				modulo := op == OpBinMod
+				if IsNumber(l) && IsNumber(r) {
 					if r.Number == 0 {
 						errMsg = "division by zero"
 						goto throwError
 					}
-					stack[sp-2] = OSValue{Type: OSVNum, Number: l.Number / r.Number}
-					sp--
+					result := l.Number / r.Number
+					if modulo {
+						result = l.Number - float64(int64(l.Number/r.Number))*r.Number
+					}
+					sp = finishNumericBinary(stack, sp, l, r, OSValue{Type: OSVNum, Number: result})
 					continue
 				}
 				if isBigIntPair(l, r) {
@@ -1617,65 +1633,11 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 						errMsg = "division by zero"
 						goto throwError
 					}
-					stack[sp-2] = bigIntValue(new(big.Int).Quo((*big.Int)(l.Opaque), (*big.Int)(r.Opaque)))
-					sp--
-					stack[sp] = OSValue{}
+					sp = finishBigIntBinary(stack, sp, op, (*big.Int)(l.Opaque), (*big.Int)(r.Opaque))
 					continue
 				}
-				if !(IsNumber(l) && IsNumber(r)) {
-					errMsg = msgArith
-					goto throwError
-				}
-				if r.Number == 0 {
-					errMsg = "division by zero"
-					goto throwError
-				}
-				stack[sp-2] = OSValue{Type: OSVNum, Number: l.Number / r.Number}
-				sp--
-				stack[sp] = OSValue{}
-			}
-		case OpBinMod:
-			{
-				if sp < 2 {
-					panic(msgUnderflow)
-				}
-				l, r := stack[sp-2], stack[sp-1]
-				if l.Type == OSVNum && r.Type == OSVNum {
-					if r.Number == 0 {
-						errMsg = "division by zero"
-						goto throwError
-					}
-					stack[sp-2] = OSValue{
-						Type:   OSVNum,
-						Number: l.Number - float64(int64(l.Number/r.Number))*r.Number,
-					}
-					sp--
-					continue
-				}
-				if isBigIntPair(l, r) {
-					if (*big.Int)(r.Opaque).Sign() == 0 {
-						errMsg = "division by zero"
-						goto throwError
-					}
-					stack[sp-2] = bigIntValue(new(big.Int).Rem((*big.Int)(l.Opaque), (*big.Int)(r.Opaque)))
-					sp--
-					stack[sp] = OSValue{}
-					continue
-				}
-				if !(IsNumber(l) && IsNumber(r)) {
-					errMsg = msgArith
-					goto throwError
-				}
-				if r.Number == 0 {
-					errMsg = "division by zero"
-					goto throwError
-				}
-				stack[sp-2] = OSValue{
-					Type:   OSVNum,
-					Number: l.Number - float64(int64(l.Number/r.Number))*r.Number,
-				}
-				sp--
-				stack[sp] = OSValue{}
+				errMsg = msgArith
+				goto throwError
 			}
 		case OpBinAdd:
 			{
@@ -1683,19 +1645,12 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 					panic(msgUnderflow)
 				}
 				l, r := stack[sp-2], stack[sp-1]
-				if l.Type == OSVNum && r.Type == OSVNum {
-					stack[sp-2] = OSValue{Type: OSVNum, Number: l.Number + r.Number}
-					sp--
+				if IsNumber(l) && IsNumber(r) {
+					sp = finishNumericBinary(stack, sp, l, r, OSValue{Type: OSVNum, Number: l.Number + r.Number})
 					continue
 				}
 				if isBigIntPair(l, r) {
 					stack[sp-2] = bigIntValue(new(big.Int).Add((*big.Int)(l.Opaque), (*big.Int)(r.Opaque)))
-					sp--
-					stack[sp] = OSValue{}
-					continue
-				}
-				if IsNumber(l) && IsNumber(r) {
-					stack[sp-2] = OSValue{Type: OSVNum, Number: l.Number + r.Number}
 					sp--
 					stack[sp] = OSValue{}
 					continue
@@ -1726,43 +1681,22 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 				errMsg = msgArith
 				goto throwError
 			}
-		case OpBinSub:
+		case OpBinShiftLeft, OpBinShiftRight:
 			{
 				if sp < 2 {
 					panic(msgUnderflow)
 				}
 				l, r := stack[sp-2], stack[sp-1]
-				if l.Type == OSVNum && r.Type == OSVNum {
-					stack[sp-2] = OSValue{Type: OSVNum, Number: l.Number - r.Number}
-					sp--
-					continue
-				}
-				if isBigIntPair(l, r) {
-					stack[sp-2] = bigIntValue(new(big.Int).Sub((*big.Int)(l.Opaque), (*big.Int)(r.Opaque)))
-					sp--
-					stack[sp] = OSValue{}
-					continue
-				}
-				if !(IsNumber(l) && IsNumber(r)) {
-					errMsg = msgArith
-					goto throwError
-				}
-				stack[sp-2] = OSValue{Type: OSVNum, Number: l.Number - r.Number}
-				sp--
-				stack[sp] = OSValue{}
-			}
-		case OpBinShiftLeft:
-			{
-				if sp < 2 {
-					panic(msgUnderflow)
-				}
-				l, r := stack[sp-2], stack[sp-1]
-				if l.Type == OSVNum && r.Type == OSVNum {
-					stack[sp-2] = OSValue{
-						Type:   OSVNum,
-						Number: float64(int64(l.Number) << uint(int64(r.Number))),
+				shiftLeft := op == OpBinShiftLeft
+				if IsNumber(l) && IsNumber(r) {
+					shift := int64(r.Number)
+					var result int64
+					if shiftLeft {
+						result = int64(l.Number) << uint(shift)
+					} else {
+						result = int64(l.Number) >> uint(shift)
 					}
-					sp--
+					sp = finishNumericBinary(stack, sp, l, r, OSValue{Type: OSVNum, Number: float64(result)})
 					continue
 				}
 				if isBigIntPair(l, r) {
@@ -1770,74 +1704,35 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 						errMsg = msgBitwise
 						goto throwError
 					}
-					stack[sp-2] = bigIntValue(new(big.Int).Lsh((*big.Int)(l.Opaque), uint((*big.Int)(r.Opaque).Uint64())))
+					if shiftLeft {
+						stack[sp-2] = bigIntValue(new(big.Int).Lsh((*big.Int)(l.Opaque), uint((*big.Int)(r.Opaque).Uint64())))
+					} else {
+						stack[sp-2] = bigIntValue(new(big.Int).Rsh((*big.Int)(l.Opaque), uint((*big.Int)(r.Opaque).Uint64())))
+					}
 					sp--
 					stack[sp] = OSValue{}
 					continue
 				}
-				if !(IsNumber(l) && IsNumber(r)) {
-					errMsg = msgBitwise
-					goto throwError
-				}
-				stack[sp-2] = OSValue{
-					Type:   OSVNum,
-					Number: float64(int64(l.Number) << uint(int64(r.Number))),
-				}
-				sp--
-				stack[sp] = OSValue{}
+				errMsg = msgBitwise
+				goto throwError
 			}
-		case OpBinShiftRight:
+		case OpBinLess, OpBinLessEqual, OpBinGreater, OpBinGreaterEqual:
 			{
 				if sp < 2 {
 					panic(msgUnderflow)
 				}
 				l, r := stack[sp-2], stack[sp-1]
-				if l.Type == OSVNum && r.Type == OSVNum {
-					stack[sp-2] = OSValue{
-						Type:   OSVNum,
-						Number: float64(int64(l.Number) >> uint(int64(r.Number))),
+				if IsNumber(l) && IsNumber(r) {
+					result := vm.False
+					if compareNumbers(op, l.Number, r.Number) {
+						result = vm.True
 					}
-					sp--
+					sp = finishNumericBinary(stack, sp, l, r, result)
 					continue
 				}
 				if isBigIntPair(l, r) {
-					if (*big.Int)(r.Opaque).Sign() < 0 || !(*big.Int)(r.Opaque).IsUint64() {
-						errMsg = msgBitwise
-						goto throwError
-					}
-					stack[sp-2] = bigIntValue(new(big.Int).Rsh((*big.Int)(l.Opaque), uint((*big.Int)(r.Opaque).Uint64())))
-					sp--
-					stack[sp] = OSValue{}
-					continue
-				}
-				if !(IsNumber(l) && IsNumber(r)) {
-					errMsg = msgBitwise
-					goto throwError
-				}
-				stack[sp-2] = OSValue{
-					Type:   OSVNum,
-					Number: float64(int64(l.Number) >> uint(int64(r.Number))),
-				}
-				sp--
-				stack[sp] = OSValue{}
-			}
-		case OpBinLess:
-			{
-				if sp < 2 {
-					panic(msgUnderflow)
-				}
-				l, r := stack[sp-2], stack[sp-1]
-				if l.Type == OSVNum && r.Type == OSVNum {
-					if l.Number < r.Number {
-						stack[sp-2] = vm.True
-					} else {
-						stack[sp-2] = vm.False
-					}
-					sp--
-					continue
-				}
-				if isBigIntPair(l, r) {
-					if (*big.Int)(l.Opaque).Cmp((*big.Int)(r.Opaque)) < 0 {
+					comparison := (*big.Int)(l.Opaque).Cmp((*big.Int)(r.Opaque))
+					if compareBigIntResult(op, comparison) {
 						stack[sp-2] = vm.True
 					} else {
 						stack[sp-2] = vm.False
@@ -1846,170 +1741,18 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 					stack[sp] = OSValue{}
 					continue
 				}
-				if !(IsNumber(l) && IsNumber(r)) {
-					errMsg = msgCompare
-					goto throwError
-				}
-				if l.Number < r.Number {
-					stack[sp-2] = vm.True
-				} else {
-					stack[sp-2] = vm.False
-				}
-				sp--
-				stack[sp] = OSValue{}
+				errMsg = msgCompare
+				goto throwError
 			}
-		case OpBinLessEqual:
-			{
-				if sp < 2 {
-					panic(msgUnderflow)
-				}
-				l, r := stack[sp-2], stack[sp-1]
-				if l.Type == OSVNum && r.Type == OSVNum {
-					if l.Number <= r.Number {
-						stack[sp-2] = vm.True
-					} else {
-						stack[sp-2] = vm.False
-					}
-					sp--
-					continue
-				}
-				if isBigIntPair(l, r) {
-					if (*big.Int)(l.Opaque).Cmp((*big.Int)(r.Opaque)) <= 0 {
-						stack[sp-2] = vm.True
-					} else {
-						stack[sp-2] = vm.False
-					}
-					sp--
-					stack[sp] = OSValue{}
-					continue
-				}
-				if !(IsNumber(l) && IsNumber(r)) {
-					errMsg = msgCompare
-					goto throwError
-				}
-				if l.Number <= r.Number {
-					stack[sp-2] = vm.True
-				} else {
-					stack[sp-2] = vm.False
-				}
-				sp--
-				stack[sp] = OSValue{}
-			}
-		case OpBinGreater:
-			{
-				if sp < 2 {
-					panic(msgUnderflow)
-				}
-				l, r := stack[sp-2], stack[sp-1]
-				if l.Type == OSVNum && r.Type == OSVNum {
-					if l.Number > r.Number {
-						stack[sp-2] = vm.True
-					} else {
-						stack[sp-2] = vm.False
-					}
-					sp--
-					continue
-				}
-				if isBigIntPair(l, r) {
-					if (*big.Int)(l.Opaque).Cmp((*big.Int)(r.Opaque)) > 0 {
-						stack[sp-2] = vm.True
-					} else {
-						stack[sp-2] = vm.False
-					}
-					sp--
-					stack[sp] = OSValue{}
-					continue
-				}
-				if !(IsNumber(l) && IsNumber(r)) {
-					errMsg = msgCompare
-					goto throwError
-				}
-				if l.Number > r.Number {
-					stack[sp-2] = vm.True
-				} else {
-					stack[sp-2] = vm.False
-				}
-				sp--
-				stack[sp] = OSValue{}
-			}
-		case OpBinGreaterEqual:
-			{
-				if sp < 2 {
-					panic(msgUnderflow)
-				}
-				l, r := stack[sp-2], stack[sp-1]
-				if l.Type == OSVNum && r.Type == OSVNum {
-					if l.Number >= r.Number {
-						stack[sp-2] = vm.True
-					} else {
-						stack[sp-2] = vm.False
-					}
-					sp--
-					continue
-				}
-				if isBigIntPair(l, r) {
-					if (*big.Int)(l.Opaque).Cmp((*big.Int)(r.Opaque)) >= 0 {
-						stack[sp-2] = vm.True
-					} else {
-						stack[sp-2] = vm.False
-					}
-					sp--
-					stack[sp] = OSValue{}
-					continue
-				}
-				if !(IsNumber(l) && IsNumber(r)) {
-					errMsg = msgCompare
-					goto throwError
-				}
-				if l.Number >= r.Number {
-					stack[sp-2] = vm.True
-				} else {
-					stack[sp-2] = vm.False
-				}
-				sp--
-				stack[sp] = OSValue{}
-			}
-		case OpBinEqual:
+		case OpBinEqual, OpBinNotEqual:
 			{
 				if sp < 2 {
 					panic(msgUnderflow)
 				}
 
 				l, r := &stack[sp-2], &stack[sp-1]
-				if l.Type == OSVNum && r.Type == OSVNum {
-					if l.Number == r.Number {
-						*l = vm.True
-					} else {
-						*l = vm.False
-					}
-					sp--
-					continue
-				}
-				if IsEqual(*l, *r) {
-					*l = vm.True
-				} else {
-					*l = vm.False
-				}
-				sp--
-				stack[sp] = OSValue{}
-			}
-		case OpBinNotEqual:
-			{
-				if sp < 2 {
-					panic(msgUnderflow)
-				}
-
-				l, r := &stack[sp-2], &stack[sp-1]
-				if l.Type == OSVNum && r.Type == OSVNum {
-					if l.Number != r.Number {
-						*l = vm.True
-					} else {
-						*l = vm.False
-					}
-					sp--
-					continue
-				}
-				if !IsEqual(*l, *r) {
+				matches := valuesEqual(*l, *r)
+				if matches == (op == OpBinEqual) {
 					*l = vm.True
 				} else {
 					*l = vm.False
@@ -2025,129 +1768,63 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 				}
 
 				l, r := &stack[sp-2], &stack[sp-1]
-				var eq bool
-				if l.Type == OSVNum && r.Type == OSVNum {
-					eq = l.Number == r.Number
-				} else {
-					eq = IsEqual(*l, *r)
-				}
-				if eq {
+				if valuesEqual(*l, *r) {
 					*r = vm.True
 				} else {
 					*r = vm.False
 				}
 			}
-		case OpBinBitAnd:
+		case OpBinBitAnd, OpBinBitXor, OpBinBitOr:
 			{
 				if sp < 2 {
 					panic(msgUnderflow)
 				}
 				l, r := stack[sp-2], stack[sp-1]
-				if l.Type == OSVNum && r.Type == OSVNum {
-					stack[sp-2] = OSValue{
+				if IsNumber(l) && IsNumber(r) {
+					result := OSValue{
 						Type:   OSVNum,
-						Number: float64(int64(l.Number) & int64(r.Number)),
+						Number: float64(applyNumericBitwise(op, int64(l.Number), int64(r.Number))),
 					}
-					sp--
+					sp = finishNumericBinary(stack, sp, l, r, result)
 					continue
 				}
 				if isBigIntPair(l, r) {
-					stack[sp-2] = bigIntValue(new(big.Int).And((*big.Int)(l.Opaque), (*big.Int)(r.Opaque)))
+					left, right := (*big.Int)(l.Opaque), (*big.Int)(r.Opaque)
+					var result *big.Int
+					switch op {
+					case OpBinBitAnd:
+						result = new(big.Int).And(left, right)
+					case OpBinBitXor:
+						result = new(big.Int).Xor(left, right)
+					default:
+						result = new(big.Int).Or(left, right)
+					}
+					stack[sp-2] = bigIntValue(result)
 					sp--
 					stack[sp] = OSValue{}
 					continue
 				}
-				if !(IsNumber(l) && IsNumber(r)) {
-					errMsg = msgBitwise
-					goto throwError
-				}
-				stack[sp-2] = OSValue{
-					Type:   OSVNum,
-					Number: float64(int64(l.Number) & int64(r.Number)),
-				}
-				sp--
-				stack[sp] = OSValue{}
-			}
-		case OpBinBitXor:
-			{
-				if sp < 2 {
-					panic(msgUnderflow)
-				}
-				l, r := stack[sp-2], stack[sp-1]
-				if l.Type == OSVNum && r.Type == OSVNum {
-					stack[sp-2] = OSValue{
-						Type:   OSVNum,
-						Number: float64(int64(l.Number) ^ int64(r.Number)),
-					}
-					sp--
-					continue
-				}
-				if isBigIntPair(l, r) {
-					stack[sp-2] = bigIntValue(new(big.Int).Xor((*big.Int)(l.Opaque), (*big.Int)(r.Opaque)))
-					sp--
-					stack[sp] = OSValue{}
-					continue
-				}
-				if !(IsNumber(l) && IsNumber(r)) {
-					errMsg = msgBitwise
-					goto throwError
-				}
-				stack[sp-2] = OSValue{
-					Type:   OSVNum,
-					Number: float64(int64(l.Number) ^ int64(r.Number)),
-				}
-				sp--
-				stack[sp] = OSValue{}
-			}
-		case OpBinBitOr:
-			{
-				if sp < 2 {
-					panic(msgUnderflow)
-				}
-				l, r := stack[sp-2], stack[sp-1]
-				if l.Type == OSVNum && r.Type == OSVNum {
-					stack[sp-2] = OSValue{
-						Type:   OSVNum,
-						Number: float64(int64(l.Number) | int64(r.Number)),
-					}
-					sp--
-					continue
-				}
-				if isBigIntPair(l, r) {
-					stack[sp-2] = bigIntValue(new(big.Int).Or((*big.Int)(l.Opaque), (*big.Int)(r.Opaque)))
-					sp--
-					stack[sp] = OSValue{}
-					continue
-				}
-				if !(IsNumber(l) && IsNumber(r)) {
-					errMsg = msgBitwise
-					goto throwError
-				}
-				stack[sp-2] = OSValue{
-					Type:   OSVNum,
-					Number: float64(int64(l.Number) | int64(r.Number)),
-				}
-				sp--
-				stack[sp] = OSValue{}
+				errMsg = msgBitwise
+				goto throwError
 			}
 		case OpDestructArray:
 			{
-				size := operand(bcode, ip, bsize)
+				size := operand(bytecode, ip, bsize)
 				ip++
 
 				if sp <= 0 {
 					panic(msgUnderflow)
 				}
 				sp--
-				aobj := stack[sp]
+				arrayValue := stack[sp]
 				stack[sp] = OSValue{}
 
-				if aobj.Type != OSVArray || aobj.Opaque == nil {
+				if arrayValue.Type != OSVArray || arrayValue.Opaque == nil {
 					errMsg = msgDestructArr
 					goto throwError
 				}
 
-				elements := (*Array)(aobj.Opaque).Elements
+				elements := (*Array)(arrayValue.Opaque).Elements
 				if len(elements) < size {
 					errMsg = "array size mismatch for destructuring"
 					goto throwError
@@ -2165,7 +1842,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 		case OpStoreLocal:
 			{
 				// See OpLoadVar: invalid indexes panic on their own.
-				cell := env[bcode[ip]]
+				cell := env[bytecode[ip]]
 				ip++
 
 				if sp <= 0 {
@@ -2198,11 +1875,11 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 			}
 		case OpJmp, OpAbsJmp:
 			{
-				ip = int(bcode[ip])
+				ip = int(bytecode[ip])
 			}
-		case OpPopJmpIfFalse:
+		case OpPopJmpIfFalse, OpPopJmpIfTrue:
 			{
-				offset := int(bcode[ip])
+				offset := int(bytecode[ip])
 				ip++
 
 				if sp <= 0 {
@@ -2210,43 +1887,21 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 				}
 
 				sp--
-				expval := stack[sp]
+				expressionValue := stack[sp]
 				stack[sp] = OSValue{}
-				var cond bool
-				if expval.Type == OSVBool {
-					cond = expval.Number != 0
+				cond := false
+				if expressionValue.Type == OSVBool {
+					cond = expressionValue.Number != 0
 				} else {
-					cond = CoerceToBool(expval)
+					cond = CoerceToBool(expressionValue)
 				}
-				if !cond {
+				if cond == (op == OpPopJmpIfTrue) {
 					ip = offset
 				}
 			}
-		case OpPopJmpIfTrue:
+		case OpJmpIfFalseOrPop, OpJmpIfTrueOrPop:
 			{
-				offset := int(bcode[ip])
-				ip++
-
-				if sp <= 0 {
-					panic(msgUnderflow)
-				}
-
-				sp--
-				expval := stack[sp]
-				stack[sp] = OSValue{}
-				var cond bool
-				if expval.Type == OSVBool {
-					cond = expval.Number != 0
-				} else {
-					cond = CoerceToBool(expval)
-				}
-				if cond {
-					ip = offset
-				}
-			}
-		case OpJmpIfFalseOrPop:
-			{
-				offset := int(bcode[ip])
+				offset := int(bytecode[ip])
 				ip++
 
 				if sp <= 0 {
@@ -2254,36 +1909,13 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 				}
 
 				top := &stack[sp-1]
-				var cond bool
+				cond := false
 				if top.Type == OSVBool {
 					cond = top.Number != 0
 				} else {
 					cond = CoerceToBool(*top)
 				}
-				if !cond {
-					ip = offset
-				} else {
-					sp--
-					stack[sp] = OSValue{}
-				}
-			}
-		case OpJmpIfTrueOrPop:
-			{
-				offset := int(bcode[ip])
-				ip++
-
-				if sp <= 0 {
-					panic(msgUnderflow)
-				}
-
-				top := &stack[sp-1]
-				var cond bool
-				if top.Type == OSVBool {
-					cond = top.Number != 0
-				} else {
-					cond = CoerceToBool(*top)
-				}
-				if cond {
+				if cond == (op == OpJmpIfTrueOrPop) {
 					ip = offset
 				} else {
 					sp--
@@ -2340,6 +1972,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 					} else {
 						vm.Current = nil
 					}
+					co.State = CoroutineStateSuspended
 					frame.Ip = ip
 					co.Sp = sp
 					return
@@ -2416,7 +2049,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 				caller.OperandStack[caller.Sp] = returnValue
 				caller.Sp++
 
-				// Nothing references the finished coroutine any more; drop its
+				// Nothing references the finished coroutine anymore; drop its
 				// stack, cells and links so they can be collected.
 				co.Release()
 
@@ -2429,8 +2062,8 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 				// Otherwise continue directly in the caller.
 				co = caller
 				frame = &caller.Frame
-				bcode = frame.Function.Bytecode
-				bsize = len(bcode)
+				bytecode = frame.Function.Bytecode
+				bsize = len(bytecode)
 				ip = frame.Ip
 				sp = caller.Sp
 				stack = caller.OperandStack
@@ -2501,10 +2134,12 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 func Run(state *State, program *Function) {
 	if state == nil {
 		fatalRuntimeError(nil, 0, "state cannot be nil")
+		return
 	}
 
 	if program == nil {
 		fatalRuntimeError(nil, 0, "program function cannot be nil")
+		return
 	}
 
 	vm := VM{
@@ -2521,10 +2156,6 @@ func Run(state *State, program *Function) {
 	defer vm.closeNative()
 
 	main := NewCoroutine(nil, program, InitialStack(0))
-
-	if main == nil {
-		fatalRuntimeError(nil, 0, "failed to create main coroutine")
-	}
 
 	vm.Current = main
 

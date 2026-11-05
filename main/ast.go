@@ -80,7 +80,7 @@ const (
 	AstBreakStmt
 	AstReturnStmt
 	AstBlock
-	AstExpressionStmnt
+	AstExpressionStmt
 	AstProgram
 )
 
@@ -359,7 +359,7 @@ func NewBlockStatement(position Position, statements *Ast) *Ast {
 }
 
 func NewExpressionStatement(position Position, expr *Ast) *Ast {
-	node := newAst(AstExpressionStmnt, position)
+	node := newAst(AstExpressionStmt, position)
 	node.A = expr
 	return node
 }

@@ -9,12 +9,12 @@ import (
 	"unsafe"
 )
 
-func coreSysFunction(paramc int, callable func(vm *VM, args []OSValue) OSValue) OSValue {
+func coreSysFunction(paramCount int, callable func(vm *VM, args []OSValue) OSValue) OSValue {
 	return OSValue{
 		Type: OSVNativeFunction,
 		Opaque: unsafe.Pointer(&NativeFunction{
-			Paramc:   paramc,
-			Callable: callable,
+			ParamCount: paramCount,
+			Callable:   callable,
 		}),
 	}
 }

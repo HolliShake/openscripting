@@ -14,6 +14,11 @@ const byteSubmatches = expression->findSubmatch("item-42");
 const readerIndices = expression->findReaderSubmatchIndex("item-42");
 const callbackReplacement = expression->replaceAllStringFunc("item-42", fn(value) { return value + "!"; });
 const text = expression->marshalText();
+const regexToClone = Regex("a|ab");
+const longestClone = regexToClone->copy();
+longestClone->longest();
+const alreadyLongestClone = Regex("a|ab")->longest()->copy();
+const posixClone = compilePOSIX("[[:digit:]]+")->copy();
 if (expression->string() != "(?P<word>[a-z]+)-(\\d+)" || expression->numSubexp() != 2) {
     println("FAIL: regex metadata");
 }
@@ -47,6 +52,9 @@ if (parts[0] != "a" || parts[1] != "b" || parts[2] != "" || parts[3] != "c") {
 }
 if (quoteMeta("a+b") != "a\\+b" || expression->findStringIndex("missing") != null) {
     println("FAIL: quoteMeta or missing match");
+}
+if (regexToClone->findString("ab") != "a" || longestClone->findString("ab") != "ab" || alreadyLongestClone->findString("ab") != "ab" || posixClone->matchString("42") != true) {
+    println("FAIL: regex copy settings");
 }
 if (matchString("[0-9]+", "item-42") != true || match("[0-9]+", "item-42") != true || matchReader("[0-9]+", "item-42") != true) {
     println("FAIL: package regex match helpers");

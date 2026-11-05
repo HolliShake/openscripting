@@ -85,6 +85,12 @@ func printGradientLogo() {
 	}
 }
 
+func writeStderr(format string, args ...any) {
+	if _, err := fmt.Fprintf(os.Stderr, format, args...); err != nil {
+		os.Exit(1)
+	}
+}
+
 func main() {
 	flag.StringVar(&scriptFile, "f", "", "path to the script file")
 	flag.StringVar(&scriptFile, "file", "", "path to the script file")
@@ -94,11 +100,12 @@ func main() {
 		printGradientLogo()
 
 		fmt.Printf(
-			"\033[1;97mUsage:\033[0m %s -f path/to/file.os\n\n",
+			"\033[1;97m%s\033[0m %s -f path/to/file.os\n\n",
+			"Usage:",
 			os.Args[0],
 		)
 
-		fmt.Println("\033[1;97mOptions:\033[0m")
+		fmt.Printf("\033[1;97m%s\033[0m\n", "Options:")
 		flag.PrintDefaults()
 	}
 
@@ -110,17 +117,14 @@ func main() {
 	}
 
 	if scriptFile == "" {
-		fmt.Fprintln(
-			os.Stderr,
-			"a script file is required; use -f or -file",
-		)
+		writeStderr("a script file is required; use -f or -file\n")
 		flag.Usage()
 		os.Exit(2)
 	}
 
 	data, err := os.ReadFile(scriptFile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading script: %v\n", err)
+		writeStderr("error reading script: %v\n", err)
 		os.Exit(1)
 	}
 

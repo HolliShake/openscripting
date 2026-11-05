@@ -13,6 +13,12 @@ var (
 	coreRegexOnce  sync.Once
 )
 
+type regexData struct {
+	compiled *regexp.Regexp
+	posix    bool
+	longest  bool
+}
+
 func ensureCoreRegexClass() *Class {
 	coreRegexOnce.Do(func() {
 		coreRegexClass = &Class{
@@ -20,14 +26,14 @@ func ensureCoreRegexClass() *Class {
 			Constructor: OSValue{
 				Type: OSVNativeFunction,
 				Opaque: unsafe.Pointer(&NativeFunction{
-					Paramc:   1,
-					Callable: nativeRegexConstructor,
+					ParamCount: 1,
+					Callable:   nativeRegexConstructor,
 				}),
 			},
 			Template: map[string]OSValue{
 				"appendText":                 nativeMethodTemplate(1, regexAppendText),
-				"compile":                    {Type: OSVNativeFunction, Opaque: unsafe.Pointer(&NativeFunction{Paramc: 1, Callable: nativeRegexCompile})},
-				"compilePOSIX":               {Type: OSVNativeFunction, Opaque: unsafe.Pointer(&NativeFunction{Paramc: 1, Callable: nativeRegexCompilePOSIX})},
+				"compile":                    {Type: OSVNativeFunction, Opaque: unsafe.Pointer(&NativeFunction{ParamCount: 1, Callable: nativeRegexCompile})},
+				"compilePOSIX":               {Type: OSVNativeFunction, Opaque: unsafe.Pointer(&NativeFunction{ParamCount: 1, Callable: nativeRegexCompilePOSIX})},
 				"copy":                       nativeMethodTemplate(0, regexCopy),
 				"expand":                     nativeMethodTemplate(3, regexExpandString),
 				"expandString":               nativeMethodTemplate(3, regexExpandString),
@@ -83,7 +89,7 @@ func nativeRegexConstructor(vm *VM, args []OSValue) OSValue {
 		vm.NativeError = "Regex: " + err.Error()
 		return vm.Null
 	}
-	return newRegexValue(compiled)
+	return newRegexValue(compiled, false)
 }
 
 func nativeRegexCompile(vm *VM, args []OSValue) OSValue {
@@ -96,7 +102,7 @@ func nativeRegexCompile(vm *VM, args []OSValue) OSValue {
 		vm.NativeError = "Regex.compile: " + err.Error()
 		return vm.Null
 	}
-	return newRegexValue(compiled)
+	return newRegexValue(compiled, false)
 }
 
 func nativeRegexCompilePOSIX(vm *VM, args []OSValue) OSValue {
@@ -109,7 +115,7 @@ func nativeRegexCompilePOSIX(vm *VM, args []OSValue) OSValue {
 		vm.NativeError = "Regex.compilePOSIX: " + err.Error()
 		return vm.Null
 	}
-	return newRegexValue(compiled)
+	return newRegexValue(compiled, true)
 }
 
 func nativeRegexMustCompile(vm *VM, args []OSValue) OSValue {
@@ -120,26 +126,34 @@ func nativeRegexMustCompilePOSIX(vm *VM, args []OSValue) OSValue {
 	return nativeRegexCompilePOSIX(vm, args)
 }
 
-func newRegexValue(compiled *regexp.Regexp) OSValue {
+func newRegexValue(compiled *regexp.Regexp, posix bool) OSValue {
 	instance := &Object{
 		ClassName: "Regex",
 		Class:     ensureCoreRegexClass(),
-		Native:    compiled,
+		Native:    &regexData{compiled: compiled, posix: posix, longest: posix},
 	}
 	return OSValue{Type: OSVObject, Opaque: unsafe.Pointer(instance)}
 }
 
-func regexReceiver(this OSValue, vm *VM) *regexp.Regexp {
+func regexDataFrom(this OSValue, vm *VM) *regexData {
 	if this.Type != OSVObject || this.Opaque == nil {
 		vm.NativeError = "invalid Regex receiver"
 		return nil
 	}
-	compiled, ok := (*Object)(this.Opaque).Native.(*regexp.Regexp)
-	if !ok || compiled == nil {
+	data, ok := (*Object)(this.Opaque).Native.(*regexData)
+	if !ok || data == nil || data.compiled == nil {
 		vm.NativeError = "invalid Regex receiver"
 		return nil
 	}
-	return compiled
+	return data
+}
+
+func regexReceiver(this OSValue, vm *VM) *regexp.Regexp {
+	data := regexDataFrom(this, vm)
+	if data == nil {
+		return nil
+	}
+	return data.compiled
 }
 
 func regexStringValue(value OSValue, name string, vm *VM) (string, bool) {
@@ -208,11 +222,25 @@ func regexIndexArrayArray(values [][]int) OSValue {
 }
 
 func regexCopy(this OSValue, vm *VM, _ []OSValue) OSValue {
-	compiled := regexReceiver(this, vm)
-	if compiled == nil {
+	data := regexDataFrom(this, vm)
+	if data == nil {
 		return vm.Null
 	}
-	return newRegexValue(compiled.Copy())
+	var compiled *regexp.Regexp
+	var err error
+	if data.posix {
+		compiled, err = regexp.CompilePOSIX(data.compiled.String())
+	} else {
+		compiled, err = regexp.Compile(data.compiled.String())
+	}
+	if err != nil {
+		vm.NativeError = "Regex.copy: " + err.Error()
+		return vm.Null
+	}
+	if data.longest && !data.posix {
+		compiled.Longest()
+	}
+	return newRegexValue(compiled, data.posix)
 }
 
 func regexExpandString(this OSValue, vm *VM, args []OSValue) OSValue {
@@ -434,11 +462,12 @@ func regexFindOne(vm *VM, this OSValue, args []OSValue, name string, find func(*
 }
 
 func regexLongest(this OSValue, vm *VM, _ []OSValue) OSValue {
-	compiled := regexReceiver(this, vm)
-	if compiled == nil {
+	data := regexDataFrom(this, vm)
+	if data == nil {
 		return vm.Null
 	}
-	compiled.Longest()
+	data.compiled.Longest()
+	data.longest = true
 	return this
 }
 
@@ -684,7 +713,7 @@ func regexUnmarshalText(this OSValue, vm *VM, args []OSValue) OSValue {
 		vm.NativeError = "Regex.unmarshalText: " + err.Error()
 		return vm.Null
 	}
-	(*Object)(this.Opaque).Native = compiled
+	(*Object)(this.Opaque).Native = &regexData{compiled: compiled}
 	return this
 }
 
@@ -760,13 +789,13 @@ func getCoreRegex() map[string]OSValue {
 	class := ensureCoreRegexClass()
 	return map[string]OSValue{
 		"Regex":            {Type: OSVClass, Opaque: unsafe.Pointer(class)},
-		"compile":          {Type: OSVNativeFunction, Opaque: unsafe.Pointer(&NativeFunction{Paramc: 1, Callable: nativeRegexCompile})},
-		"compilePOSIX":     {Type: OSVNativeFunction, Opaque: unsafe.Pointer(&NativeFunction{Paramc: 1, Callable: nativeRegexCompilePOSIX})},
-		"mustCompile":      {Type: OSVNativeFunction, Opaque: unsafe.Pointer(&NativeFunction{Paramc: 1, Callable: nativeRegexMustCompile})},
-		"mustCompilePOSIX": {Type: OSVNativeFunction, Opaque: unsafe.Pointer(&NativeFunction{Paramc: 1, Callable: nativeRegexMustCompilePOSIX})},
-		"match":            {Type: OSVNativeFunction, Opaque: unsafe.Pointer(&NativeFunction{Paramc: 2, Callable: nativeRegexMatch})},
-		"matchReader":      {Type: OSVNativeFunction, Opaque: unsafe.Pointer(&NativeFunction{Paramc: 2, Callable: nativeRegexMatchReader})},
-		"matchString":      {Type: OSVNativeFunction, Opaque: unsafe.Pointer(&NativeFunction{Paramc: 2, Callable: nativeRegexMatchString})},
-		"quoteMeta":        {Type: OSVNativeFunction, Opaque: unsafe.Pointer(&NativeFunction{Paramc: 1, Callable: nativeRegexQuoteMeta})},
+		"compile":          {Type: OSVNativeFunction, Opaque: unsafe.Pointer(&NativeFunction{ParamCount: 1, Callable: nativeRegexCompile})},
+		"compilePOSIX":     {Type: OSVNativeFunction, Opaque: unsafe.Pointer(&NativeFunction{ParamCount: 1, Callable: nativeRegexCompilePOSIX})},
+		"mustCompile":      {Type: OSVNativeFunction, Opaque: unsafe.Pointer(&NativeFunction{ParamCount: 1, Callable: nativeRegexMustCompile})},
+		"mustCompilePOSIX": {Type: OSVNativeFunction, Opaque: unsafe.Pointer(&NativeFunction{ParamCount: 1, Callable: nativeRegexMustCompilePOSIX})},
+		"match":            {Type: OSVNativeFunction, Opaque: unsafe.Pointer(&NativeFunction{ParamCount: 2, Callable: nativeRegexMatch})},
+		"matchReader":      {Type: OSVNativeFunction, Opaque: unsafe.Pointer(&NativeFunction{ParamCount: 2, Callable: nativeRegexMatchReader})},
+		"matchString":      {Type: OSVNativeFunction, Opaque: unsafe.Pointer(&NativeFunction{ParamCount: 2, Callable: nativeRegexMatchString})},
+		"quoteMeta":        {Type: OSVNativeFunction, Opaque: unsafe.Pointer(&NativeFunction{ParamCount: 1, Callable: nativeRegexQuoteMeta})},
 	}
 }
