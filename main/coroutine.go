@@ -51,10 +51,16 @@ type Coroutine struct {
 	snapshot *Coroutine
 }
 
+type coroutineStorage struct {
+	Coroutine
+	stack [minOperandStack]OSValue
+}
+
 // Release drops everything a finished coroutine references so it cannot keep
 // the stack, cells or caller chain alive. It is idempotent: raise() may
 // release the same coroutine twice.
 func (co *Coroutine) Release() {
+	clear(co.OperandStack)
 	co.OperandStack = nil
 	co.Parent = nil
 	co.Caller = nil
@@ -128,11 +134,24 @@ func NewCoroutine(parent *Coroutine, fn *Function, stackSize int) *Coroutine {
 	}
 
 	// The frame lives inside the coroutine so one allocation serves both.
-	co := &Coroutine{
-		Parent:       parent,
-		Caller:       parent,
-		State:        CoroutineStateSuspended,
-		OperandStack: make([]OSValue, stackSize),
+	var co *Coroutine
+	if stackSize <= minOperandStack {
+		storage := &coroutineStorage{
+			Coroutine: Coroutine{
+				Parent: parent,
+				Caller: parent,
+				State:  CoroutineStateSuspended,
+			},
+		}
+		co = &storage.Coroutine
+		co.OperandStack = storage.stack[:stackSize]
+	} else {
+		co = &Coroutine{
+			Parent:       parent,
+			Caller:       parent,
+			State:        CoroutineStateSuspended,
+			OperandStack: make([]OSValue, stackSize),
+		}
 	}
 
 	frame := &co.Frame
