@@ -4,11 +4,20 @@ package main
 
 import "math"
 
+const nativeJITEmitterAvailable = true
+
 func emitNativeCode(ops []nativeIROp) ([]byte, bool) {
 	var code []byte
 	var divideByZeroBranches []int
-	stackDepth := 0
-	for _, op := range ops {
+	type branchPatch struct {
+		displacement int
+		target       int
+	}
+	var branchPatches []branchPatch
+	codeOffsets := make([]int, len(ops)+1)
+	for index, op := range ops {
+		codeOffsets[index] = len(code)
+		stackDepth := op.stackDepth
 		switch op.opcode {
 		case OpLoadVar:
 			base := byte(1)
@@ -109,25 +118,64 @@ func emitNativeCode(ops []nativeIROp) ([]byte, bool) {
 				code = append(code, 0xF2, 0x0F, operation, 0xC0|(left<<3)|right)
 			}
 			stackDepth--
+		case OpCaseEqual:
+			left := byte(stackDepth - 2)
+			right := byte(stackDepth - 1)
+			code = append(code,
+				0x66, 0x0F, 0x2E, 0xC0|(left<<3)|right, // ucomisd xmmLeft, xmmRight
+				0x0F, 0x94, 0xC0, // sete al
+				0x41, 0x0F, 0x9B, 0xC2, // setnp r10b; NaN is not equal
+				0x44, 0x20, 0xD0, // and al, r10b
+				0x0F, 0xB6, 0xC0, // movzx eax, al
+				0xF2, 0x48, 0x0F, 0x2A, 0xC0|(right<<3), // cvtsi2sd xmmRight, rax
+			)
+		case OpPopTop:
+		case OpJmp:
+			code = append(code, 0xE9, 0, 0, 0, 0)
+			branchPatches = append(branchPatches, branchPatch{displacement: len(code) - 4, target: op.target})
+		case OpPopJmpIfFalse, OpPopJmpIfTrue:
+			register := byte(stackDepth - 1)
+			code = append(code, 0x66, 0x0F, 0xEF, 0xFF)               // pxor xmm7, xmm7
+			code = append(code, 0x66, 0x0F, 0x2E, 0xC7|(register<<3)) // ucomisd xmmN, xmm7
+			if op.opcode == OpPopJmpIfFalse {
+				code = append(code, 0x7A, 0x06, 0x0F, 0x84, 0, 0, 0, 0) // NaN is truthy; otherwise branch on zero
+				branchPatches = append(branchPatches, branchPatch{displacement: len(code) - 4, target: op.target})
+			} else {
+				code = append(code, 0x0F, 0x8A, 0, 0, 0, 0) // jp target: NaN is truthy
+				branchPatches = append(branchPatches, branchPatch{displacement: len(code) - 4, target: op.target})
+				code = append(code, 0x0F, 0x85, 0, 0, 0, 0) // jne target
+				branchPatches = append(branchPatches, branchPatch{displacement: len(code) - 4, target: op.target})
+			}
 		case OpReturn:
 			code = append(code, 0xF2, 0x41, 0x0F, 0x11, 0x00, 0xC3)
-			if len(divideByZeroBranches) > 0 {
-				failureOffset := len(code)
-				code = append(code, 0x49, 0xC7, 0x01, 0, 0, 0, 0, 0xC3)
-				for _, branch := range divideByZeroBranches {
-					displacement := int32(failureOffset - (branch + 4))
-					code[branch] = byte(displacement)
-					code[branch+1] = byte(displacement >> 8)
-					code[branch+2] = byte(displacement >> 16)
-					code[branch+3] = byte(displacement >> 24)
-				}
-			}
-			return code, true
 		default:
 			return nil, false
 		}
 	}
-	return nil, false
+	codeOffsets[len(ops)] = len(code)
+	code = append(code, 0xC3) // Unreachable bytecode-end targets return without falling into data.
+	for _, patch := range branchPatches {
+		if patch.target < 0 || patch.target >= len(codeOffsets) {
+			return nil, false
+		}
+		displacement := int32(codeOffsets[patch.target] - (patch.displacement + 4))
+		code[patch.displacement] = byte(displacement)
+		code[patch.displacement+1] = byte(displacement >> 8)
+		code[patch.displacement+2] = byte(displacement >> 16)
+		code[patch.displacement+3] = byte(displacement >> 24)
+	}
+	if len(divideByZeroBranches) > 0 {
+		failureOffset := len(code)
+		code = append(code, 0x49, 0xC7, 0x01, 0, 0, 0, 0, 0xC3)
+		for _, branch := range divideByZeroBranches {
+			displacement := int32(failureOffset - (branch + 4))
+			code[branch] = byte(displacement)
+			code[branch+1] = byte(displacement >> 8)
+			code[branch+2] = byte(displacement >> 16)
+			code[branch+3] = byte(displacement >> 24)
+		}
+	}
+	return code, true
 }
 
 func appendAMD64ZeroGuard(code []byte, register byte) []byte {

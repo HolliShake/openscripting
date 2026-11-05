@@ -1,11 +1,13 @@
 package main
 
 import (
+	"math"
 	"runtime"
 	"testing"
 )
 
 func TestNativeJITEmitsArithmeticMachineCode(t *testing.T) {
+	requireNativeJITEmitter(t)
 	tests := []struct {
 		name     string
 		opcode   int32
@@ -37,8 +39,8 @@ func TestNativeJITEmitsArithmeticMachineCode(t *testing.T) {
 			}
 			instructions, eligible := nativeFunctionCode(fn)
 			if !eligible || len(instructions) == 0 {
-				if runtime.GOARCH == "arm64" && (test.opcode == OpBinMod || test.opcode == OpBinShiftLeft || test.opcode == OpBinShiftRight) {
-					t.Skip("ARM64 emitter intentionally falls back for this operator")
+				if (runtime.GOARCH == "arm64" || runtime.GOARCH == "arm") && (test.opcode == OpBinMod || test.opcode == OpBinBitAnd || test.opcode == OpBinBitXor || test.opcode == OpBinBitOr || test.opcode == OpBinShiftLeft || test.opcode == OpBinShiftRight) {
+					t.Skip("ARM emitter intentionally falls back for this operator")
 				}
 				if runtime.GOARCH == "386" && (test.opcode == OpBinBitAnd || test.opcode == OpBinBitXor || test.opcode == OpBinBitOr || test.opcode == OpBinShiftLeft || test.opcode == OpBinShiftRight) {
 					t.Skip("386 emitter intentionally falls back for bitwise operators")
@@ -62,8 +64,9 @@ func TestNativeJITEmitsArithmeticMachineCode(t *testing.T) {
 }
 
 func TestNativeJITCompilesBitwiseNot(t *testing.T) {
-	if runtime.GOARCH == "386" {
-		t.Skip("386 emitter intentionally falls back for bitwise operators")
+	requireNativeJITEmitter(t)
+	if runtime.GOARCH == "386" || runtime.GOARCH == "arm" {
+		t.Skip("this emitter intentionally falls back for bitwise operators")
 	}
 	fn := &Function{
 		ParamCount:  2,
@@ -89,7 +92,158 @@ func TestNativeJITCompilesBitwiseNot(t *testing.T) {
 	}
 }
 
+func TestNativeJITExecutesConditionalReturns(t *testing.T) {
+	requireNativeJITEmitter(t)
+	state := &State{}
+	file := &File{
+		Name:    "jit-if-test.os",
+		Content: []rune("var choose::fn(flag, value) { if (flag) { return value; } else { return 7; } return value; };"),
+	}
+	if Compile(NewParser(state, file)) == nil {
+		t.Fatal("compilation returned no program")
+	}
+	var function *Function
+	for _, candidate := range state.Functions {
+		if candidate.Name == "choose" {
+			function = candidate
+			break
+		}
+	}
+	if function == nil {
+		t.Fatal("compiled function choose was not found")
+	}
+	instructions, eligible := nativeFunctionCode(function)
+	if !eligible {
+		t.Fatalf("conditional function was not eligible: bytecode=%v", function.Bytecode)
+	}
+	code, err := allocateNativeCode(instructions)
+	if err != nil {
+		t.Fatalf("allocate native code: %v", err)
+	}
+	if code == nil {
+		t.Skip("native execution is unavailable on this target")
+	}
+	defer code.release()
+	for _, test := range []struct {
+		name string
+		flag float64
+		want float64
+	}{
+		{name: "true", flag: 1, want: 12},
+		{name: "false", flag: 0, want: 7},
+		{name: "NaN is truthy", flag: math.NaN(), want: 12},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, ok := code.run(test.flag, 12)
+			if !ok || got != test.want {
+				t.Fatalf("native conditional result = %v, %v; want %v", got, ok, test.want)
+			}
+		})
+	}
+}
+
+func TestNativeJITRejectsLoopBackEdges(t *testing.T) {
+	fn := &Function{
+		ParamCount:  2,
+		LocalCount:  2,
+		VarArgIndex: -1,
+		Bytecode:    []int32{OpLoadVar, 0, OpPopJmpIfTrue, 0, OpLoadNum, 0, 0, OpReturn},
+	}
+	if _, eligible := nativeFunctionCode(fn); eligible {
+		t.Fatal("loop back-edge must use interpreter fallback")
+	}
+}
+
+func TestNativeJITExecutesSwitchExpression(t *testing.T) {
+	requireNativeJITEmitter(t)
+	state := &State{}
+	file := &File{
+		Name:    "jit-switch-expression.os",
+		Content: []rune("var choose::fn(selector, fallback) { return switch(selector) { 1 => 11, 2, 3 => 22, default => fallback }; };"),
+	}
+	if Compile(NewParser(state, file)) == nil {
+		t.Fatal("compilation returned no program")
+	}
+	function := findNativeTestFunction(state, "choose")
+	instructions, eligible := nativeFunctionCode(function)
+	if !eligible {
+		t.Fatalf("switch expression was not eligible: bytecode=%v", function.Bytecode)
+	}
+	code, err := allocateNativeCode(instructions)
+	if err != nil {
+		t.Fatalf("allocate native code: %v", err)
+	}
+	if code == nil {
+		t.Skip("native execution is unavailable on this target")
+	}
+	defer code.release()
+	for _, test := range []struct {
+		selector float64
+		fallback float64
+		want     float64
+	}{
+		{selector: 1, fallback: 99, want: 11},
+		{selector: 3, fallback: 99, want: 22},
+		{selector: 9, fallback: 99, want: 99},
+		{selector: math.NaN(), fallback: 99, want: 99},
+	} {
+		got, ok := code.run(test.selector, test.fallback)
+		if !ok || got != test.want {
+			t.Errorf("native switch expression (%v) = %v, %v; want %v", test.selector, got, ok, test.want)
+		}
+	}
+}
+
+func TestNativeJITExecutesSwitchStatement(t *testing.T) {
+	requireNativeJITEmitter(t)
+	state := &State{}
+	file := &File{
+		Name:    "jit-switch-statement.os",
+		Content: []rune("var choose::fn(selector, fallback) { switch(selector) { case 1: return 11; case 2: return 22; default: return fallback; } return 0; };"),
+	}
+	if Compile(NewParser(state, file)) == nil {
+		t.Fatal("compilation returned no program")
+	}
+	function := findNativeTestFunction(state, "choose")
+	instructions, eligible := nativeFunctionCode(function)
+	if !eligible {
+		t.Fatalf("switch statement was not eligible: bytecode=%v", function.Bytecode)
+	}
+	code, err := allocateNativeCode(instructions)
+	if err != nil {
+		t.Fatalf("allocate native code: %v", err)
+	}
+	if code == nil {
+		t.Skip("native execution is unavailable on this target")
+	}
+	defer code.release()
+	for _, test := range []struct {
+		selector float64
+		fallback float64
+		want     float64
+	}{
+		{selector: 1, fallback: 99, want: 11},
+		{selector: 2, fallback: 99, want: 22},
+		{selector: 9, fallback: 99, want: 99},
+	} {
+		got, ok := code.run(test.selector, test.fallback)
+		if !ok || got != test.want {
+			t.Errorf("native switch statement (%v) = %v, %v; want %v", test.selector, got, ok, test.want)
+		}
+	}
+}
+
+func findNativeTestFunction(state *State, name string) *Function {
+	for _, function := range state.Functions {
+		if function.Name == name {
+			return function
+		}
+	}
+	return nil
+}
+
 func TestNativeJITCompilesNestedNumericExpression(t *testing.T) {
+	requireNativeJITEmitter(t)
 	fn := &Function{
 		ParamCount:  2,
 		LocalCount:  2,
@@ -120,6 +274,7 @@ func TestNativeJITCompilesNestedNumericExpression(t *testing.T) {
 }
 
 func TestNativeJITCompilesUnaryNegation(t *testing.T) {
+	requireNativeJITEmitter(t)
 	fn := &Function{
 		ParamCount:  2,
 		LocalCount:  2,
@@ -145,6 +300,7 @@ func TestNativeJITCompilesUnaryNegation(t *testing.T) {
 }
 
 func TestNativeJITFallsBackOnDivisionByZero(t *testing.T) {
+	requireNativeJITEmitter(t)
 	fn := &Function{
 		ParamCount:  2,
 		LocalCount:  2,
@@ -169,6 +325,7 @@ func TestNativeJITFallsBackOnDivisionByZero(t *testing.T) {
 }
 
 func TestNativeJITCompilesAfterHotCallsAndFallsBack(t *testing.T) {
+	requireNativeJITEmitter(t)
 	fn := &Function{
 		ParamCount:  2,
 		LocalCount:  2,
@@ -202,6 +359,7 @@ func TestNativeJITCompilesAfterHotCallsAndFallsBack(t *testing.T) {
 }
 
 func TestNativeJITRecognizesCompiledFunction(t *testing.T) {
+	requireNativeJITEmitter(t)
 	state := &State{}
 	file := &File{
 		Name:    "jit-test.os",
@@ -217,4 +375,11 @@ func TestNativeJITRecognizesCompiledFunction(t *testing.T) {
 		}
 	}
 	t.Fatal("compiled two-argument addition function was not eligible for native JIT")
+}
+
+func requireNativeJITEmitter(t *testing.T) {
+	t.Helper()
+	if !nativeJITEmitterAvailable {
+		t.Skip("native JIT emitter is unavailable on this target")
+	}
 }

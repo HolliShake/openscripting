@@ -11,11 +11,12 @@ import (
 )
 
 const (
-	memCommit       = 0x1000
-	memReserve      = 0x2000
-	memRelease      = 0x8000
-	pageReadWrite   = 0x04
-	pageExecuteRead = 0x20
+	nativeJITAllocatorAvailable = true
+	memCommit                   = 0x1000
+	memReserve                  = 0x2000
+	memRelease                  = 0x8000
+	pageReadWrite               = 0x04
+	pageExecuteRead             = 0x20
 )
 
 var (

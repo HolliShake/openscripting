@@ -4,19 +4,28 @@ package main
 
 import "math"
 
+const nativeJITEmitterAvailable = true
+
 func emitNativeCode(ops []nativeIROp) ([]byte, bool) {
 	var code []byte
 	var zeroBranches []int
-	stackDepth := 0
-	for _, op := range ops {
+	type branchPatch struct {
+		offset        int
+		target        int
+		conditional   bool
+		conditionCode uint32
+	}
+	var branchPatches []branchPatch
+	codeOffsets := make([]int, len(ops)+1)
+	for index, op := range ops {
+		codeOffsets[index] = len(code)
+		stackDepth := op.stackDepth
 		switch op.opcode {
 		case OpLoadVar:
 			rn := uint32(op.slot)
 			code = appendARM64Word(code, 0xFD400000|(rn<<5)|uint32(stackDepth))
-			stackDepth++
 		case OpLoadNum, OpLoadConst:
 			code = appendARM64Float(code, stackDepth, op.value)
-			stackDepth++
 		case OpUnaryPos:
 		case OpUnaryNeg:
 			reg := uint32(stackDepth - 1)
@@ -54,30 +63,67 @@ func emitNativeCode(ops []nativeIROp) ([]byte, bool) {
 				}
 				code = appendARM64Word(code, integerOpcode)
 				code = appendARM64Word(code, 0x9E620000|(9<<5)|left) // scvtf Dleft, X9
-				stackDepth--
 				continue
 			}
 			code = appendARM64Word(code, base|(right<<16)|(left<<5)|left)
-			stackDepth--
+		case OpCaseEqual:
+			left := uint32(stackDepth - 2)
+			right := uint32(stackDepth - 1)
+			code = appendARM64Word(code, 0x1E602000|(right<<16)|(left<<5)) // fcmp Dleft, Dright
+			code = appendARM64Word(code, 0x9A9F17E9)                       // cset X9, eq; unordered compares are false
+			code = appendARM64Word(code, 0x9E630000|(9<<5)|right)          // ucvtf Dright, X9
+		case OpPopTop:
+		case OpJmp:
+			offset := len(code)
+			code = appendARM64Word(code, 0x14000000)
+			branchPatches = append(branchPatches, branchPatch{offset: offset, target: op.target})
+		case OpPopJmpIfFalse, OpPopJmpIfTrue:
+			register := uint32(stackDepth - 1)
+			code = appendARM64Word(code, 0x1E602008|(register<<5)) // fcmp Dn, #0.0
+			if op.opcode == OpPopJmpIfFalse {
+				offset := len(code)
+				code = appendARM64Word(code, 0x54000000) // b.eq; unordered NaN is truthy
+				branchPatches = append(branchPatches, branchPatch{offset: offset, target: op.target, conditional: true})
+			} else {
+				for _, condition := range []uint32{6, 1} { // b.vs or b.ne: NaN and nonzero are truthy
+					offset := len(code)
+					code = appendARM64Word(code, 0x54000000|condition)
+					branchPatches = append(branchPatches, branchPatch{offset: offset, target: op.target, conditional: true, conditionCode: condition})
+				}
+			}
 		case OpReturn:
 			code = appendARM64Word(code, 0xFD000040) // str D0, [X2]
 			code = appendARM64Word(code, 0xD65F03C0) // ret
-			if len(zeroBranches) > 0 {
-				failureOffset := len(code)
-				code = appendARM64Word(code, 0xB900007F) // str WZR, [X3]
-				code = appendARM64Word(code, 0xD65F03C0)
-				for _, branchOffset := range zeroBranches {
-					words := int32((failureOffset - branchOffset) / 4)
-					instruction := uint32(0x54000000) | (uint32(words&0x7FFFF) << 5)
-					putARM64Word(code, branchOffset, instruction)
-				}
-			}
-			return code, true
 		default:
 			return nil, false
 		}
 	}
-	return nil, false
+	codeOffsets[len(ops)] = len(code)
+	code = appendARM64Word(code, 0xD65F03C0)
+	for _, patch := range branchPatches {
+		if patch.target < 0 || patch.target >= len(codeOffsets) {
+			return nil, false
+		}
+		words := int32((codeOffsets[patch.target] - patch.offset) / 4)
+		instruction := readARM64Word(code, patch.offset)
+		if patch.conditional {
+			instruction = (instruction & 0xFF00001F) | (uint32(words&0x7FFFF) << 5) | patch.conditionCode
+		} else {
+			instruction = (instruction & 0xFC000000) | (uint32(words) & 0x03FFFFFF)
+		}
+		putARM64Word(code, patch.offset, instruction)
+	}
+	if len(zeroBranches) > 0 {
+		failureOffset := len(code)
+		code = appendARM64Word(code, 0xB900007F) // str WZR, [X3]
+		code = appendARM64Word(code, 0xD65F03C0)
+		for _, branchOffset := range zeroBranches {
+			words := int32((failureOffset - branchOffset) / 4)
+			instruction := uint32(0x54000000) | (uint32(words&0x7FFFF) << 5)
+			putARM64Word(code, branchOffset, instruction)
+		}
+	}
+	return code, true
 }
 
 func appendARM64Float(code []byte, register int, value float64) []byte {
@@ -98,4 +144,8 @@ func putARM64Word(code []byte, offset int, word uint32) {
 	code[offset+1] = byte(word >> 8)
 	code[offset+2] = byte(word >> 16)
 	code[offset+3] = byte(word >> 24)
+}
+
+func readARM64Word(code []byte, offset int) uint32 {
+	return uint32(code[offset]) | uint32(code[offset+1])<<8 | uint32(code[offset+2])<<16 | uint32(code[offset+3])<<24
 }
