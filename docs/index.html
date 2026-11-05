@@ -880,8 +880,12 @@ loop (;;) {
                         </tr>
                         <tr>
                             <td><code>lib:number</code></td>
-                            <td><code>isEven(value)</code></td>
-                            <td>Returns whether the value is evenly divisible by two.</td>
+                            <td><code>isEven(value)</code>, <code>isOdd(value)</code>,
+                                <code>isPositive(value)</code>, <code>isNegative(value)</code>,
+                                <code>isZero(value)</code>, <code>isInteger(value)</code>
+                            </td>
+                            <td>Numeric predicates for parity, sign, zero, and integral values. Zero is neither
+                                positive nor negative; integer checks reject values with a fractional part.</td>
                         </tr>
                     </tbody>
                 </table>
