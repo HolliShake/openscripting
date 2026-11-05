@@ -9,111 +9,77 @@
  ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝╚═╝        ╚═╝
 ```
 
-OpenScript is a small compiled scripting language implemented in Go. Its compiler emits bytecode that runs on a coroutine-based virtual machine. The CLI prints the colored version of the banner above with `-help` or when no script path is provided.
+OpenScript is a scripting language built in Go. It compiles `.os` files to bytecode and runs them on a coroutine-based virtual machine. The repository includes the command-line interpreter, built-in and bundled libraries, and regression tests for the language and runtime.
 
-On Windows/amd64, Windows/ARM64, Windows/386, Linux/ARMv7, and macOS/ARM64 with cgo enabled, the VM includes an adaptive native JIT for hot, two-argument numeric functions. After 32 calls, the matching x64, AArch64, x87, or ARMv7 VFP backend emits machine instructions for local loads, numeric literals/constants, unary signs, and supported arithmetic. All supported backends implement forward conditional branches with numeric truthiness and numeric switch dispatch for supported case bodies. AMD64 additionally supports bitwise AND/OR/XOR/NOT and shifts; ARM64 supports bitwise AND/OR/XOR/NOT; 386 and ARMv7 currently fall back for bitwise operators, while ARMv7 also falls back for remainder and shifts. Loops, relational comparisons, and other unsupported bytecode use the interpreter. macOS JIT allocation uses `MAP_JIT` and may require the `com.apple.security.cs.allow-jit` entitlement under hardened runtime. Other OS/CPU targets, nonnumeric calls, and divide-by-zero cases continue through the bytecode interpreter. Windows/ARM32 is not a Go-supported build target.
+For syntax, semantics, built-in and bundled module APIs, and runnable language examples, use the [OpenScript Language Reference](docs/index.html). The reference is the canonical feature and API guide; this README focuses on building, running, and working on the project.
+
+Run the interpreter with a script path; pass `-help` to see the command-line options and the colored OpenScript banner.
 
 ## Requirements
 
 - Go 1.25.5 or newer.
 
-## Build and run
+## Build
 
-From the repository root:
+Install Go 1.25.5 or newer, then build from the repository root. On Windows PowerShell:
 
 ```powershell
 New-Item -ItemType Directory -Force bin | Out-Null
 go build -o bin/openscript.exe ./main
 ```
 
-Run a script with either supported flag:
+On macOS and Linux, the build script creates `bin/openscript`:
+
+```sh
+./build.sh
+```
+
+The platform build scripts also support:
+
+- `--all` to build Windows, Linux, and macOS binaries for the current Go architecture into `bin/`. Cross-builds disable cgo, so cgo-dependent features are unavailable in those binaries.
+- `--release` to build an optimized, stripped executable in `dist/` and copy the bundled libraries into `dist/lib/`.
+
+Windows builds use `build.bat` and produce `bin\openscript.exe`; macOS and Linux use `build.sh`. Windows binaries embed the project icon. Pass `--help` to either build script for its options.
+
+## Run
+
+Scripts use the `.os` extension. Run a script by passing its path with `-f` or `-file`:
 
 ```powershell
 ./bin/openscript.exe -f .\tests\test.os
-./bin/openscript.exe -file .\tests\test.os
 ```
 
-On Windows, `build.bat` builds `bin\openscript.exe`; on macOS and Linux, use `./build.sh` to build `bin/openscript`. Both build scripts support `--all` to cross-build Windows, Linux, and macOS binaries for the current Go architecture into `bin/`; these builds disable cgo, so cgo-only features are unavailable in those binaries. Use `--release` to create an optimized, stripped executable in `dist/` and copy the library modules into `dist/lib`. Windows binaries embed the project icon.
+Use `-help` to view command-line usage. Uncaught synchronous errors and unhandled Promise rejections report source locations and stack traces, then exit unsuccessfully.
 
-The language reference is available at [`docs/index.html`](docs/index.html).
+## Tests
 
-## Language overview
+The `tests/` directory contains OpenScript regression programs. Run a focused script with the built executable:
 
-Scripts use the `.os` extension. Import builtins by named exports:
-
-```javascript
-import { println } from "core:io";
-
-const greeting = "Hello, OpenScript!";
-println(greeting);
+```powershell
+./bin/openscript.exe -file .\tests\throw-statement.os
+./bin/openscript.exe -file .\tests\core-error.os
 ```
 
-The language currently supports:
+Run other `.os` files in `tests/` the same way. These scripts cover language syntax, module loading, built-ins, async behavior, and runtime error handling.
 
-- `var`, `let`, and `const` declarations, including array and object destructuring.
-- Numbers, strings, booleans, `null`, arrays, objects, functions, classes, and promises.
-- Unicode identifiers and Unicode-aware string literals and lexer positions.
-- Function expressions, named `name::fn(...)` declarations, closures, and variadic parameters (`values...`).
-- Async functions and `await`, Promise `->then(...)` and `->catch(...)` chaining, and a microtask queue.
-- Arrays and objects with spread, property/index access, and `map`, `filter`, and `find` callback methods.
-- Classes, constructors, inheritance, `this`, and `super(...)`.
-- `if`/`else`, `loop`, `switch` statements and expressions, `break`, and `continue`.
-- `try`/`catch` for runtime errors. Uncaught synchronous errors and unhandled Promise rejections print script stack traces and exit unsuccessfully.
-- Relative imports, `lib:` imports from the executable's `lib` directory, and named builtin imports.
+## Runtime and JIT
 
-Example function and control flow:
+OpenScript can speed up frequently called, two-argument numeric functions with an adaptive native JIT. Once a function has been called 32 times, eligible code may be compiled for the host processor; anything the JIT does not support keeps running in the bytecode interpreter.
 
-```javascript
-var sum::fn(first, second, third) {
-	return first + second + third;
-};
-
-try {
-	println(sum(2, 3, 5));
-} catch (err) {
-	println(err);
-}
-```
-
-## Built-in modules
-
-Builtin modules require named imports and reject unknown export names.
-
-| Module         | Purpose and exports                                                                                                                                                                                                                     |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `core:io`      | `print`, `println`, and `scan` for standard output and line input.                                                                                                                                                                      |
-| `core:file`    | `readText`, `writeText`, `appendText`, `exists`, and `remove`.                                                                                                                                                                          |
-| `core:math`    | `PI`, `E`, common rounding, trigonometric, exponential and logarithmic functions, `pow`, `min`, and `max`. Trigonometric functions use radians.                                                                                         |
-| `core:number`  | `parseInt`, `parseFloat`, `isFinite`, `isNaN`, `sign`, `clamp`, `MAX_VALUE`, `MIN_VALUE`, `NaN`, and `Infinity`. Invalid numeric text parses to `null`.                                                                                 |
-| `core:unicode` | Code-point and byte lengths, code-point conversion/indexing, validity checking, case conversion, and Unicode character predicates.                                                                                                      |
-| `core:sys`     | Runtime OS, architecture, bitness, CPU count, process details, path separators, OS predicates, `argv` (script arguments after the script path), current directory, executable, hostname, home/temp directories, and environment lookup. |
-| `core:path`    | Host path operations: existence/type checks, absolute paths, joining, cleaning, path parts, and relative paths.                                                                                                                         |
-| `core:json`    | `parse` and `stringify` for JSON conversion.                                                                                                                                                                                            |
-| `core:error`   | `Error(message, line?)` constructor with `message` and `line` properties.                                                                                                                                                               |
-| `core:http`    | `Express` HTTP server and asynchronous `fetch`; see the reference for routes, request/response fields, limits, and options.                                                                                                             |
-
-Example async operation:
-
-```javascript
-import { fetch } from "core:http";
-import { println } from "core:io";
-
-var check::fn() async {
-	var response = await fetch("https://example.com/");
-	println(response->status, response->ok);
-	println(await response->text());
-};
-
-check()->catch(fn(err) {
-	println("request failed", err);
-});
-```
-
-HTTP error status codes resolve normally; network errors reject. Async functions return promises, and errors can be handled with `await`, `->catch(...)`, or a surrounding `try`/`catch` where applicable.
+The JIT is available on Windows/amd64, Windows/ARM64, Windows/386, Linux/ARMv7, and macOS/ARM64 when built with cgo enabled. Its coverage depends on the processor: the backends handle common numeric operations and forward conditional branches, while support for bitwise operations, remainder, and shifts varies. Loops, relational comparisons, and other unsupported instructions remain interpreted. Builds made with `--all` disable cgo, so cgo-dependent JIT support is not included. On macOS hardened runtime, `MAP_JIT` may require the `com.apple.security.cs.allow-jit` entitlement. Windows/ARM32 is not a supported Go target.
 
 ## Project layout
 
-- `main/` contains the Go compiler, parser, bytecode runtime, and builtin modules.
-- `lib/` contains importable OpenScript library modules.
-- `tests/` contains `.os` examples and runtime regression scripts.
-- `docs/index.html` is the detailed language and builtin reference.
+- `main/` contains the Go lexer, parser, compiler, bytecode definitions, virtual machine, and native integrations.
+- `lib/` contains bundled OpenScript modules loaded from the executable's `lib/` directory.
+- `tests/` contains OpenScript regression scripts and module-loading fixtures.
+- `docs/index.html` is the language and API reference.
+- `build.bat` and `build.sh` provide platform build, cross-build, and release workflows.
+
+## Contributing
+
+Keep language behavior, regression scripts, and the reference aligned when changing syntax or runtime APIs. Run the relevant scripts from `tests/` after a change, and build the interpreter with the repository's supported Go version.
+
+## License
+
+OpenScript is distributed under the [MIT License](LICENSE).
