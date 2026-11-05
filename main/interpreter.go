@@ -1433,7 +1433,6 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 						}
 
 						if result, executed := vm.tryNative(fn, stack[sp-argCount:sp]); executed {
-							fmt.Print("native function executed: ", fn.Name, "\n")
 							clear(stack[sp-argCount : sp])
 							sp -= argCount
 							if sp >= len(stack) {
