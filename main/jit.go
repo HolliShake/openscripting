@@ -47,34 +47,6 @@ func patchNativeBranches(code []byte, codeOffsets []int, patches []nativeBranchP
 	return true
 }
 
-func (vm *VM) tryNative(fn *Function, args []OSValue) (OSValue, bool) {
-	if !nativeJITPlatformSupported() {
-		return OSValue{}, false
-	}
-	if vm.nativeJIT == nil {
-		vm.nativeJIT = make(map[*Function]nativeJITFunction)
-	}
-	tier := vm.nativeJIT[fn]
-	if tier.code == nil && !tier.attempted {
-		tier.calls++
-		if tier.calls >= nativeJITCallThreshold {
-			tier.attempted = true
-			if instructions, eligible := nativeFunctionCode(fn); eligible {
-				tier.code, _ = allocateNativeCode(instructions)
-			}
-		}
-		vm.nativeJIT[fn] = tier
-	}
-	if tier.code == nil || len(args) != 2 || args[0].Type != OSVNum || args[1].Type != OSVNum {
-		return OSValue{}, false
-	}
-	result, ok := tier.code.run(args[0].Number, args[1].Number)
-	if !ok {
-		return OSValue{}, false
-	}
-	return OSValue{Type: OSVNum, Number: result}, true
-}
-
 func nativeJITPlatformSupported() bool {
 	isWindows := runtime.GOOS == "windows"
 	isMacOS := runtime.GOOS == "darwin"
@@ -281,13 +253,4 @@ func nativeIRMergeDepth(depths []int, work *[]int, index, depth int) bool {
 		return true
 	}
 	return depths[index] == depth
-}
-
-func (vm *VM) closeNative() {
-	for function, tier := range vm.nativeJIT {
-		if tier.code != nil {
-			tier.code.release()
-		}
-		delete(vm.nativeJIT, function)
-	}
 }
