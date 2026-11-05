@@ -1,3 +1,28 @@
+/**
+ * Command-line argument parsing helpers.
+ * Author: Philipp Andrew Redondo.
+ *
+ * The primary entry point is ArgumentParser(config?). Configuration accepts
+ * prog, description, allow_abbrev, and add_help. The parser reads core:sys.argv
+ * when parse_args() or parse_known_args() is called without an argument array.
+ *
+ * Register positional arguments with add_argument({name?, dest?, ...}) and
+ * options with add_argument({flags: [...], dest?, ...}). Definitions may use
+ * help, metavar, default, type, choices, nargs, required, action, and const.
+ * Supported types are string/str, int/integer, float, and bool/boolean.
+ * nargs accepts '?', '*', '+', or a fixed number. Supported actions are
+ * store, append, store_true, store_false, store_const, append_const, count,
+ * and help. Options support --name=value, short-option clusters, and long
+ * option abbreviation when allow_abbrev is enabled.
+ *
+ * parse_args(args?) returns a namespace object, or an object with an error
+ * field on failure. The built-in help action returns help text in a help field.
+ * parse_known_args(args?) returns {namespace, unknown}, preserving unrecognized
+ * option tokens and extra positional tokens in unknown. Argument errors are
+ * returned as values rather than thrown. ArgumentError(message) constructs an
+ * object with an error field.
+ */
+
 import { argv } from "core:sys";
 import { println } from "core:io";
 import { parseInt, parseFloat } from "core:number";
@@ -597,6 +622,7 @@ var Parser::class {
 		this->options = [];
 		this->positionals = [];
 	},
+	// Register an option definition (flags) or a positional definition (name/dest).
 	add_argument: fn(definition) {
 		if (definition->flags != null) {
 			if (definition->dest == null) {
@@ -614,12 +640,15 @@ var Parser::class {
 		}
 		return definition;
 	},
+	// Return the usage and argument description without printing it.
 	format_help: fn() {
 		return formatHelp(this);
 	},
+	// Return the formatted help text. This currently does not write to stdout.
 	print_help: fn() {
 		return formatHelp(this);
 	},
+	// Parse the provided array, or argv when omitted; return namespace or {error}.
 	parse_args: fn(args...) {
 		let input = argv;
 		if (args->length > 0) {
@@ -627,6 +656,7 @@ var Parser::class {
 		}
 		return parseInternal(this, input, false);
 	},
+	// Parse like parse_args, but return unrecognized tokens in an unknown array.
 	parse_known_args: fn(args...) {
 		let input = argv;
 		if (args->length > 0) {
@@ -636,6 +666,7 @@ var Parser::class {
 	}
 };
 
+// Create a configured parser and add -h/--help unless add_help is false.
 var ArgumentParser::fn(config...) {
 	let parser = Parser();
 	let addHelp = true;
@@ -660,6 +691,7 @@ var ArgumentParser::fn(config...) {
 	return parser;
 };
 
+// Construct the standard error-result object used by the parser.
 var ArgumentError::fn(message) {
 	return {error: message};
 };
