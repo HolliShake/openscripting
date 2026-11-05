@@ -99,7 +99,7 @@ func arrayCallbackArgCount(callback OSValue) (int, bool) {
 		if callback.Opaque == nil {
 			return 0, false
 		}
-		count := (*NativeFunction)(callback.Opaque).Paramc
+		count := (*NativeFunction)(callback.Opaque).ParamCount
 		if count < 0 {
 			return 3, true
 		}
@@ -108,7 +108,7 @@ func arrayCallbackArgCount(callback OSValue) (int, bool) {
 		if callback.Opaque == nil {
 			return 0, false
 		}
-		return (*NativeMethod)(callback.Opaque).Paramc, (*NativeMethod)(callback.Opaque).Paramc <= 3
+		return (*NativeMethod)(callback.Opaque).ParamCount, (*NativeMethod)(callback.Opaque).ParamCount <= 3
 	default:
 		return 0, false
 	}

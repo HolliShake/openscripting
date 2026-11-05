@@ -23,7 +23,7 @@ type socketListenerState struct {
 	closed   bool
 }
 
-type pythonSocketState struct {
+type socketCompatState struct {
 	listener     *socketListenerState
 	conn         *socketConnState
 	bindAddress  string
@@ -60,12 +60,12 @@ type socketResult struct {
 	io     *socketIOResult
 }
 
-func coreSocketFunction(paramc int, callable func(vm *VM, args []OSValue) OSValue) OSValue {
+func coreSocketFunction(paramCount int, callable func(vm *VM, args []OSValue) OSValue) OSValue {
 	return OSValue{
 		Type: OSVNativeFunction,
 		Opaque: unsafe.Pointer(&NativeFunction{
-			Paramc:   paramc,
-			Callable: callable,
+			ParamCount: paramCount,
+			Callable:   callable,
 		}),
 	}
 }
@@ -78,13 +78,13 @@ func coreSocketString(value string) OSValue {
 	}
 }
 
-func coreSocketBoundMethod(this OSValue, paramc int, callable func(OSValue, *VM, []OSValue) OSValue) OSValue {
+func coreSocketBoundMethod(this OSValue, paramCount int, callable func(OSValue, *VM, []OSValue) OSValue) OSValue {
 	return OSValue{
 		Type: OSVNativeMethod,
 		Opaque: unsafe.Pointer(&NativeMethod{
-			This:     this,
-			Paramc:   paramc,
-			Callable: callable,
+			This:       this,
+			ParamCount: paramCount,
+			Callable:   callable,
 		}),
 	}
 }
@@ -203,7 +203,7 @@ func socketConnectionValue(state *socketConnState) OSValue {
 
 func nativeSocketAccept(this OSValue, vm *VM, _ []OSValue) OSValue {
 	if this.Type == OSVObject && this.Opaque != nil {
-		if objectState, ok := (*Object)(this.Opaque).Native.(*pythonSocketState); ok && !objectState.acceptedPair {
+		if objectState, ok := (*Object)(this.Opaque).Native.(*socketCompatState); ok && !objectState.acceptedPair {
 			vm.NativeError = "core:socket.accept requires listen() to be called first"
 			return vm.Null
 		}
@@ -222,7 +222,7 @@ func nativeSocketAccept(this OSValue, vm *VM, _ []OSValue) OSValue {
 	promise := &Promise{}
 	pair := false
 	if this.Type == OSVObject && this.Opaque != nil {
-		if objectState, ok := (*Object)(this.Opaque).Native.(*pythonSocketState); ok {
+		if objectState, ok := (*Object)(this.Opaque).Native.(*socketCompatState); ok {
 			pair = objectState.acceptedPair
 		}
 	}
@@ -240,7 +240,7 @@ func socketListener(this OSValue, vm *VM) (*socketListenerState, bool) {
 		if state, ok := object.Native.(*socketListenerState); ok {
 			return state, true
 		}
-		if state, ok := object.Native.(*pythonSocketState); ok && state.listener != nil {
+		if state, ok := object.Native.(*socketCompatState); ok && state.listener != nil {
 			return state.listener, true
 		}
 	}
@@ -254,7 +254,7 @@ func socketConnection(this OSValue, vm *VM) (*socketConnState, bool) {
 		if state, ok := object.Native.(*socketConnState); ok {
 			return state, true
 		}
-		if state, ok := object.Native.(*pythonSocketState); ok && state.conn != nil {
+		if state, ok := object.Native.(*socketCompatState); ok && state.conn != nil {
 			return state.conn, true
 		}
 	}
@@ -262,17 +262,17 @@ func socketConnection(this OSValue, vm *VM) (*socketConnState, bool) {
 	return nil, false
 }
 
-func isPythonSocket(this OSValue) bool {
+func isSocketCompat(this OSValue) bool {
 	if this.Type != OSVObject || this.Opaque == nil {
 		return false
 	}
-	_, ok := (*Object)(this.Opaque).Native.(*pythonSocketState)
+	_, ok := (*Object)(this.Opaque).Native.(*socketCompatState)
 	return ok
 }
 
 func nativeSocketAddress(this OSValue, vm *VM, _ []OSValue) OSValue {
 	if this.Type == OSVObject && this.Opaque != nil {
-		if objectState, ok := (*Object)(this.Opaque).Native.(*pythonSocketState); ok {
+		if objectState, ok := (*Object)(this.Opaque).Native.(*socketCompatState); ok {
 			if objectState.listener != nil {
 				return socketAddressValue(objectState.listener.listener.Addr())
 			}
@@ -322,16 +322,16 @@ func nativeSocketRead(this OSValue, vm *VM, args []OSValue) OSValue {
 	if !ok {
 		return vm.Null
 	}
-	pythonStyle := isPythonSocket(this)
-	if len(args) < 1 || len(args) > 1 && !pythonStyle {
+	compatMode := isSocketCompat(this)
+	if len(args) < 1 || len(args) > 1 && !compatMode {
 		vm.NativeError = "core:socket.recv expects a byte count and optional flags"
 		return vm.Null
 	}
-	if pythonStyle && len(args) > 1 && (!IsNumber(args[1]) || args[1].Number != 0) {
+	if compatMode && len(args) > 1 && (!IsNumber(args[1]) || args[1].Number != 0) {
 		vm.NativeError = "core:socket.recv currently supports only zero flags"
 		return vm.Null
 	}
-	if !IsNumber(args[0]) || args[0].Number != float64(int(args[0].Number)) || args[0].Number < 0 || args[0].Number > maxSocketReadBytes || args[0].Number == 0 && !pythonStyle {
+	if !IsNumber(args[0]) || args[0].Number != float64(int(args[0].Number)) || args[0].Number < 0 || args[0].Number > maxSocketReadBytes || args[0].Number == 0 && !compatMode {
 		vm.NativeError = "core:socket.recv expects a byte count between 1 and 1048576"
 		return vm.Null
 	}
@@ -364,7 +364,7 @@ func nativeSocketRead(this OSValue, vm *VM, args []OSValue) OSValue {
 			return
 		}
 		if count == 0 && errors.Is(err, io.EOF) {
-			if pythonStyle {
+			if compatMode {
 				vm.SocketResults <- socketResult{io: &socketIOResult{promise: promise, text: "", textSet: true}}
 			} else {
 				vm.SocketResults <- socketResult{io: &socketIOResult{promise: promise, value: vm.Null}}
@@ -389,12 +389,12 @@ func nativeSocketWriteMode(this OSValue, vm *VM, args []OSValue, writeAll bool) 
 	if !ok {
 		return vm.Null
 	}
-	pythonStyle := isPythonSocket(this)
-	if len(args) < 1 || len(args) > 1 && !pythonStyle {
+	compatMode := isSocketCompat(this)
+	if len(args) < 1 || len(args) > 1 && !compatMode {
 		vm.NativeError = "core:socket.send expects text and optional flags"
 		return vm.Null
 	}
-	if pythonStyle && len(args) > 1 && (!IsNumber(args[1]) || args[1].Number != 0) {
+	if compatMode && len(args) > 1 && (!IsNumber(args[1]) || args[1].Number != 0) {
 		vm.NativeError = "core:socket.send currently supports only zero flags"
 		return vm.Null
 	}
@@ -436,7 +436,7 @@ func nativeSocketWriteMode(this OSValue, vm *VM, args []OSValue, writeAll bool) 
 			}
 		}
 		value := OSValue{Type: OSVNum, Number: float64(count)}
-		if pythonStyle && writeAll {
+		if compatMode && writeAll {
 			value = vm.Null
 		}
 		vm.SocketResults <- socketResult{io: &socketIOResult{promise: promise, value: value}}
@@ -489,11 +489,11 @@ func settleSocketAccept(vm *VM, result socketAcceptResult) {
 	connection := socketConnectionValue(&socketConnState{conn: result.conn})
 	if result.pair {
 		connectionState := (*Object)(connection.Opaque).Native.(*socketConnState)
-		pythonConnection := newPythonSocketValue(&pythonSocketState{conn: connectionState})
+		compatConnection := newSocketCompatValue(&socketCompatState{conn: connectionState})
 		resolvePromise(vm, result.promise, OSValue{
 			Type: OSVArray,
 			Opaque: unsafe.Pointer(&Array{Elements: []OSValue{
-				pythonConnection,
+				compatConnection,
 				socketAddressValue(result.conn.RemoteAddr()),
 			}}),
 		})
@@ -518,13 +518,13 @@ func getCoreSocket() map[string]OSValue {
 	return map[string]OSValue{
 		"AF_INET":     {Type: OSVNum, Number: socketAFInet},
 		"SOCK_STREAM": {Type: OSVNum, Number: socketSockStream},
-		"socket":      coreSocketFunction(-1, nativePythonSocket),
+		"socket":      coreSocketFunction(-1, nativeSocketCompat),
 		"listen":      coreSocketFunction(1, nativeSocketListen),
 		"dial":        coreSocketFunction(1, nativeSocketDial),
 	}
 }
 
-func nativePythonSocket(vm *VM, args []OSValue) OSValue {
+func nativeSocketCompat(vm *VM, args []OSValue) OSValue {
 	if len(args) > 0 && (!IsNumber(args[0]) || args[0].Number != socketAFInet) {
 		vm.NativeError = "core:socket.socket currently supports only AF_INET"
 		return vm.Null
@@ -533,32 +533,32 @@ func nativePythonSocket(vm *VM, args []OSValue) OSValue {
 		vm.NativeError = "core:socket.socket currently supports only SOCK_STREAM"
 		return vm.Null
 	}
-	return newPythonSocketValue(&pythonSocketState{})
+	return newSocketCompatValue(&socketCompatState{})
 }
 
-func newPythonSocketValue(state *pythonSocketState) OSValue {
+func newSocketCompatValue(state *socketCompatState) OSValue {
 	instance := &Object{
 		ClassName: "Socket",
 		Native:    state,
 		Values:    make(map[string]OSValue, 9),
 	}
 	value := OSValue{Type: OSVObject, Opaque: unsafe.Pointer(instance)}
-	instance.Set("bind", coreSocketBoundMethod(value, 1, nativePythonSocketBind))
-	instance.Set("listen", coreSocketBoundMethod(value, 1, nativePythonSocketListen))
+	instance.Set("bind", coreSocketBoundMethod(value, 1, nativeSocketCompatBind))
+	instance.Set("listen", coreSocketBoundMethod(value, 1, nativeSocketCompatListen))
 	instance.Set("accept", coreSocketBoundMethod(value, 0, nativeSocketAccept))
-	instance.Set("connect", coreSocketBoundMethod(value, 1, nativePythonSocketConnect))
+	instance.Set("connect", coreSocketBoundMethod(value, 1, nativeSocketCompatConnect))
 	instance.Set("send", coreSocketBoundMethod(value, -1, nativeSocketWrite))
 	instance.Set("sendall", coreSocketBoundMethod(value, -1, nativeSocketWriteAll))
 	instance.Set("recv", coreSocketBoundMethod(value, -1, nativeSocketRead))
 	instance.Set("getsockname", coreSocketBoundMethod(value, 0, nativeSocketAddress))
 	instance.Set("address", coreSocketBoundMethod(value, 0, nativeSocketAddress))
-	instance.Set("close", coreSocketBoundMethod(value, 0, nativePythonSocketClose))
+	instance.Set("close", coreSocketBoundMethod(value, 0, nativeSocketCompatClose))
 	return value
 }
 
-func pythonSocketStateFor(this OSValue, vm *VM) (*pythonSocketState, bool) {
+func socketCompatStateFor(this OSValue, vm *VM) (*socketCompatState, bool) {
 	if this.Type == OSVObject && this.Opaque != nil {
-		if state, ok := (*Object)(this.Opaque).Native.(*pythonSocketState); ok {
+		if state, ok := (*Object)(this.Opaque).Native.(*socketCompatState); ok {
 			return state, true
 		}
 	}
@@ -566,8 +566,8 @@ func pythonSocketStateFor(this OSValue, vm *VM) (*pythonSocketState, bool) {
 	return nil, false
 }
 
-func nativePythonSocketBind(this OSValue, vm *VM, args []OSValue) OSValue {
-	state, ok := pythonSocketStateFor(this, vm)
+func nativeSocketCompatBind(this OSValue, vm *VM, args []OSValue) OSValue {
+	state, ok := socketCompatStateFor(this, vm)
 	if !ok {
 		return vm.Null
 	}
@@ -591,8 +591,8 @@ func nativePythonSocketBind(this OSValue, vm *VM, args []OSValue) OSValue {
 	return vm.Null
 }
 
-func nativePythonSocketListen(this OSValue, vm *VM, args []OSValue) OSValue {
-	state, ok := pythonSocketStateFor(this, vm)
+func nativeSocketCompatListen(this OSValue, vm *VM, _ []OSValue) OSValue {
+	state, ok := socketCompatStateFor(this, vm)
 	if !ok {
 		return vm.Null
 	}
@@ -604,8 +604,8 @@ func nativePythonSocketListen(this OSValue, vm *VM, args []OSValue) OSValue {
 	return vm.Null
 }
 
-func nativePythonSocketConnect(this OSValue, vm *VM, args []OSValue) OSValue {
-	state, ok := pythonSocketStateFor(this, vm)
+func nativeSocketCompatConnect(this OSValue, vm *VM, args []OSValue) OSValue {
+	state, ok := socketCompatStateFor(this, vm)
 	if !ok {
 		return vm.Null
 	}
@@ -626,8 +626,8 @@ func nativePythonSocketConnect(this OSValue, vm *VM, args []OSValue) OSValue {
 	return vm.Null
 }
 
-func nativePythonSocketClose(this OSValue, vm *VM, _ []OSValue) OSValue {
-	state, ok := pythonSocketStateFor(this, vm)
+func nativeSocketCompatClose(this OSValue, vm *VM, _ []OSValue) OSValue {
+	state, ok := socketCompatStateFor(this, vm)
 	if !ok {
 		return vm.False
 	}

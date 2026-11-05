@@ -45,8 +45,7 @@ const (
 	OpBinBitAnd
 	OpBinBitXor
 	OpBinBitOr
-	OpBinAnd
-	OpBinOr
+
 	OpDupTop
 	OpDup2
 	OpPopTop

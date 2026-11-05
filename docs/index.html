@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description"
         content="Language syntax and feature reference for OpenScript, based on its parser and compiler implementation.">
+    <link rel="icon" href="openscript.ico" type="image/x-icon">
     <title>OpenScript Language Reference</title>
     <style>
         :root {
@@ -491,12 +492,14 @@ println(greeting);</code></pre>
 
             <section id="values">
                 <h2>Values and literals</h2>
-                <p>The language includes number, string, boolean, null, array, object, function, class, and promise
-                    values. Boolean and null literals are <code>true</code>, <code>false</code>, and <code>null</code>.
+                <p>The language includes number, BigInt, string, boolean, null, array, object, function, class, and
+                    promise values. BigInt literals use an <code>n</code> suffix and support exact integer arithmetic.
+                    Boolean and null literals are <code>true</code>, <code>false</code>, and <code>null</code>.
                 </p>
                 <pre><code><span class="kw">var</span> enabled = <span class="kw">true</span>;
 <span class="kw">var</span> absent = <span class="kw">null</span>;
 <span class="kw">var</span> ratio = 12.5e-2;
+<span class="kw">var</span> large = 12345678901234567890n;
 <span class="kw">var</span> mask = 0xff;</code></pre>
                 <p>Arrays use square brackets. Objects use braces and string or identifier keys:</p>
                 <pre><code><span class="kw">var</span> colors = [<span class="str">"red"</span>, <span class="str">"green"</span>, <span class="str">"blue"</span>];
@@ -676,10 +679,25 @@ collect(<span class="str">"items"</span>, 2, 3, 4);</code></pre>
                 <pre><code>more[0] = 10;
 profile-&gt;active = <span class="kw">false</span>;
 profile[<span class="str">"name"</span>];</code></pre>
-                <p>Arrays also expose <code>-&gt;map(callback)</code>, <code>-&gt;filter(callback)</code>, and
-                    <code>-&gt;find(callback)</code>. Each callback receives the element and its zero-based index;
-                    <code>map</code> returns transformed values, <code>filter</code> retains values whose callback
-                    result is truthy, and <code>find</code> returns the first matching value or <code>null</code>.
+                <p>Arrays expose <code>-&gt;len()</code>, <code>-&gt;map(callback)</code>,
+                    <code>-&gt;filter(callback)</code>, and <code>-&gt;find(callback)</code>. Each callback receives
+                    the element, its zero-based index, and the source array. <code>map</code> returns transformed
+                    values, <code>filter</code> retains values whose callback result is truthy, and <code>find</code>
+                    returns the first matching value or <code>null</code>.
+                </p>
+                <p>Objects expose <code>-&gt;map(callback)</code>, <code>-&gt;filter(callback)</code>, and
+                    <code>-&gt;find(callback)</code>. Their callbacks receive the value, key, and source object;
+                    <code>map</code> and <code>filter</code> preserve keys, while <code>find</code> returns the first
+                    matching value or <code>null</code>.
+                </p>
+                <p>Strings expose <code>-&gt;len()</code>, <code>-&gt;contains(text)</code>,
+                    <code>-&gt;startsWith(text)</code>, <code>-&gt;endsWith(text)</code>,
+                    <code>-&gt;indexOf(text)</code>, <code>-&gt;toLower()</code>, <code>-&gt;toUpper()</code>,
+                    <code>-&gt;trim()</code>, <code>-&gt;split(separator)</code>,
+                    <code>-&gt;replace(search, value)</code>, and <code>-&gt;replaceAll(search, value)</code>.
+                    <code>len</code> and <code>indexOf</code> use UTF-8 byte counts and offsets; use
+                    <code>core:unicode</code> for code-point operations. Case conversion also has
+                    <code>toLowerCase</code> and <code>toUpperCase</code> aliases.
                 </p>
                 <pre><code><span class="kw">var</span> values = [3, 8, 11];
 <span class="kw">var</span> doubled = values-&gt;map(fn(value, index) {
@@ -692,8 +710,9 @@ profile[<span class="str">"name"</span>];</code></pre>
 
             <section id="classes">
                 <h2>Classes</h2>
-                <p>Classes have a required <code>constructor</code> member and may define methods. A class can extend
-                    one named base class. Instances are created by calling the class name.</p>
+                <p>Classes may define a <code>constructor</code> and methods. When omitted, an empty constructor is
+                    supplied. A class can extend one named base class. Instances are created by calling the class
+                    name.</p>
                 <pre><code><span class="kw">var</span> Animal::class {
     constructor: fn(name) {
         <span class="kw">this</span>-&gt;name = name;
@@ -831,6 +850,41 @@ loop (;;) {
                 </table>
                 <h3>Usage examples</h3>
                 <div id="core-snippets" aria-label="Core module usage examples"></div>
+                <h3>Bundled libraries</h3>
+                <p>Library modules are imported with the <code>lib:name</code> form and loaded from the executable's
+                    <code>lib</code> directory. The shipped modules provide these primary interfaces:
+                </p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Module</th>
+                            <th>Primary API</th>
+                            <th>Behavior</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>lib:argparse</code></td>
+                            <td><code>ArgumentParser(config?)</code>, <code>ArgumentError(message)</code></td>
+                            <td>Creates a command-line parser. Configure it with <code>prog</code>,
+                                <code>description</code>, <code>allow_abbrev</code>, and <code>add_help</code>;
+                                register options and positionals with <code>add_argument(definition)</code>. Parser
+                                methods include <code>parse_args(args?)</code>,
+                                <code>parse_known_args(args?)</code>, <code>format_help()</code>, and
+                                <code>print_help()</code>. Argument definitions support defaults, choices, type
+                                conversion, required options, and <code>nargs</code> forms <code>?</code>,
+                                <code>*</code>, <code>+</code>, or a fixed count. Parsing errors are returned as
+                                objects with an <code>error</code> field; known-argument parsing returns a
+                                <code>namespace</code> and <code>unknown</code> list.
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><code>lib:number</code></td>
+                            <td><code>isEven(value)</code></td>
+                            <td>Returns whether the value is evenly divisible by two.</td>
+                        </tr>
+                    </tbody>
+                </table>
             </section>
 
             <section id="runtime">
@@ -843,8 +897,10 @@ loop (;;) {
                         <code>core:socket</code> provide I/O, filesystem, numeric, Unicode, host-system, path, JSON,
                         regular-expression, error, HTTP, and loopback TCP operations.
                     </li>
-                    <li><strong>Collections:</strong> arrays provide indexed access and mutation plus
-                        <code>map</code>, <code>filter</code>, and <code>find</code> methods with script callbacks.
+                    <li><strong>Built-in value methods:</strong> arrays provide indexed access, mutation, and
+                        <code>len</code>/<code>map</code>/<code>filter</code>/<code>find</code>; objects provide
+                        <code>map</code>/<code>filter</code>/<code>find</code>; strings provide length, search,
+                        case-conversion, trimming, splitting, and replacement methods.
                     </li>
                     <li><strong>Promises:</strong> async calls return promises. Promise values expose
                         <code>-&gt;then(fn)</code> and <code>-&gt;catch(fn)</code> chaining.
@@ -869,7 +925,7 @@ loop (;;) {
                     <li>Named <code>fn</code> and <code>class</code> declarations use top-level <code>name::fn</code> /
                         <code>name::class</code> syntax. Anonymous function and class expressions are also supported.
                     </li>
-                    <li>Class declarations require a constructor member; class expressions follow the same class parser.
+                    <li>Class declarations and expressions may omit the constructor; the runtime supplies an empty one.
                     </li>
                     <li>Switch statement matching is performed at dispatch before bodies run. Once a body begins,
                         C-style fall-through applies unless <code>break</code> or the case-specific
@@ -1222,11 +1278,11 @@ println(stringify(settings));`
 import { println } from "core:io";
 
 const pattern = Regex("(?P<name>[a-z]+)-(\\\\d+)");
-const captures = pattern-&gt;findStringSubmatch("item-42");
-const indexes = pattern-&gt;findStringSubmatchIndex("item-42");
+const captures = pattern->findStringSubmatch("item-42");
+const indexes = pattern->findStringSubmatchIndex("item-42");
 println(captures[1], captures[2]);
-                    println(pattern->expandString("\${name}:$2", "item-42", indexes));
-                    println(pattern->replaceAllString("item-42", "\${name}:$2"));
+println(pattern->expandString("\${name}:$2", "item-42", indexes));
+println(pattern->replaceAllString("item-42", "\${name}:$2"));
 println(quoteMeta("a+b"));`,
                     note: "Capture indexes are byte offsets. Invalid patterns raise catchable runtime errors."
                 }

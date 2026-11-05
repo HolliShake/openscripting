@@ -17,8 +17,8 @@ func ensureCoreErrorClass() *Class {
 			Constructor: OSValue{
 				Type: OSVNativeFunction,
 				Opaque: unsafe.Pointer(&NativeFunction{
-					Paramc:   -1,
-					Callable: nativeErrorConstructor,
+					ParamCount: -1,
+					Callable:   nativeErrorConstructor,
 				}),
 			},
 		}

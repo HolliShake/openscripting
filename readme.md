@@ -11,6 +11,8 @@
 
 OpenScript is a small compiled scripting language implemented in Go. Its compiler emits bytecode that runs on a coroutine-based virtual machine. The CLI prints the colored version of the banner above with `-help` or when no script path is provided.
 
+On Windows/amd64, Windows/ARM64, Windows/386, Linux/ARMv7, and macOS/ARM64 with cgo enabled, the VM includes an adaptive native JIT for hot, two-argument numeric functions. After 32 calls, the matching x64, AArch64, x87, or ARMv7 VFP backend emits machine instructions for local loads, numeric literals/constants, unary signs, and supported arithmetic. All supported backends implement forward conditional branches with numeric truthiness and numeric switch dispatch for supported case bodies. AMD64 additionally supports bitwise AND/OR/XOR/NOT and shifts; ARM64 supports bitwise AND/OR/XOR/NOT; 386 and ARMv7 currently fall back for bitwise operators, while ARMv7 also falls back for remainder and shifts. Loops, relational comparisons, and other unsupported bytecode use the interpreter. macOS JIT allocation uses `MAP_JIT` and may require the `com.apple.security.cs.allow-jit` entitlement under hardened runtime. Other OS/CPU targets, nonnumeric calls, and divide-by-zero cases continue through the bytecode interpreter. Windows/ARM32 is not a Go-supported build target.
+
 ## Requirements
 
 - Go 1.25.5 or newer.
@@ -20,17 +22,18 @@ OpenScript is a small compiled scripting language implemented in Go. Its compile
 From the repository root:
 
 ```powershell
-go build -o openscript.exe ./main
+New-Item -ItemType Directory -Force bin | Out-Null
+go build -o bin/openscript.exe ./main
 ```
 
 Run a script with either supported flag:
 
 ```powershell
-./openscript.exe -f .\tests\test.os
-./openscript.exe -file .\tests\test.os
+./bin/openscript.exe -f .\tests\test.os
+./bin/openscript.exe -file .\tests\test.os
 ```
 
-On Windows, `build.bat` builds `openscript.exe` and writes compiler escape-analysis findings to `build.txt`.
+On Windows, `build.bat` builds `bin\openscript.exe`; on macOS and Linux, use `./build.sh` to build `bin/openscript`. Both build scripts support `--all` to cross-build Windows, Linux, and macOS binaries for the current Go architecture into `bin/`; these builds disable cgo, so cgo-only features are unavailable in those binaries. Use `--release` to create an optimized, stripped executable in `dist/` and copy the library modules into `dist/lib`. Windows binaries embed the project icon.
 
 The language reference is available at [`docs/index.html`](docs/index.html).
 

@@ -16,6 +16,9 @@ if (parseFloat("  -3.125e2tail") != -312.5 || parseFloat(".5rest") != 0.5 || par
 if (parseFloat("not a number") != null || parseFloat("Infinity") != Infinity) {
 	println("FAIL: invalid parseFloat or Infinity");
 }
+if (parseFloat("1e309") != Infinity) {
+	println("FAIL: parseFloat overflow");
+}
 if (!isFinite(1) || isFinite(Infinity) || !isNaN(NaN) || isNaN(1)) {
 	println("FAIL: numeric predicates");
 }

@@ -24,15 +24,23 @@ func classTemplateValue(class *Class, name string) (OSValue, bool) {
 }
 
 func runtimeClass(value OSValue) *Class {
-	if value.Opaque == nil {
-		return nil
-	}
 	switch value.Type {
+	case OSVString:
+		return getCoreStringClass()
 	case OSVArray:
+		if value.Opaque == nil {
+			return nil
+		}
 		return getCoreArrayClass()
 	case OSVPromise:
+		if value.Opaque == nil {
+			return nil
+		}
 		return getCorePromiseClass()
 	case OSVObject:
+		if value.Opaque == nil {
+			return nil
+		}
 		if class := (*Object)(value.Opaque).Class; class != nil {
 			return class
 		}
@@ -44,8 +52,8 @@ func runtimeClass(value OSValue) *Class {
 
 func nativeMethodTemplate(paramCount int, callable func(OSValue, *VM, []OSValue) OSValue) OSValue {
 	return OSValue{Type: OSVNativeMethod, Opaque: unsafe.Pointer(&NativeMethod{
-		Paramc:   paramCount,
-		Callable: callable,
+		ParamCount: paramCount,
+		Callable:   callable,
 	})}
 }
 
@@ -58,16 +66,20 @@ func bindClassMethod(receiver OSValue, name string, value OSValue) OSValue {
 	}
 
 	cache := boundMethodCache(receiver)
-	if cached, exists := cache[name]; exists {
-		return cached
+	if cache != nil {
+		if cached, exists := cache[name]; exists {
+			return cached
+		}
 	}
 	template := (*NativeMethod)(value.Opaque)
 	bound := OSValue{Type: OSVNativeMethod, Opaque: unsafe.Pointer(&NativeMethod{
-		This:     receiver,
-		Paramc:   template.Paramc,
-		Callable: template.Callable,
+		This:       receiver,
+		ParamCount: template.ParamCount,
+		Callable:   template.Callable,
 	})}
-	cache[name] = bound
+	if cache != nil {
+		cache[name] = bound
+	}
 	return bound
 }
 

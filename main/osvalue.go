@@ -257,36 +257,14 @@ func (v OSValue) writeString(builder *strings.Builder, path *[]unsafe.Pointer) {
 	}
 }
 
-// IsNumber: OSVInt and OSVNum are adjacent, and the byte subtraction wraps
-// for every type below OSVInt, so one unsigned compare replaces two.
+// IsNumber reports whether v is an integer or floating-point number. OSVInt
+// and OSVNum are adjacent, so one unsigned compare replaces two.
 func IsNumber(v OSValue) bool {
 	return v.Type-OSVInt <= OSVNum-OSVInt
 }
 
 func IsString(v OSValue) bool {
 	return v.Type == OSVString
-}
-
-func CoerceToNumber(v OSValue) float64 {
-	switch v.Type {
-	case OSVNull:
-		{
-			return 0
-		}
-	case OSVInt, OSVNum, OSVBool:
-		{
-			return v.Number
-		}
-	case OSVString:
-		{
-			number, err := strconv.ParseFloat(v.StringValue(), 64)
-			if err != nil {
-				return 0
-			}
-			return number
-		}
-	}
-	return 0
 }
 
 func IsEqual(a, b OSValue) bool {

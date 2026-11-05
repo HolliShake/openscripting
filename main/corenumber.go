@@ -1,18 +1,19 @@
 package main
 
 import (
+	"errors"
 	"math"
 	"strconv"
 	"strings"
 	"unsafe"
 )
 
-func coreNumberFunction(paramc int, callable func(vm *VM, args []OSValue) OSValue) OSValue {
+func coreNumberFunction(paramCount int, callable func(vm *VM, args []OSValue) OSValue) OSValue {
 	return OSValue{
 		Type: OSVNativeFunction,
 		Opaque: unsafe.Pointer(&NativeFunction{
-			Paramc:   paramc,
-			Callable: callable,
+			ParamCount: paramCount,
+			Callable:   callable,
 		}),
 	}
 }
@@ -154,7 +155,8 @@ func parseFloatPrefix(text string) (float64, bool) {
 	}
 	value, err := strconv.ParseFloat(text[:numberEnd], 64)
 	if err != nil {
-		if numberError, ok := err.(*strconv.NumError); !ok || numberError.Err != strconv.ErrRange {
+		var numberError *strconv.NumError
+		if !errors.As(err, &numberError) || !errors.Is(numberError.Err, strconv.ErrRange) {
 			return 0, false
 		}
 	}
@@ -199,6 +201,7 @@ func nativeNumberClamp(vm *VM, args []OSValue) OSValue {
 	return OSValue{Type: OSVNum, Number: math.Max(minimum, math.Min(value, maximum))}
 }
 
+// noinspection SpellCheckingInspection
 func getCoreNumber() map[string]OSValue {
 	return map[string]OSValue{
 		"parseInt":   coreNumberFunction(-1, nativeNumberParseInt),
