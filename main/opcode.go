@@ -65,4 +65,5 @@ const (
 	OpLoadBigInt
 	OpLoadConst
 	OpMakeClass
+	OpCloneLocal
 )

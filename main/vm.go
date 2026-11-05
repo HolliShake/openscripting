@@ -1923,6 +1923,13 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 				cell.Value = stack[sp]
 				stack[sp] = OSValue{}
 			}
+		case OpCloneLocal:
+			{
+				offset := bytecode[ip]
+				ip++
+				cell := env[offset]
+				env[offset] = &Cell{Value: cell.Value}
+			}
 		case OpPopTop:
 			{
 				if sp <= 0 {

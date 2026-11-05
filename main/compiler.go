@@ -833,6 +833,7 @@ func resolveVar(scope *Scope, fn *Function, ast *Ast) (offset int, isConst bool)
 
 	if exists && !isLocalSymb {
 		// Capture
+		scope.MarkCaptured(name)
 		offset = scope.GetVarCount()
 
 		scope.AddLocal(name, Symbol{
@@ -1835,6 +1836,18 @@ func visitForStatement(s *State, scope *Scope, fn *Function, ast *Ast) {
 		fn.Bytecode[jump] = int32(loopScope.LoopContinue)
 	}
 	loopScope.ContinueStart = loopScope.ContinueStart[:0]
+	if isForInitializer(initNode) {
+		var capturedOffsets []int
+		for _, symbol := range loopScope.Variables {
+			if symbol.Capture {
+				capturedOffsets = append(capturedOffsets, symbol.Offset)
+			}
+		}
+		slices.Sort(capturedOffsets)
+		for _, offset := range capturedOffsets {
+			emitInt(fn, OpCloneLocal, offset)
+		}
+	}
 	if muttNode != nil {
 		visitExpressionDiscard(s, loopScope, fn, muttNode)
 	}
@@ -1855,6 +1868,20 @@ func visitForStatement(s *State, scope *Scope, fn *Function, ast *Ast) {
 	}
 
 	releaseScope(loopScope)
+}
+
+func isForInitializer(ast *Ast) bool {
+	if ast == nil {
+		return false
+	}
+	switch ast.Type {
+	case AstLet, AstConst,
+		AstDestructuringArrayLet, AstDestructuringArrayConst,
+		AstDestructuringObjectLet, AstDestructuringObjectConst:
+		return true
+	default:
+		return false
+	}
 }
 
 func visitWhileStatement(s *State, scope *Scope, fn *Function, ast *Ast) {

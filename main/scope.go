@@ -87,6 +87,17 @@ func (s *Scope) GetVariable(name string) (sym Symbol, exists bool) {
 	return Symbol{}, false
 }
 
+func (s *Scope) MarkCaptured(name string) {
+	if sym, exists := s.Variables[name]; exists {
+		sym.Capture = true
+		s.Variables[name] = sym
+		return
+	}
+	if s.Parent != nil {
+		s.Parent.MarkCaptured(name)
+	}
+}
+
 func (s *Scope) GetVarCount() int {
 	return s.Frame.VarCount
 }
