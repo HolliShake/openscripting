@@ -33,7 +33,7 @@ Run a script with either supported flag:
 ./bin/openscript.exe -file .\tests\test.os
 ```
 
-On Windows, `build.bat` builds `bin\openscript.exe` and writes compiler escape-analysis findings to `build.txt`. Run `build.bat --all` to cross-build Windows, Linux, and macOS binaries for the current Go architecture into `bin/`; these builds disable cgo, so cgo-only features are unavailable in those binaries.
+On Windows, `build.bat` builds `bin\openscript.exe` and writes compiler escape-analysis findings to `build.txt`. Run `build.bat --all` to cross-build Windows, Linux, and macOS binaries for the current Go architecture into `bin/`; these builds disable cgo, so cgo-only features are unavailable in those binaries. Run `build.bat --release` to create an optimized, stripped executable in `dist/` and copy the library modules into `dist\lib`; the Windows executable embeds the project icon.
 
 The language reference is available at [`docs/index.html`](docs/index.html).
 

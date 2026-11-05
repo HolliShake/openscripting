@@ -5,6 +5,7 @@
 *.so
 *.dylib
 /dist/
+/bin/
 *.txt
 build.txt
 debug.log
