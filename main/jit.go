@@ -28,6 +28,25 @@ type nativeCode interface {
 	release()
 }
 
+type nativeBranchPatch struct {
+	offset        int
+	target        int
+	conditional   bool
+	conditionCode uint32
+}
+
+func patchNativeBranches(code []byte, codeOffsets []int, patches []nativeBranchPatch, patch func([]byte, nativeBranchPatch, int) bool) bool {
+	for _, branch := range patches {
+		if branch.target < 0 || branch.target >= len(codeOffsets) {
+			return false
+		}
+		if !patch(code, branch, codeOffsets[branch.target]) {
+			return false
+		}
+	}
+	return true
+}
+
 func (vm *VM) tryNative(fn *Function, args []OSValue) (OSValue, bool) {
 	if !nativeJITPlatformSupported() {
 		return OSValue{}, false
@@ -166,8 +185,7 @@ func nativeFunctionIR(fn *Function) ([]nativeIROp, bool) {
 	bytecodeToOp[len(bytecode)] = len(ops)
 	branchIndex := 0
 	for index := range ops {
-		switch ops[index].opcode {
-		case OpJmp, OpPopJmpIfFalse, OpPopJmpIfTrue:
+		if ops[index].opcode == OpJmp || ops[index].opcode == OpPopJmpIfFalse || ops[index].opcode == OpPopJmpIfTrue {
 			target, exists := bytecodeToOp[branchTargets[branchIndex]]
 			if !exists {
 				return nil, false
@@ -232,6 +250,8 @@ func nativeIRHasValidControlFlow(ops []nativeIROp) bool {
 			}
 			hasReturn = true
 			continue
+		default:
+			return false
 		}
 		if depth > nativeJITMaxStack {
 			return false

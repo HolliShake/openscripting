@@ -71,6 +71,8 @@ func emitNativeCode(ops []nativeIROp) ([]byte, bool) {
 						code = append(code, 0x48, 0xD3, 0xF8) // sar rax, cl
 					}
 					code = append(code, 0xEB, 0x03, 0x48, 0x31, 0xC0) // skip xor; zero rax
+				default:
+					return nil, false
 				}
 				code = append(code, 0xF2, 0x48, 0x0F, 0x2A, 0xC0|(left<<3)) // cvtsi2sd xmmLeft, rax
 				stackDepth--
@@ -96,6 +98,8 @@ func emitNativeCode(ops []nativeIROp) ([]byte, bool) {
 					0x0F, 0x84, 0, 0, 0, 0,
 				)
 				divideByZeroBranches = append(divideByZeroBranches, len(code)-4)
+			default:
+				return nil, false
 			}
 			if op.opcode == OpBinDiv {
 				code = appendAMD64ZeroGuard(code, right)
@@ -122,11 +126,11 @@ func emitNativeCode(ops []nativeIROp) ([]byte, bool) {
 			left := byte(stackDepth - 2)
 			right := byte(stackDepth - 1)
 			code = append(code,
-				0x66, 0x0F, 0x2E, 0xC0|(left<<3)|right, // ucomisd xmmLeft, xmmRight
-				0x0F, 0x94, 0xC0, // sete al
-				0x41, 0x0F, 0x9B, 0xC2, // setnp r10b; NaN is not equal
+				0x66, 0x0F, 0x2E, 0xC0|(left<<3)|right, // compare floating-point values
+				0x0F, 0x94, 0xC0, // record whether values are equal
+				0x41, 0x0F, 0x9B, 0xC2, // record ordered comparison; NaN is not equal
 				0x44, 0x20, 0xD0, // and al, r10b
-				0x0F, 0xB6, 0xC0, // movzx eax, al
+				0x0F, 0xB6, 0xC0, // extend the comparison result to 32 bits
 				0xF2, 0x48, 0x0F, 0x2A, 0xC0|(right<<3), // cvtsi2sd xmmRight, rax
 			)
 		case OpPopTop:
@@ -135,8 +139,8 @@ func emitNativeCode(ops []nativeIROp) ([]byte, bool) {
 			branchPatches = append(branchPatches, branchPatch{displacement: len(code) - 4, target: op.target})
 		case OpPopJmpIfFalse, OpPopJmpIfTrue:
 			register := byte(stackDepth - 1)
-			code = append(code, 0x66, 0x0F, 0xEF, 0xFF)               // pxor xmm7, xmm7
-			code = append(code, 0x66, 0x0F, 0x2E, 0xC7|(register<<3)) // ucomisd xmmN, xmm7
+			code = append(code, 0x66, 0x0F, 0xEF, 0xFF)               // clear the temporary floating-point register
+			code = append(code, 0x66, 0x0F, 0x2E, 0xC7|(register<<3)) // compare the value with zero
 			if op.opcode == OpPopJmpIfFalse {
 				code = append(code, 0x7A, 0x06, 0x0F, 0x84, 0, 0, 0, 0) // NaN is truthy; otherwise branch on zero
 				branchPatches = append(branchPatches, branchPatch{displacement: len(code) - 4, target: op.target})

@@ -30,18 +30,18 @@ func emitNativeCode(ops []nativeIROp) ([]byte, bool) {
 			if op.slot == 1 {
 				base = 5
 			}
-			code = appendARM32Word(code, 0xED900B00|((uint32(depth)&0xF)<<12)|((uint32(depth)&0x10)<<18)|(base<<16)) // vldr Dn, [r4/r5]
+			code = appendARM32Word(code, 0xED900B00|((uint32(depth)&0xF)<<12)|((uint32(depth)&0x10)<<18)|(base<<16)) // load the argument's floating-point value
 		case OpLoadNum, OpLoadConst:
 			bits := math.Float64bits(op.value)
-			code = appendARM32Word(code, arm32MOVW(8, uint16(bits)))
-			code = appendARM32Word(code, arm32MOVT(8, uint16(bits>>16)))
-			code = appendARM32Word(code, arm32MOVW(12, uint16(bits>>32)))
-			code = appendARM32Word(code, arm32MOVT(12, uint16(bits>>48)))
+			code = appendARM32Word(code, arm32MoveLow16(8, uint16(bits)))
+			code = appendARM32Word(code, arm32MoveHigh16(8, uint16(bits>>16)))
+			code = appendARM32Word(code, arm32MoveLow16(12, uint16(bits>>32)))
+			code = appendARM32Word(code, arm32MoveHigh16(12, uint16(bits>>48)))
 			code = appendARM32Word(code, arm32VMOVCoreToDouble(depth, 8, 12))
 		case OpUnaryPos:
 		case OpUnaryNeg:
 			reg := uint32(depth)
-			code = appendARM32Word(code, 0xEEB10B40|((reg&0xF)<<12)|((reg&0x10)<<18)|((reg&0xF)<<0)|((reg&0x10)<<1)) // vneg.f64 Dn, Dn
+			code = appendARM32Word(code, 0xEEB10B40|((reg&0xF)<<12)|((reg&0x10)<<18)|((reg&0xF)<<0)|((reg&0x10)<<1)) // negate the floating-point value in place
 		case OpBinAdd, OpBinSub, OpBinMul, OpBinDiv:
 			left, right := uint32(depth-2), uint32(depth-1)
 			base := uint32(0)
@@ -53,8 +53,8 @@ func emitNativeCode(ops []nativeIROp) ([]byte, bool) {
 			case OpBinMul:
 				base = 0xEE200B00
 			case OpBinDiv:
-				code = appendARM32Word(code, arm32VCMPZero(right))
-				code = appendARM32Word(code, 0xEEF1FA10) // vmrs APSR_nzcv, fpscr
+				code = appendARM32Word(code, arm32CompareFloat64Zero(right))
+				code = appendARM32Word(code, 0xEEF1FA10) // transfer floating-point comparison flags to CPU flags
 				offset := len(code)
 				code = appendARM32Word(code, 0x0A000000) // beq divide-by-zero fallback
 				divideByZeroBranches = append(divideByZeroBranches, offset)
@@ -63,13 +63,13 @@ func emitNativeCode(ops []nativeIROp) ([]byte, bool) {
 			code = appendARM32Word(code, arm32VFPBinary(base, left, left, right))
 		case OpCaseEqual:
 			left, right := uint32(depth-2), uint32(depth-1)
-			code = appendARM32Word(code, arm32VCMP(left, right))
-			code = appendARM32Word(code, 0xEEF1FA10) // vmrs APSR_nzcv, fpscr
+			code = appendARM32Word(code, arm32CompareFloat64(left, right))
+			code = appendARM32Word(code, 0xEEF1FA10) // transfer floating-point comparison flags to CPU flags
 			code = appendARM32Word(code, 0xE3A0C000) // mov r12, #0
-			code = appendARM32Word(code, 0xE3008000) // movw r8, #0
-			code = appendARM32Word(code, 0xE3438FF0) // movt r8, #0x3ff0 (high word of 1.0)
-			code = appendARM32Word(code, 0x13A08000) // movne r8, #0
-			code = appendARM32Word(code, 0x63A08000) // movvs r8, #0; unordered is not equal
+			code = appendARM32Word(code, 0xE3008000) // set the low word for the floating-point true value
+			code = appendARM32Word(code, 0xE3438FF0) // set the high word for the floating-point true value
+			code = appendARM32Word(code, 0x13A08000) // clear the result when values differ
+			code = appendARM32Word(code, 0x63A08000) // clear the result for unordered comparisons
 			code = appendARM32Word(code, arm32VMOVCoreToDouble(int(right), 12, 8))
 		case OpPopTop:
 		case OpJmp:
@@ -77,22 +77,22 @@ func emitNativeCode(ops []nativeIROp) ([]byte, bool) {
 			code = appendARM32Word(code, 0xEA000000)
 			branches = append(branches, branchPatch{offset: offset, target: op.target})
 		case OpPopJmpIfFalse, OpPopJmpIfTrue:
-			code = appendARM32Word(code, arm32VCMPZero(uint32(depth-1)))
-			code = appendARM32Word(code, 0xEEF1FA10) // vmrs APSR_nzcv, fpscr
+			code = appendARM32Word(code, arm32CompareFloat64Zero(uint32(depth-1)))
+			code = appendARM32Word(code, 0xEEF1FA10) // transfer floating-point comparison flags to CPU flags
 			if op.opcode == OpPopJmpIfFalse {
-				code = appendARM32Word(code, 0x6A000000) // bvs skips beq: NaN is truthy
+				code = appendARM32Word(code, 0x6A000000) // unordered values such as NaN are truthy
 				offset := len(code)
 				code = appendARM32Word(code, 0x0A000000)
 				branches = append(branches, branchPatch{offset: offset, target: op.target})
 			} else {
-				for _, condition := range []uint32{6, 1} { // bvs or bne: unordered and nonzero are truthy
+				for _, condition := range []uint32{6, 1} { // unordered and nonzero values are truthy
 					offset := len(code)
 					code = appendARM32Word(code, (condition<<28)|0x0A000000)
 					branches = append(branches, branchPatch{offset: offset, target: op.target})
 				}
 			}
 		case OpReturn:
-			code = appendARM32Word(code, 0xED860B00) // vstr D0, [r6]
+			code = appendARM32Word(code, 0xED860B00) // store the returned floating-point value
 			code = appendARM32Word(code, 0xE8BD81F0) // pop {r4-r8, pc}
 		default:
 			return nil, false
@@ -124,12 +124,12 @@ func arm32VFPBinary(base, dest, left, right uint32) uint32 {
 		(right & 0xF) | ((right & 0x10) << 1)
 }
 
-func arm32VCMP(left, right uint32) uint32 {
+func arm32CompareFloat64(left, right uint32) uint32 {
 	return 0xEEB40B40 | ((left & 0xF) << 12) | ((left & 0x10) << 18) |
 		(right & 0xF) | ((right & 0x10) << 1)
 }
 
-func arm32VCMPZero(reg uint32) uint32 {
+func arm32CompareFloat64Zero(reg uint32) uint32 {
 	return 0xEEB50B40 | ((reg & 0xF) << 12) | ((reg & 0x10) << 18)
 }
 
@@ -138,11 +138,11 @@ func arm32VMOVCoreToDouble(reg, low, high int) uint32 {
 		((uint32(reg) & 0x10) << 1) | (uint32(reg) & 0xF)
 }
 
-func arm32MOVW(reg int, value uint16) uint32 {
+func arm32MoveLow16(reg int, value uint16) uint32 {
 	return 0xE3000000 | (uint32(value&0xF000) << 4) | (uint32(reg) << 12) | uint32(value&0x0FFF)
 }
 
-func arm32MOVT(reg int, value uint16) uint32 {
+func arm32MoveHigh16(reg int, value uint16) uint32 {
 	return 0xE3400000 | (uint32(value&0xF000) << 4) | (uint32(reg) << 12) | uint32(value&0x0FFF)
 }
 

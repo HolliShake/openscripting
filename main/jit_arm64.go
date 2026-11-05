@@ -9,13 +9,7 @@ const nativeJITEmitterAvailable = true
 func emitNativeCode(ops []nativeIROp) ([]byte, bool) {
 	var code []byte
 	var zeroBranches []int
-	type branchPatch struct {
-		offset        int
-		target        int
-		conditional   bool
-		conditionCode uint32
-	}
-	var branchPatches []branchPatch
+	var branchPatches []nativeBranchPatch
 	codeOffsets := make([]int, len(ops)+1)
 	for index, op := range ops {
 		codeOffsets[index] = len(code)
@@ -32,9 +26,9 @@ func emitNativeCode(ops []nativeIROp) ([]byte, bool) {
 			code = appendARM64Word(code, 0x1E614000|(reg<<5)|reg)
 		case OpUnaryBitNot:
 			reg := uint32(stackDepth - 1)
-			code = appendARM64Word(code, 0x9E780000|(reg<<5)|9) // fcvtzs X9, Dn
-			code = appendARM64Word(code, 0xAA2903E9)            // mvn X9, X9
-			code = appendARM64Word(code, 0x9E620000|(9<<5)|reg) // scvtf Dn, X9
+			code = appendARM64Word(code, 0x9E780000|(reg<<5)|9) // convert the value to a signed integer
+			code = appendARM64Word(code, 0xAA2903E9)            // invert all integer bits
+			code = appendARM64Word(code, 0x9E620000|(9<<5)|reg) // convert the result back to floating point
 		case OpBinAdd, OpBinSub, OpBinMul, OpBinDiv,
 			OpBinBitAnd, OpBinBitXor, OpBinBitOr:
 			left := uint32(stackDepth - 2)
@@ -48,63 +42,60 @@ func emitNativeCode(ops []nativeIROp) ([]byte, bool) {
 			case OpBinMul:
 				base = 0x1E600800
 			case OpBinDiv:
-				code = appendARM64Word(code, 0x1E602008|(right<<5)) // fcmp Dright, #0.0
+				code = appendARM64Word(code, 0x1E602008|(right<<5)) // compare the divisor with zero
 				zeroBranches = append(zeroBranches, len(code))
-				code = appendARM64Word(code, 0x54000000) // b.eq divide-by-zero fallback
+				code = appendARM64Word(code, 0x54000000) // branch to the divide-by-zero fallback
 				base = 0x1E601800
 			case OpBinBitAnd, OpBinBitXor, OpBinBitOr:
-				code = appendARM64Word(code, 0x9E780000|(left<<5)|9)   // fcvtzs X9, Dleft
-				code = appendARM64Word(code, 0x9E780000|(right<<5)|10) // fcvtzs X10, Dright
-				integerOpcode := uint32(0x8A0A0129)                    // and X9, X9, X10
+				code = appendARM64Word(code, 0x9E780000|(left<<5)|9)   // convert the left value to a signed integer
+				code = appendARM64Word(code, 0x9E780000|(right<<5)|10) // convert the right value to a signed integer
+				integerOpcode := uint32(0x8A0A0129)                    // apply the bitwise operation
 				if op.opcode == OpBinBitXor {
 					integerOpcode = 0xCA0A0129 // eor X9, X9, X10
 				} else if op.opcode == OpBinBitOr {
 					integerOpcode = 0xAA0A0129 // orr X9, X9, X10
 				}
 				code = appendARM64Word(code, integerOpcode)
-				code = appendARM64Word(code, 0x9E620000|(9<<5)|left) // scvtf Dleft, X9
+				code = appendARM64Word(code, 0x9E620000|(9<<5)|left) // convert the result back to floating point
 				continue
 			}
 			code = appendARM64Word(code, base|(right<<16)|(left<<5)|left)
 		case OpCaseEqual:
 			left := uint32(stackDepth - 2)
 			right := uint32(stackDepth - 1)
-			code = appendARM64Word(code, 0x1E602000|(right<<16)|(left<<5)) // fcmp Dleft, Dright
-			code = appendARM64Word(code, 0x9A9F17E9)                       // cset X9, eq; unordered compares are false
-			code = appendARM64Word(code, 0x9E630000|(9<<5)|right)          // ucvtf Dright, X9
+			code = appendARM64Word(code, 0x1E602000|(right<<16)|(left<<5)) // compare the floating-point values
+			code = appendARM64Word(code, 0x9A9F17E9)                       // record equality; unordered comparisons are false
+			code = appendARM64Word(code, 0x9E630000|(9<<5)|right)          // convert the boolean result to floating point
 		case OpPopTop:
 		case OpJmp:
 			offset := len(code)
 			code = appendARM64Word(code, 0x14000000)
-			branchPatches = append(branchPatches, branchPatch{offset: offset, target: op.target})
+			branchPatches = append(branchPatches, nativeBranchPatch{offset: offset, target: op.target})
 		case OpPopJmpIfFalse, OpPopJmpIfTrue:
 			register := uint32(stackDepth - 1)
-			code = appendARM64Word(code, 0x1E602008|(register<<5)) // fcmp Dn, #0.0
+			code = appendARM64Word(code, 0x1E602008|(register<<5)) // compare the value with zero
 			if op.opcode == OpPopJmpIfFalse {
 				offset := len(code)
-				code = appendARM64Word(code, 0x54000000) // b.eq; unordered NaN is truthy
-				branchPatches = append(branchPatches, branchPatch{offset: offset, target: op.target, conditional: true})
+				code = appendARM64Word(code, 0x54000000) // unordered NaN is truthy
+				branchPatches = append(branchPatches, nativeBranchPatch{offset: offset, target: op.target, conditional: true})
 			} else {
-				for _, condition := range []uint32{6, 1} { // b.vs or b.ne: NaN and nonzero are truthy
+				for _, condition := range []uint32{6, 1} { // unordered and nonzero values are truthy
 					offset := len(code)
 					code = appendARM64Word(code, 0x54000000|condition)
-					branchPatches = append(branchPatches, branchPatch{offset: offset, target: op.target, conditional: true, conditionCode: condition})
+					branchPatches = append(branchPatches, nativeBranchPatch{offset: offset, target: op.target, conditional: true, conditionCode: condition})
 				}
 			}
 		case OpReturn:
-			code = appendARM64Word(code, 0xFD000040) // str D0, [X2]
-			code = appendARM64Word(code, 0xD65F03C0) // ret
+			code = appendARM64Word(code, 0xFD000040) // store the returned floating-point value
+			code = appendARM64Word(code, 0xD65F03C0) // return to the caller
 		default:
 			return nil, false
 		}
 	}
 	codeOffsets[len(ops)] = len(code)
 	code = appendARM64Word(code, 0xD65F03C0)
-	for _, patch := range branchPatches {
-		if patch.target < 0 || patch.target >= len(codeOffsets) {
-			return nil, false
-		}
-		words := int32((codeOffsets[patch.target] - patch.offset) / 4)
+	if !patchNativeBranches(code, codeOffsets, branchPatches, func(code []byte, patch nativeBranchPatch, targetOffset int) bool {
+		words := int32((targetOffset - patch.offset) / 4)
 		instruction := readARM64Word(code, patch.offset)
 		if patch.conditional {
 			instruction = (instruction & 0xFF00001F) | (uint32(words&0x7FFFF) << 5) | patch.conditionCode
@@ -112,6 +103,9 @@ func emitNativeCode(ops []nativeIROp) ([]byte, bool) {
 			instruction = (instruction & 0xFC000000) | (uint32(words) & 0x03FFFFFF)
 		}
 		putARM64Word(code, patch.offset, instruction)
+		return true
+	}) {
+		return nil, false
 	}
 	if len(zeroBranches) > 0 {
 		failureOffset := len(code)
@@ -132,7 +126,7 @@ func appendARM64Float(code []byte, register int, value float64) []byte {
 	for shift, base := uint(16), uint32(0xF2A00000); shift < 64; shift, base = shift+16, base+0x200000 {
 		code = appendARM64Word(code, base|uint32((bits>>shift)&0xFFFF)<<5|16)
 	}
-	return appendARM64Word(code, 0x9E670000|(16<<5)|uint32(register)) // fmov Dn, X16
+	return appendARM64Word(code, 0x9E670000|(16<<5)|uint32(register)) // move the bit pattern into the floating-point register
 }
 
 func appendARM64Word(code []byte, word uint32) []byte {

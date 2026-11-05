@@ -1,5 +1,8 @@
 @echo off
 setlocal
+if /I "%~1"=="--help" goto help
+if /I "%~1"=="-h" goto help
+if "%~1"=="/?" goto help
 for /f %%A in ('go env GOOS') do set "HOST_OS=%%A"
 for /f %%A in ('go env GOARCH') do set "HOST_ARCH=%%A"
 set "FAILED=0"
@@ -8,14 +11,15 @@ set "ALL_MODE=0"
 if /I "%~1"=="--all" if "%~2"=="" goto build_all
 if not "%~1"=="" goto usage
 
-call :build_target "%HOST_OS%" "%HOST_ARCH%" openscript
+if not exist bin mkdir bin
+call :build_target "%HOST_OS%" "%HOST_ARCH%" "bin\openscript"
 exit /b %ERRORLEVEL%
 
 :build_all
 set "ALL_MODE=1"
-if not exist dist mkdir dist
+if not exist bin mkdir bin
 type nul > build.txt
-for %%O in (windows linux darwin) do call :build_target %%O "%HOST_ARCH%" "dist\openscript-%%O-%HOST_ARCH%"
+for %%O in (windows linux darwin) do call :build_target %%O "%HOST_ARCH%" "bin\openscript-%%O-%HOST_ARCH%"
 if not "%FAILED%"=="0" exit /b 1
 exit /b 0
 
@@ -65,4 +69,19 @@ exit /b %BUILD_RC%
 
 :usage
 echo Usage: build.bat [--all]
+echo Run "build.bat --help" for details.
 exit /b 2
+
+:help
+echo(Usage: build.bat [--all ^| --help ^| -h ^| /?]
+echo(
+echo(Build the current operating system and architecture into bin\openscript.
+echo(Windows builds use the .exe extension.
+echo(
+echo(Options:
+echo(  --all    Build Windows, Linux, and macOS binaries for the current Go architecture.
+echo(           Cross-builds disable cgo and write artifacts to bin\.
+echo(  --help   Show this help and exit.
+echo(  -h       Show this help and exit.
+echo(  /?       Show this help and exit.
+exit /b 0

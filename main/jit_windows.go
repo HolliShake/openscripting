@@ -5,6 +5,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log"
 	"runtime"
 	"syscall"
 	"unsafe"
@@ -24,7 +25,6 @@ var (
 	virtualAllocProc      = kernel32.NewProc("VirtualAlloc")
 	virtualProtectProc    = kernel32.NewProc("VirtualProtect")
 	virtualFreeProc       = kernel32.NewProc("VirtualFree")
-	getCurrentProcessProc = kernel32.NewProc("GetCurrentProcess")
 	flushInstructionCache = kernel32.NewProc("FlushInstructionCache")
 	rtlMoveMemoryProc     = kernel32.NewProc("RtlMoveMemory")
 )
@@ -43,23 +43,37 @@ func allocateNativeCode(instructions []byte) (nativeCode, error) {
 		return nil, fmt.Errorf("VirtualAlloc failed: %w", callErr)
 	}
 
-	rtlMoveMemoryProc.Call(address, uintptr(unsafe.Pointer(&instructions[0])), uintptr(len(instructions)))
+	_, _, _ = rtlMoveMemoryProc.Call(address, uintptr(unsafe.Pointer(&instructions[0])), uintptr(len(instructions)))
 	runtime.KeepAlive(instructions)
 	var oldProtection uint32
 	changed, _, protectErr := virtualProtectProc.Call(address, uintptr(len(instructions)), pageExecuteRead, uintptr(unsafe.Pointer(&oldProtection)))
 	if changed == 0 {
-		virtualFreeProc.Call(address, 0, memRelease)
-		return nil, fmt.Errorf("VirtualProtect failed: %w", protectErr)
+		protectError := fmt.Errorf("VirtualProtect failed: %w", protectErr)
+		if freeErr := freeNativeAllocation(address); freeErr != nil {
+			return nil, errors.Join(protectError, freeErr)
+		}
+		return nil, protectError
 	}
 
-	process, _, _ := getCurrentProcessProc.Call()
-	flushed, _, flushErr := flushInstructionCache.Call(process, address, uintptr(len(instructions)))
-	if flushed == 0 {
-		virtualFreeProc.Call(address, 0, memRelease)
-		if flushErr != nil {
-			return nil, fmt.Errorf("FlushInstructionCache failed: %w", flushErr)
+	process, processErr := syscall.GetCurrentProcess()
+	if processErr != nil {
+		if freeErr := freeNativeAllocation(address); freeErr != nil {
+			return nil, errors.Join(fmt.Errorf("GetCurrentProcess failed: %w", processErr), freeErr)
 		}
-		return nil, errors.New("FlushInstructionCache failed")
+		return nil, fmt.Errorf("GetCurrentProcess failed: %w", processErr)
+	}
+	flushed, _, flushErr := flushInstructionCache.Call(uintptr(process), address, uintptr(len(instructions)))
+	if flushed == 0 {
+		var flushError error
+		if flushErr != nil {
+			flushError = fmt.Errorf("FlushInstructionCache failed: %w", flushErr)
+		} else {
+			flushError = errors.New("FlushInstructionCache failed")
+		}
+		if freeErr := freeNativeAllocation(address); freeErr != nil {
+			return nil, errors.Join(flushError, freeErr)
+		}
+		return nil, flushError
 	}
 	return &executableNativeCode{address: address, size: uintptr(len(instructions))}, nil
 }
@@ -68,7 +82,21 @@ func (code *executableNativeCode) release() {
 	if code == nil || code.address == 0 {
 		return
 	}
-	virtualFreeProc.Call(code.address, 0, memRelease)
+	if err := freeNativeAllocation(code.address); err != nil {
+		log.Printf("release native JIT code: %v", err)
+		return
+	}
 	code.address = 0
 	code.size = 0
+}
+
+func freeNativeAllocation(address uintptr) error {
+	freed, _, callErr := virtualFreeProc.Call(address, 0, memRelease)
+	if freed != 0 {
+		return nil
+	}
+	if callErr != nil {
+		return fmt.Errorf("VirtualFree failed: %w", callErr)
+	}
+	return errors.New("VirtualFree failed")
 }

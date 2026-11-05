@@ -22,17 +22,18 @@ On Windows/amd64, Windows/ARM64, Windows/386, Linux/ARMv7, and macOS/ARM64 with 
 From the repository root:
 
 ```powershell
-go build -o openscript.exe ./main
+New-Item -ItemType Directory -Force bin | Out-Null
+go build -o bin/openscript.exe ./main
 ```
 
 Run a script with either supported flag:
 
 ```powershell
-./openscript.exe -f .\tests\test.os
-./openscript.exe -file .\tests\test.os
+./bin/openscript.exe -f .\tests\test.os
+./bin/openscript.exe -file .\tests\test.os
 ```
 
-On Windows, `build.bat` builds `openscript.exe` and writes compiler escape-analysis findings to `build.txt`. Run `build.bat --all` to cross-build Windows, Linux, and macOS binaries for the current Go architecture into `dist/`; these builds disable cgo, so cgo-only features are unavailable in those binaries.
+On Windows, `build.bat` builds `bin\openscript.exe` and writes compiler escape-analysis findings to `build.txt`. Run `build.bat --all` to cross-build Windows, Linux, and macOS binaries for the current Go architecture into `bin/`; these builds disable cgo, so cgo-only features are unavailable in those binaries.
 
 The language reference is available at [`docs/index.html`](docs/index.html).
 
