@@ -297,69 +297,6 @@
             font: .8rem var(--mono);
         }
 
-        .snippet-tabs {
-            margin: 18px 0 26px;
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            background: #0a0a0a;
-            overflow: hidden;
-        }
-
-        .snippet-tabs__list {
-            display: flex;
-            gap: 2px;
-            padding: 8px 10px 0;
-            border-bottom: 1px solid var(--line);
-            overflow-x: auto;
-            scrollbar-width: thin;
-        }
-
-        .snippet-tabs__tab {
-            flex: 0 0 auto;
-            padding: 8px 10px 9px;
-            color: #a1a1a1;
-            background: transparent;
-            border: 0;
-            border-bottom: 2px solid transparent;
-            font: inherit;
-            font-size: .84rem;
-            cursor: pointer;
-        }
-
-        .snippet-tabs__tab:hover {
-            color: #fff;
-        }
-
-        .snippet-tabs__tab[aria-selected="true"] {
-            color: #fff;
-            border-bottom-color: #fff;
-            font-weight: 600;
-        }
-
-        .snippet-tabs__panel {
-            min-width: 0;
-        }
-
-        .snippet-tabs__panel[hidden] {
-            display: none;
-        }
-
-        .snippet-tabs__panel pre {
-            margin: 0;
-            padding: 20px 22px;
-            border: 0;
-            border-radius: 0;
-            background: #0a0a0a;
-        }
-
-        .snippet-tabs__note {
-            margin: 0;
-            padding: 12px 20px;
-            color: #a1a1a1;
-            border-top: 1px solid var(--line);
-            font-size: .88rem;
-        }
-
         .core-reference {
             margin-top: 24px;
         }
@@ -543,17 +480,6 @@
 
             .core-api-nav ul {
                 grid-template-columns: 1fr;
-            }
-
-            .snippet-tabs__list {
-                flex-wrap: wrap;
-                overflow-x: visible;
-                padding: 6px 6px 0;
-            }
-
-            .snippet-tabs__tab {
-                padding: 7px 8px;
-                font-size: .78rem;
             }
 
             table {
@@ -965,10 +891,13 @@ loop (;;) {
 
             <section id="exceptions">
                 <h2>Exceptions</h2>
-                <p><code>try</code> wraps a block. An optional <code>catch(name)</code> handles a thrown runtime error
-                    and binds it to a local name.</p>
+                <p><code>throw expression;</code> throws any value, including strings, numbers, arrays, objects, and
+                    <code>Error</code> instances. An optional <code>catch(name)</code> binds the original thrown value
+                    to a local name. Runtime-generated errors are caught as <code>Error</code> objects with
+                    <code>message</code> and <code>line</code> properties.
+                </p>
                 <pre><code><span class="kw">try</span> {
-    riskyOperation();
+    <span class="kw">throw</span> <span class="str">"configuration is missing"</span>;
 } <span class="kw">catch</span> (err) {
     println(err);
 }</code></pre>
@@ -992,19 +921,6 @@ loop (;;) {
                     target module; built-ins validate requested export names.</p>
                 <h3>Core modules</h3>
                 <p>Core modules are imported by name and expose only named exports.</p>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Module</th>
-                            <th>Exports</th>
-                            <th>Behavior</th>
-                        </tr>
-                    </thead>
-                    <!-- Rows are generated from `coreModules` in the script at the bottom of this page. -->
-                    <tbody id="core-modules-body"></tbody>
-                </table>
-                <h3>Usage examples</h3>
-                <div id="core-snippets" aria-label="Core module usage examples"></div>
                 <h3>API reference</h3>
                 <p>Choose an API from its module submenu to read its behavior and a runnable usage example.</p>
                 <div id="core-reference" class="core-reference"></div>
@@ -1045,6 +961,18 @@ loop (;;) {
                             <td>Numeric predicates for parity, sign, zero, and integral values. Zero is neither
                                 positive nor negative; integer checks reject values with a fractional part.</td>
                         </tr>
+                        <tr>
+                            <td><code>lib:crypto</code></td>
+                            <td>CryptoJS-style hashes, HMAC, WordArray, encoders, algorithm factories, PBKDF2, and
+                                EvpKDF.</td>
+                            <td>Bundled facade over the native cryptographic primitives; legacy hashes are documented
+                                with their interoperability limitations.</td>
+                        </tr>
+                        <tr>
+                            <td><code>lib:tui</code></td>
+                            <td>Terminal colors, status messages, prompts, confirmation, and table output.</td>
+                            <td>ANSI-based terminal helpers and simple text-table rendering.</td>
+                        </tr>
                     </tbody>
                 </table>
             </section>
@@ -1083,7 +1011,7 @@ loop (;;) {
                     formal language specification. A few boundaries are especially useful to know:</p>
                 <ul>
                     <li>There are no parser forms for <code>for</code>, <code>while</code>, <code>do</code>,
-                        <code>throw</code>, <code>finally</code>, or labels; looping uses <code>loop</code>.
+                        <code>finally</code>, or labels; looping uses <code>loop</code>.
                     </li>
                     <li>Named <code>fn</code> and <code>class</code> declarations use top-level <code>name::fn</code> /
                         <code>name::class</code> syntax. Anonymous function and class expressions are also supported.
@@ -1106,7 +1034,8 @@ loop (;;) {
             </section>
         </main>
     </div>
-    <footer>OpenScript · language reference generated from the current parser/compiler implementation</footer>
+    <footer>OpenScript · language reference generated from the current parser/compiler implementation · &copy; 2026
+        HolliShake. All rights reserved.</footer>
     <script>
         /* ==========================================================================
          * CORE MODULE DATA — the single source of truth.
@@ -1232,15 +1161,16 @@ println(pow(2, 8), min(4, 2, 9), max(4, 2, 9));`
                 }
             },
             {
-                name: "core:crypto",
-                exports: ["CryptoJS", "WordArray", "MD5", "SHA1", "SHA224", "SHA256", "SHA384", "SHA512", "SHA3", "RIPEMD160", "Hmac*", "PBKDF2", "EvpKDF", "enc"],
+                name: "lib:crypto",
+                exports: ["CryptoJS", "WordArray", "MD5", "SHA1", "SHA224", "SHA256", "SHA384", "SHA512", "SHA3", "RIPEMD160", "HmacMD5", "HmacSHA1", "HmacSHA224", "HmacSHA256", "HmacSHA384", "HmacSHA512", "HmacSHA3", "HmacRIPEMD160", "PBKDF2", "EvpKDF", "enc", "algo"],
                 behavior: [
                     { name: "Hashes and HMAC", doc: `MD5, SHA-1/224/256/384/512, RIPEMD-160 and HMAC variants return a <code>WordArray</code>. SHA3 follows CryptoJS legacy Keccak padding and supports 256- and 512-bit output.` },
                     { name: "Incremental hashing", doc: `<code>algo.SHA256.create()</code> returns a hasher with <code>update(value)</code> and <code>finalize(value?)</code>. The same pattern is available for the other listed hashes.` },
                     { name: "PBKDF2(password, salt, config)", doc: `Returns a <code>WordArray</code>. Config supports <code>keySize</code> in 32-bit words, <code>iterations</code>, and a hasher from <code>algo</code>; defaults are 4 words, 1 iteration, and SHA-1.` },
                     { name: "EvpKDF(password, salt, config)", doc: `Returns a <code>WordArray</code>; supports <code>keySize</code>, <code>iterations</code>, and the listed hashers.` },
                     { name: "WordArray and encoders", doc: `<code>WordArray.create(words, sigBytes)</code>, <code>WordArray.random(byteCount)</code>, <code>concat</code>, <code>clone</code>, <code>clamp</code>, and <code>toString(encoder?)</code> are available. Encoders include Hex, Latin1, Utf8, Utf16/BE/LE, Base64, and Base64url.` },
-                    `Import the same namespace as <code>CryptoJS</code> from <code>lib:crypto</code>. MD5, SHA-1, and RIPEMD-160 are legacy primitives and should not be used for new security designs. AES/DES/TripleDES, stream ciphers, cipher modes/padding, OpenSSL format, and x64 helpers are not implemented.`
+                    { name: "algo", doc: `Namespace of incremental hash algorithm factories; use <code>algo.SHA256.create()</code> and the corresponding methods on the returned hasher.` },
+                    `Import this bundled facade from <code>lib:crypto</code>. MD5, SHA-1, and RIPEMD-160 are legacy primitives and should not be used for new security designs. AES/DES/TripleDES, stream ciphers, cipher modes/padding, OpenSSL format, and x64 helpers are not implemented.`
                 ],
                 example: {
                     code: `import { SHA256, CryptoJS } from "lib:crypto";
@@ -1251,6 +1181,29 @@ const hasher = CryptoJS->algo->SHA256->create();
 hasher->update("a")->update("bc");
 println(hasher->finalize()->toString());
 println(CryptoJS->enc->Hex->stringify(CryptoJS->enc->Utf8->parse("abc")));`
+                }
+            },
+            {
+                name: "core:crypto",
+                exports: ["digest(algorithm, message, config?)", "hmac(algorithm, message, key, config?)", "pbkdf2(password, salt, iterations, keyLength, hasher)", "evpKDF(password, salt, iterations, keyLength, hasher)", "parse(encoding, text)", "stringify(encoding, wordArray)", "WordArray", "CryptoJS", "enc", "algo", "MD5", "SHA1", "SHA224", "SHA256", "SHA384", "SHA512", "SHA3", "RIPEMD160", "HmacMD5", "HmacSHA1", "HmacSHA224", "HmacSHA256", "HmacSHA384", "HmacSHA512", "HmacSHA3", "HmacRIPEMD160", "PBKDF2", "EvpKDF"],
+                behavior: [
+                    { name: "digest(algorithm, message, config?)", doc: `Computes a supported digest and returns a <code>WordArray</code>. Supported names include MD5, SHA1, SHA224, SHA256, SHA384, SHA512, SHA3, and RIPEMD160. SHA3 accepts an optional output length configuration.` },
+                    { name: "hmac(algorithm, message, key, config?)", doc: `Computes a keyed HMAC and returns a <code>WordArray</code>. Supports the listed digest algorithms and optional SHA3 output length.` },
+                    { name: "pbkdf2(password, salt, iterations, keyLength, hasher)", doc: `Derives a key and returns a <code>WordArray</code>. Key length is in bytes; iterations and output length must be valid positive values.` },
+                    { name: "evpKDF(password, salt, iterations, keyLength, hasher)", doc: `Derives key material with the EVP KDF and returns a <code>WordArray</code>. Key length is in bytes.` },
+                    { name: "parse(encoding, text)", doc: `Decodes text into a <code>WordArray</code>. Supported encodings include hex, base64, base64url, Latin-1, UTF-8, and UTF-16 variants.` },
+                    { name: "stringify(encoding, wordArray)", doc: `Encodes a <code>WordArray</code> as text using a supported encoding. Invalid UTF-8 and unknown encodings are runtime errors.` },
+                    { name: "WordArray", doc: `Namespace for <code>create(words, sigBytes?)</code> and <code>random(byteLength)</code>. Word arrays expose <code>words</code>, <code>sigBytes</code>, <code>toString(encoder?)</code>, <code>concat(other)</code>, <code>clamp()</code>, and <code>clone()</code>.` },
+                    { name: "CryptoJS", doc: `CryptoJS-compatible namespace containing digest and HMAC functions, <code>lib.WordArray</code>, encoders, algorithm factories, <code>PBKDF2</code>, and <code>EvpKDF</code>.` },
+                    { name: "enc", doc: `Encoder namespace: Hex, Latin1, Utf8, Utf16/Utf16BE/Utf16LE, Base64, and Base64url. Each encoder supports <code>parse(text)</code> and <code>stringify(wordArray)</code>.` },
+                    { name: "algo", doc: `Algorithm namespace. Each listed hasher provides <code>create()</code>, then <code>update(value)</code> and <code>finalize(value?)</code> for incremental hashing.` },
+                    { name: "MD5, SHA1, SHA224, SHA256, SHA384, SHA512, SHA3, RIPEMD160", doc: `One-shot digest functions; each accepts a string and returns a <code>WordArray</code>. SHA3 defaults to 512-bit output in this module.` },
+                    { name: "HmacMD5, HmacSHA1, HmacSHA224, HmacSHA256, HmacSHA384, HmacSHA512, HmacSHA3, HmacRIPEMD160", doc: `One-shot HMAC functions taking message and key strings and returning a <code>WordArray</code>.` },
+                    { name: "PBKDF2, EvpKDF", doc: `CryptoJS-compatible key-derivation functions accepting password, salt, and an optional configuration object with key size, iterations, and hasher.` },
+                    `MD5, SHA-1, and RIPEMD-160 are legacy algorithms and should not be chosen for new security designs. Cipher algorithms, cipher modes, padding, OpenSSL formatting, and x64 helpers are not implemented.`
+                ],
+                example: {
+                    code: `import { digest, hmac, pbkdf2, parse, stringify } from "core:crypto";\nimport { println } from "core:io";\n\nconst hash = digest("SHA256", "hello");\nprintln(stringify("hex", hash));\nprintln(stringify("hex", hmac("SHA256", "message", "secret")));\nconst key = pbkdf2("password", "salt", 1000, 32, "SHA256");\nprintln(key->sigBytes);\nprintln(stringify("utf8", parse("utf8", "hello")));`
                 }
             },
             {
@@ -1407,7 +1360,7 @@ println(relative(join(project, "main.go"), project));`
                 exports: ["Error(message, line?)"],
                 behavior: [
                     { name: "Error(message, line?)", doc: `Constructs an error object with readable <code>message</code> and numeric <code>line</code> properties. The line defaults to zero.` },
-                    `This constructor creates a value; the language currently has no <code>throw</code> statement.`
+                    `Use <code>throw expression;</code> to throw the constructed value. A catch receives that same error object.`
                 ],
                 example: {
                     code: `import { Error } from "core:error";
@@ -1416,7 +1369,7 @@ import { println } from "core:io";
 const problem = Error("configuration is missing", 12);
 println(problem->message);
 println(problem->line);`,
-                    note: "The constructor creates an error value; OpenScript does not currently provide a throw statement."
+                    note: "The value can be thrown with throw and caught as the same Error object."
                 }
             },
             {
@@ -1486,7 +1439,7 @@ println(quoteMeta("a+b"));`,
                     { name: "parse_args(args?)", doc: `Parses all supplied tokens, or the process arguments when omitted. Returns a namespace object, a result with an <code>error</code> field on failure, or a result with a <code>help</code> field when the help action is used.`, usage: `import { ArgumentParser } from "lib:argparse";\n\nconst parser = ArgumentParser({ prog: "sum" });\nparser->add_argument({ name: "left", type: "int" });\nparser->add_argument({ name: "right", type: "int" });\nconst result = parser->parse_args(["4", "7"]);\nif (result->error == null) println(result->left + result->right);` },
                     { name: "parse_known_args(args?)", doc: `Parses recognized arguments and returns <code>{ namespace, unknown }</code>. Unknown option tokens and extra positional tokens are preserved in <code>unknown</code>.`, usage: `import { ArgumentParser } from "lib:argparse";\n\nconst parser = ArgumentParser();\nparser->add_argument({ flags: ["--mode"] });\nconst result = parser->parse_known_args(["--mode", "fast", "--extra"]);\nprintln(result->namespace->mode);\nprintln(result->unknown);` },
                     { name: "format_help()", doc: `Returns formatted usage and help text for the parser and its registered arguments.`, usage: `import { ArgumentParser } from "lib:argparse";\n\nconst parser = ArgumentParser({ prog: "tool", description: "Example tool" });\nparser->add_argument({ flags: ["--version"], help: "show version" });\nprintln(parser->format_help());` },
-                    { name: "print_help()", doc: `Writes the formatted help text through <code>core:io.println</code>.`, usage: `import { ArgumentParser } from "lib:argparse";\n\nconst parser = ArgumentParser({ prog: "tool" });\nparser->add_argument({ name: "input", help: "input path" });\nparser->print_help();` },
+                    { name: "print_help()", doc: `Returns the same formatted help text as <code>format_help()</code>; despite its name, it currently does not write to standard output.`, usage: `import { ArgumentParser } from "lib:argparse";\nimport { println } from "core:io";\n\nconst parser = ArgumentParser({ prog: "tool" });\nparser->add_argument({ name: "input", help: "input path" });\nprintln(parser->print_help());` },
                     `Options support <code>--name=value</code>, short-option clusters, and optional long-option abbreviation. Conversion and choice failures are returned in the <code>error</code> field.`
                 ],
                 example: {
@@ -1506,6 +1459,33 @@ println(quoteMeta("a+b"));`,
                 ],
                 example: {
                     code: `import { isEven, isOdd, isPositive, isNegative, isZero, isInteger } from "lib:number";\nimport { println } from "core:io";\n\nprintln(isEven(8), isOdd(7));\nprintln(isPositive(3), isNegative(-3), isZero(0));\nprintln(isInteger(4.5));`
+                }
+            },
+            {
+                name: "lib:tui",
+                exports: ["bold(text)", "dim(text)", "red(text)", "green(text)", "yellow(text)", "blue(text)", "cyan(text)", "success(message)", "warning(message)", "error(message)", "info(message)", "divider(width)", "clear()", "prompt(label)", "confirm(question)", "assertSameKeys(rows)", "printTable(rows)"],
+                behavior: [
+                    { name: "bold(text)", doc: `Returns text wrapped in the terminal bold ANSI style.`, usage: `import { bold, println } from "lib:tui";\n\nprintln(bold("Build complete"));` },
+                    { name: "dim(text)", doc: `Returns text wrapped in the terminal dim ANSI style.`, usage: `import { dim, println } from "lib:tui";\n\nprintln(dim("Optional details"));` },
+                    { name: "red(text)", doc: `Returns text styled red in ANSI-capable terminals.`, usage: `import { red, println } from "lib:tui";\n\nprintln(red("Failed"));` },
+                    { name: "green(text)", doc: `Returns text styled green in ANSI-capable terminals.`, usage: `import { green, println } from "lib:tui";\n\nprintln(green("Ready"));` },
+                    { name: "yellow(text)", doc: `Returns text styled yellow in ANSI-capable terminals.`, usage: `import { yellow, println } from "lib:tui";\n\nprintln(yellow("Check configuration"));` },
+                    { name: "blue(text)", doc: `Returns text styled blue in ANSI-capable terminals.`, usage: `import { blue, println } from "lib:tui";\n\nprintln(blue("Compiling"));` },
+                    { name: "cyan(text)", doc: `Returns text styled cyan in ANSI-capable terminals.`, usage: `import { cyan, println } from "lib:tui";\n\nprintln(cyan("Info"));` },
+                    { name: "success(message)", doc: `Prints a green <code>[OK]</code> status prefix and the message.`, usage: `import { success } from "lib:tui";\n\nsuccess("Tests passed");` },
+                    { name: "warning(message)", doc: `Prints a yellow <code>[!]</code> status prefix and the message.`, usage: `import { warning } from "lib:tui";\n\nwarning("Using defaults");` },
+                    { name: "error(message)", doc: `Prints a red <code>[ERROR]</code> status prefix and the message.`, usage: `import { error } from "lib:tui";\n\nerror("Could not open file");` },
+                    { name: "info(message)", doc: `Prints a cyan <code>[INFO]</code> status prefix and the message.`, usage: `import { info } from "lib:tui";\n\ninfo("Listening on port 8080");` },
+                    { name: "divider(width)", doc: `Prints a dim horizontal line made of hyphens. Width controls the number of characters.`, usage: `import { divider } from "lib:tui";\n\ndivider(32);` },
+                    { name: "clear()", doc: `Writes ANSI clear-screen and cursor-home sequences to the terminal.`, usage: `import { clear, println } from "lib:tui";\n\nclear();\nprintln("Dashboard");` },
+                    { name: "prompt(label)", doc: `Writes a prompt label and returns one line read from standard input; returns <code>null</code> at end of input.`, usage: `import { prompt } from "lib:tui";\n\nconst name = prompt("Name: ");\nprintln("Hello", name);` },
+                    { name: "confirm(question)", doc: `Asks a yes/no question and returns true for <code>y</code> or <code>yes</code>, case-insensitively after trimming. Other answers and end-of-input return false.`, usage: `import { confirm } from "lib:tui";\n\nif (confirm("Continue?")) println("Continuing");\nelse println("Cancelled");` },
+                    { name: "assertSameKeys(rows)", doc: `Returns false unless the argument is an array whose elements are objects with identical key sets. Arrays with fewer than two rows return true.`, usage: `import { assertSameKeys } from "lib:tui";\n\nconst rows = [{ name: "Ada", role: "dev" }, { name: "Lin", role: "ops" }];\nprintln(assertSameKeys(rows));` },
+                    { name: "printTable(rows)", doc: `Prints a text table from an array of objects. Column order follows the first object's keys; cell values are stringified and centered. Empty input and invalid row shapes print a note and return null.`, usage: `import { printTable } from "lib:tui";\n\nprintTable([\n    { name: "Ada", role: "dev" },\n    { name: "Lin", role: "ops" }\n]);` },
+                    `Color helpers emit ANSI escape sequences.`
+                ],
+                example: {
+                    code: `import { info, success, divider, printTable, confirm } from "lib:tui";\n\ninfo("Build results");\ndivider(32);\nprintTable([{ task: "compile", status: "ok" }, { task: "test", status: "ok" }]);\nif (confirm("Deploy now?")) success("Deployment started");`
                 }
             }
         ];
@@ -1533,20 +1513,6 @@ println(quoteMeta("a+b"));`,
             return li;
         }
 
-        // Builds the reference table rows from the module array.
-        function renderModuleTable(tbody, modules) {
-            const rows = modules.map(({ name, exports, behavior }) => {
-                const exportsCell = el("td");
-                exports.forEach((exp, i) => {
-                    if (i > 0) exportsCell.append(", ");
-                    exportsCell.append(el("code", { textContent: exp }));
-                });
-                const behaviorCell = el("td", {}, el("ul", { className: "behavior-list" }, ...behavior.map(renderBehaviorItem)));
-                return el("tr", {}, el("td", {}, el("code", { textContent: name })), exportsCell, behaviorCell);
-            });
-            tbody.replaceChildren(...rows);
-        }
-
         function splitApiNames(value) {
             const names = [];
             let depth = 0;
@@ -1565,6 +1531,7 @@ println(quoteMeta("a+b"));`,
 
         function apiItems(module) {
             const items = new Map();
+            const exportedNames = new Set(module.exports.flatMap(splitApiNames).map((name) => name.split("(")[0]));
             const addItem = (name, source) => {
                 const normalizedName = name.replace(/-&gt;/g, "->").trim();
                 if (!normalizedName || items.has(normalizedName)) return;
@@ -1573,7 +1540,7 @@ println(quoteMeta("a+b"));`,
                 items.set(normalizedName, {
                     name: normalizedName,
                     kind: isMethod ? "Method" : isFunction ? "Function" : "Exported value",
-                    doc: source?.doc || (module.name === "core:crypto" && normalizedName === "CryptoJS"
+                    doc: source?.doc || (module.name === "lib:crypto" && normalizedName === "CryptoJS"
                         ? `The CryptoJS-compatible namespace for the implemented hash, key-derivation, WordArray, and encoder APIs.`
                         : "Public module value. See the usage example for the module's supported workflow."),
                     usage: source?.usage,
@@ -1585,7 +1552,7 @@ println(quoteMeta("a+b"));`,
                 let source = module.behavior.find((item) => typeof item !== "string" &&
                     splitApiNames(item.name.replace(/-&gt;/g, "->")).some((entry) =>
                         entry === name || entry.split("(")[0] === name.split("(")[0]));
-                if (!source && module.name === "core:crypto") {
+                if (!source && module.name === "lib:crypto") {
                     if (/^(MD5|SHA\d+|RIPEMD\d+|Hmac)/.test(name)) {
                         source = module.behavior.find((item) => item.name === "Hashes and HMAC");
                     } else if (name === "WordArray" || name === "enc") {
@@ -1598,7 +1565,8 @@ println(quoteMeta("a+b"));`,
             for (const source of module.behavior) {
                 if (typeof source === "string") continue;
                 for (const name of splitApiNames(source.name.replace(/-&gt;/g, "->"))) {
-                    if (name.includes("->") || /^[A-Za-z_$][\w$]*(?:\([^)]*\))?$/.test(name)) {
+                    if (!exportedNames.has(name.split("(")[0]) &&
+                        (name.includes("->") || /^[A-Za-z_$][\w$]*(?:\([^)]*\))?$/.test(name))) {
                         addItem(name, source);
                     }
                 }
@@ -1607,7 +1575,10 @@ println(quoteMeta("a+b"));`,
         }
 
         function renderCoreReference(container, modules) {
-            const allModules = [...modules, ...libraryModules];
+            const coreEntries = modules.filter((module) => module.name.startsWith("core:"));
+            const libraryEntries = [...modules.filter((module) => module.name.startsWith("lib:")), ...libraryModules]
+                .sort((left, right) => left.name.localeCompare(right.name));
+            const allModules = [...coreEntries, ...libraryEntries];
             const moduleSections = allModules.map((module) => {
                 const items = apiItems(module);
                 const moduleId = `module-${module.name.replace(/[^a-z0-9]+/gi, "-")}`;
@@ -1627,7 +1598,10 @@ println(quoteMeta("a+b"));`,
                     const item = items[index];
                     const doc = article.querySelector(".core-api-item__doc");
                     doc.insertAdjacentHTML("beforeend", item.doc);
-                    const code = item.usage || module.example?.code || `import { ${item.name.split("(")[0]} } from "${module.name}";`;
+                    let code = item.usage || module.example?.code || `import { ${item.name.split("(")[0]} } from "${module.name}";`;
+                    if (code.includes("println(") && !code.includes('import { println } from "core:io"')) {
+                        code = code.replace(/^import /, 'import { println } from "core:io";\nimport ');
+                    }
                     article.append(
                         el("p", { className: "core-api-item__usage", textContent: "Runnable module example" }),
                         el("pre", {}, el("code", { textContent: code }))
@@ -1651,84 +1625,8 @@ println(quoteMeta("a+b"));`,
             document.getElementById("modules-nav-item").append(moduleNav);
         }
 
-        // Builds an accessible tabbed code-example widget from { label, code, note? } items.
-        const snippetTabs = {
-            mount(container, items, ariaLabel = "Examples") {
-                const tabList = el("div", { className: "snippet-tabs__list" });
-                tabList.setAttribute("role", "tablist");
-                tabList.setAttribute("aria-label", ariaLabel);
-
-                const panels = items.map((item, index) => {
-                    const id = `snippet-${index}`;
-                    const tab = el("button", {
-                        className: "snippet-tabs__tab",
-                        type: "button",
-                        id: `${id}-tab`,
-                        textContent: item.label,
-                        tabIndex: index === 0 ? 0 : -1
-                    });
-                    tab.setAttribute("role", "tab");
-                    tab.setAttribute("aria-controls", `${id}-panel`);
-                    tab.setAttribute("aria-selected", String(index === 0));
-                    tabList.append(tab);
-
-                    const panel = el("div", {
-                        className: "snippet-tabs__panel",
-                        id: `${id}-panel`,
-                        tabIndex: 0,
-                        hidden: index !== 0
-                    }, el("pre", {}, el("code", { textContent: item.code })));
-                    panel.setAttribute("role", "tabpanel");
-                    panel.setAttribute("aria-labelledby", tab.id);
-                    if (item.note) {
-                        panel.append(el("p", { className: "snippet-tabs__note", textContent: item.note }));
-                    }
-                    return { tab, panel };
-                });
-
-                const activate = (activeIndex, moveFocus = false) => {
-                    panels.forEach(({ tab, panel }, index) => {
-                        const active = index === activeIndex;
-                        tab.setAttribute("aria-selected", String(active));
-                        tab.tabIndex = active ? 0 : -1;
-                        panel.hidden = !active;
-                    });
-                    if (moveFocus) panels[activeIndex].tab.focus();
-                };
-
-                tabList.addEventListener("click", (event) => {
-                    const index = panels.findIndex(({ tab }) => tab === event.target);
-                    if (index >= 0) activate(index);
-                });
-                tabList.addEventListener("keydown", (event) => {
-                    const index = panels.findIndex(({ tab }) => tab === document.activeElement);
-                    if (index < 0) return;
-                    let nextIndex;
-                    if (event.key === "ArrowRight") nextIndex = (index + 1) % panels.length;
-                    else if (event.key === "ArrowLeft") nextIndex = (index - 1 + panels.length) % panels.length;
-                    else if (event.key === "Home") nextIndex = 0;
-                    else if (event.key === "End") nextIndex = panels.length - 1;
-                    else return;
-                    event.preventDefault();
-                    activate(nextIndex, true);
-                });
-
-                container.replaceChildren(
-                    el("div", { className: "snippet-tabs" }, tabList, ...panels.map(({ panel }) => panel))
-                );
-            }
-        };
-
-        renderModuleTable(document.getElementById("core-modules-body"), coreModules);
         renderCoreReference(document.getElementById("core-reference"), coreModules);
 
-        snippetTabs.mount(
-            document.getElementById("core-snippets"),
-            coreModules
-                .filter((m) => m.example)
-                .map((m) => ({ label: m.name, code: m.example.code, note: m.example.note })),
-            "Core module examples"
-        );
     </script>
 </body>
 

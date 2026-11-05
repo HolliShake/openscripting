@@ -66,4 +66,5 @@ const (
 	OpLoadConst
 	OpMakeClass
 	OpCloneLocal
+	OpThrow
 )

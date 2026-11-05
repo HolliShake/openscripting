@@ -395,8 +395,14 @@ func readString(vm *VM, bytecode []int32, ip, bsize int, strTab []string) (strin
 //
 //go:noinline
 func raise(vm *VM, co *Coroutine, instruction int, stack []OSValue, sp int, message string) (newIp, newSp int, dead bool) {
+	return raiseValue(vm, co, instruction, stack, sp, OSValue{}, false, message)
+}
+
+func raiseValue(vm *VM, co *Coroutine, instruction int, stack []OSValue, sp int, value OSValue, isThrown bool, message string) (newIp, newSp int, dead bool) {
 	frame := &co.Frame
-	line := lineForOffset(frame.Function, instruction)
+	if !isThrown {
+		value = newErrorValue(message, int64(lineForOffset(frame.Function, instruction)+1))
+	}
 	handlers := frame.Function.TryCatchTable
 	for index := len(handlers) - 1; index >= 0; index-- {
 		handler := handlers[index]
@@ -405,7 +411,7 @@ func raise(vm *VM, co *Coroutine, instruction int, stack []OSValue, sp int, mess
 		}
 
 		if handler.CatchLocal >= 0 && handler.CatchLocal < len(frame.Env) && frame.Env[handler.CatchLocal] != nil {
-			frame.Env[handler.CatchLocal].Value = newErrorValue(message, int64(line+1))
+			frame.Env[handler.CatchLocal].Value = value
 		}
 		clear(stack[:sp])
 		return handler.CatchStart, 0, false
@@ -414,7 +420,7 @@ func raise(vm *VM, co *Coroutine, instruction int, stack []OSValue, sp int, mess
 	if promise := co.AsyncResult; promise != nil {
 		promise.StringRoot = message
 		promise.StackTrace = captureStackTrace(co, instruction)
-		rejectPromise(vm, promise, newErrorValue(message, int64(line+1)))
+		rejectPromise(vm, promise, value)
 		co.State = CoroutineStateDead
 		asyncCaller := co.AsyncCaller
 		co.Release()
@@ -424,7 +430,7 @@ func raise(vm *VM, co *Coroutine, instruction int, stack []OSValue, sp int, mess
 	if boundary := co.SyncBoundary; boundary != nil {
 		boundary.StringRoot = message
 		boundary.StackTrace = captureStackTrace(co, instruction)
-		rejectPromise(vm, boundary, newErrorValue(message, int64(line+1)))
+		rejectPromise(vm, boundary, value)
 		co.State = CoroutineStateDead
 		if root := boundary.Coroutine; root != nil && root != co {
 			root.State = CoroutineStateDead
@@ -2028,6 +2034,24 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 
 				stack[sp] = value
 				sp++
+			}
+		case OpThrow:
+			{
+				if sp <= 0 {
+					panic(msgUnderflow)
+				}
+				sp--
+				value := stack[sp]
+				stack[sp] = OSValue{}
+				message, isError := errorMessage(value)
+				if !isError {
+					message = value.String()
+				}
+				nip, nsp, dead := raiseValue(vm, co, currentInstruction, stack, sp, value, true, message)
+				if dead {
+					return
+				}
+				ip, sp = nip, nsp
 			}
 		case OpReturn:
 			{

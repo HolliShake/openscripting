@@ -1671,6 +1671,14 @@ func (p *Parser) returnStatement() *Ast {
 	return NewReturnStatement(pos, value)
 }
 
+func (p *Parser) throwStatement() *Ast {
+	position := p.lookahead.Pos
+	p.expect(KeyThrow)
+	value := p.expression(true)
+	p.expect(";")
+	return NewThrowStatement(position, value)
+}
+
 func (p *Parser) blockStatement() *Ast {
 	pos := p.lookahead.Pos
 	p.expect("{")
@@ -1721,6 +1729,8 @@ func (p *Parser) blockLevelStatement() *Ast {
 		return p.breakStatement()
 	} else if p.match(KeyReturn) {
 		return p.returnStatement()
+	} else if p.match(KeyThrow) {
+		return p.throwStatement()
 	} else if p.match("{") {
 		return p.blockStatement()
 	}

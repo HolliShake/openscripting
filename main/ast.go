@@ -83,6 +83,7 @@ const (
 	AstBlock
 	AstExpressionStmt
 	AstProgram
+	AstThrowStmt
 )
 
 const astChunk = 1024
@@ -297,6 +298,12 @@ func NewTryCatch(position Position, tryBlock, catchParam, catchBlock *Ast) *Ast 
 	node.A = tryBlock
 	node.B = catchParam
 	node.C = catchBlock
+	return node
+}
+
+func NewThrowStatement(position Position, value *Ast) *Ast {
+	node := newAst(AstThrowStmt, position)
+	node.A = value
 	return node
 }
 

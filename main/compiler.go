@@ -1973,6 +1973,11 @@ func visitReturn(s *State, scope *Scope, fn *Function, ast *Ast) {
 	emit(fn, OpReturn)
 }
 
+func visitThrow(s *State, scope *Scope, fn *Function, ast *Ast) {
+	visitExpression(s, scope, fn, ast.A)
+	emit(fn, OpThrow)
+}
+
 func visitTryCatch(s *State, scope *Scope, fn *Function, ast *Ast) {
 	if ast.B == nil {
 		for statement := ast.A; statement != nil; statement = statement.Next {
@@ -2363,6 +2368,10 @@ func visitDeclarationOrStatement(s *State, scope *Scope, fn *Function, ast *Ast)
 	case AstReturnStmt:
 		{
 			visitReturn(s, scope, fn, ast)
+		}
+	case AstThrowStmt:
+		{
+			visitThrow(s, scope, fn, ast)
 		}
 	case AstTryCatch:
 		{
