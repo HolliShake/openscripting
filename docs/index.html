@@ -683,11 +683,13 @@ profile[<span class="str">"name"</span>];</code></pre>
                     <code>-&gt;filter(callback)</code>, and <code>-&gt;find(callback)</code>. Each callback receives
                     the element, its zero-based index, and the source array. <code>map</code> returns transformed
                     values, <code>filter</code> retains values whose callback result is truthy, and <code>find</code>
-                    returns the first matching value or <code>null</code>.</p>
+                    returns the first matching value or <code>null</code>.
+                </p>
                 <p>Objects expose <code>-&gt;map(callback)</code>, <code>-&gt;filter(callback)</code>, and
                     <code>-&gt;find(callback)</code>. Their callbacks receive the value, key, and source object;
                     <code>map</code> and <code>filter</code> preserve keys, while <code>find</code> returns the first
-                    matching value or <code>null</code>.</p>
+                    matching value or <code>null</code>.
+                </p>
                 <p>Strings expose <code>-&gt;len()</code>, <code>-&gt;contains(text)</code>,
                     <code>-&gt;startsWith(text)</code>, <code>-&gt;endsWith(text)</code>,
                     <code>-&gt;indexOf(text)</code>, <code>-&gt;toLower()</code>, <code>-&gt;toUpper()</code>,
@@ -695,7 +697,8 @@ profile[<span class="str">"name"</span>];</code></pre>
                     <code>-&gt;replace(search, value)</code>, and <code>-&gt;replaceAll(search, value)</code>.
                     <code>len</code> and <code>indexOf</code> use UTF-8 byte counts and offsets; use
                     <code>core:unicode</code> for code-point operations. Case conversion also has
-                    <code>toLowerCase</code> and <code>toUpperCase</code> aliases.</p>
+                    <code>toLowerCase</code> and <code>toUpperCase</code> aliases.
+                </p>
                 <pre><code><span class="kw">var</span> values = [3, 8, 11];
 <span class="kw">var</span> doubled = values-&gt;map(fn(value, index) {
     <span class="kw">return</span> value * 2 + index;
@@ -849,7 +852,8 @@ loop (;;) {
                 <div id="core-snippets" aria-label="Core module usage examples"></div>
                 <h3>Bundled libraries</h3>
                 <p>Library modules are imported with the <code>lib:name</code> form and loaded from the executable's
-                    <code>lib</code> directory. The shipped modules provide these primary interfaces:</p>
+                    <code>lib</code> directory. The shipped modules provide these primary interfaces:
+                </p>
                 <table>
                     <thead>
                         <tr>
@@ -871,7 +875,8 @@ loop (;;) {
                                 conversion, required options, and <code>nargs</code> forms <code>?</code>,
                                 <code>*</code>, <code>+</code>, or a fixed count. Parsing errors are returned as
                                 objects with an <code>error</code> field; known-argument parsing returns a
-                                <code>namespace</code> and <code>unknown</code> list.</td>
+                                <code>namespace</code> and <code>unknown</code> list.
+                            </td>
                         </tr>
                         <tr>
                             <td><code>lib:number</code></td>
