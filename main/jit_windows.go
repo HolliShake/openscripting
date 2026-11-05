@@ -34,6 +34,10 @@ type executableNativeCode struct {
 	size    uintptr
 }
 
+func (code *executableNativeCode) run(left, right float64) (float64, bool) {
+	return runNativeCode(code, left, right)
+}
+
 func allocateNativeCode(instructions []byte) (nativeCode, error) {
 	if len(instructions) == 0 {
 		return nil, errors.New("cannot allocate empty native code")

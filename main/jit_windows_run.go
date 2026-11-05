@@ -8,7 +8,7 @@ import (
 	"unsafe"
 )
 
-func (code *executableNativeCode) run(left, right float64) (float64, bool) {
+func runNativeCode(code *executableNativeCode, left, right float64) (float64, bool) {
 	if code == nil || code.address == 0 {
 		return 0, false
 	}
