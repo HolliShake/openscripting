@@ -189,22 +189,23 @@ func writeJSONValue(buffer *bytes.Buffer, value OSValue, active map[unsafe.Point
 			if !exists {
 				return fmt.Errorf("object key %q has no value", key)
 			}
-			var encodedValue bytes.Buffer
-			if err := writeJSONValue(&encodedValue, property, active); errors.Is(err, errJSONCycle) {
-				continue
-			} else if err != nil {
-				return err
-			}
 			encodedKey, err := json.Marshal(key)
 			if err != nil {
 				return err
 			}
+			// A cyclic property is dropped entirely, so remember where it would start.
+			mark := buffer.Len()
 			if written > 0 {
 				buffer.WriteByte(',')
 			}
 			buffer.Write(encodedKey)
 			buffer.WriteByte(':')
-			buffer.Write(encodedValue.Bytes())
+			if err := writeJSONValue(buffer, property, active); errors.Is(err, errJSONCycle) {
+				buffer.Truncate(mark)
+				continue
+			} else if err != nil {
+				return err
+			}
 			written++
 		}
 		buffer.WriteByte('}')

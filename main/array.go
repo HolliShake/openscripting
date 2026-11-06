@@ -26,8 +26,9 @@ func ArrayMap(this OSValue, vm *VM, args []OSValue) OSValue {
 	}
 	length := len(array.Elements)
 	result := &Array{Elements: make([]OSValue, length)}
+	callbackArgs := make([]OSValue, 3)
 	for index := 0; index < length; index++ {
-		value, ok := invokeArrayCallback(this, arrayElement(array, index, vm), index, args[0], vm)
+		value, ok := invokeArrayCallback(this, arrayElement(array, index, vm), index, args[0], vm, callbackArgs)
 		if !ok {
 			return vm.Null
 		}
@@ -43,9 +44,10 @@ func ArrayFilter(this OSValue, vm *VM, args []OSValue) OSValue {
 	}
 	length := len(array.Elements)
 	result := &Array{Elements: make([]OSValue, 0, length)}
+	callbackArgs := make([]OSValue, 3)
 	for index := 0; index < length; index++ {
 		value := arrayElement(array, index, vm)
-		keep, ok := invokeArrayCallback(this, value, index, args[0], vm)
+		keep, ok := invokeArrayCallback(this, value, index, args[0], vm, callbackArgs)
 		if !ok {
 			return vm.Null
 		}
@@ -62,9 +64,10 @@ func ArrayFind(this OSValue, vm *VM, args []OSValue) OSValue {
 		return vm.Null
 	}
 	length := len(array.Elements)
+	callbackArgs := make([]OSValue, 3)
 	for index := 0; index < length; index++ {
 		value := arrayElement(array, index, vm)
-		found, ok := invokeArrayCallback(this, value, index, args[0], vm)
+		found, ok := invokeArrayCallback(this, value, index, args[0], vm, callbackArgs)
 		if !ok {
 			return vm.Null
 		}
@@ -124,12 +127,12 @@ func arrayCallbackArgCount(callback OSValue) (int, bool) {
 	}
 }
 
-func invokeArrayCallback(array OSValue, value OSValue, index int, callback OSValue, vm *VM) (OSValue, bool) {
-	var callbackArgs [3]OSValue
+// callbackArgs is a caller-owned buffer reused across calls; callees copy it.
+func invokeArrayCallback(array OSValue, value OSValue, index int, callback OSValue, vm *VM, callbackArgs []OSValue) (OSValue, bool) {
 	callbackArgs[0] = value
 	callbackArgs[1] = OSValue{Type: OSVNum, Number: float64(index)}
 	callbackArgs[2] = array
-	return invokeCollectionCallback(callback, callbackArgs[:], vm)
+	return invokeCollectionCallback(callback, callbackArgs, vm)
 }
 
 func invokeCollectionCallback(callback OSValue, callbackArgs []OSValue, vm *VM) (OSValue, bool) {

@@ -148,11 +148,10 @@ func (v OSValue) String() string {
 	// The set of containers currently being printed is the recursion path,
 	// which is tiny: a slice on the stack replaces the per-call map.
 	var pathBuf [8]unsafe.Pointer
-	path := pathBuf[:0]
 
 	var builder strings.Builder
 	builder.Grow(64)
-	v.writeString(&builder, &path)
+	v.writeString(&builder, pathBuf[:0])
 	return builder.String()
 }
 
@@ -166,7 +165,7 @@ func onPath(path []unsafe.Pointer, p unsafe.Pointer) bool {
 	return false
 }
 
-func (v OSValue) writeString(builder *strings.Builder, path *[]unsafe.Pointer) {
+func (v OSValue) writeString(builder *strings.Builder, path []unsafe.Pointer) {
 	switch v.Type {
 	case OSVNull:
 		{
@@ -207,12 +206,12 @@ func (v OSValue) writeString(builder *strings.Builder, path *[]unsafe.Pointer) {
 		}
 	case OSVArray:
 		{
-			if onPath(*path, v.Opaque) {
+			if onPath(path, v.Opaque) {
 				builder.WriteString("[self]")
 				return
 			}
 
-			*path = append(*path, v.Opaque)
+			path = append(path, v.Opaque)
 
 			elements := (*Array)(v.Opaque).Elements
 			builder.WriteByte('[')
@@ -223,17 +222,15 @@ func (v OSValue) writeString(builder *strings.Builder, path *[]unsafe.Pointer) {
 				element.writeString(builder, path)
 			}
 			builder.WriteByte(']')
-
-			*path = (*path)[:len(*path)-1]
 		}
 	case OSVObject:
 		{
-			if onPath(*path, v.Opaque) {
+			if onPath(path, v.Opaque) {
 				builder.WriteString("{self}")
 				return
 			}
 
-			*path = append(*path, v.Opaque)
+			path = append(path, v.Opaque)
 
 			obj := (*Object)(v.Opaque)
 			if obj.ClassName != "" {
@@ -250,8 +247,6 @@ func (v OSValue) writeString(builder *strings.Builder, path *[]unsafe.Pointer) {
 				obj.Values[key].writeString(builder, path)
 			}
 			builder.WriteByte('}')
-
-			*path = (*path)[:len(*path)-1]
 		}
 	case OSVFunction:
 		{

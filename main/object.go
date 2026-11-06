@@ -44,17 +44,15 @@ func ObjectMap(this OSValue, vm *VM, args []OSValue) OSValue {
 	}
 	length := len(object.Keys)
 	result := &Object{Keys: make([]string, 0, length), Values: make(map[string]OSValue, length)}
+	callbackArgs := make([]OSValue, 3)
 	for index := 0; index < length; index++ {
 		key := object.Keys[index]
 		value, exists := object.Values[key]
 		if !exists {
 			continue
 		}
-		mapped, ok := invokeCollectionCallback(args[0], []OSValue{
-			value,
-			objectString(key),
-			this,
-		}, vm)
+		callbackArgs[0], callbackArgs[1], callbackArgs[2] = value, objectString(key), this
+		mapped, ok := invokeCollectionCallback(args[0], callbackArgs, vm)
 		if !ok {
 			return vm.Null
 		}
@@ -70,17 +68,15 @@ func ObjectFilter(this OSValue, vm *VM, args []OSValue) OSValue {
 	}
 	length := len(object.Keys)
 	result := &Object{Keys: make([]string, 0, length), Values: make(map[string]OSValue, length)}
+	callbackArgs := make([]OSValue, 3)
 	for index := 0; index < length; index++ {
 		key := object.Keys[index]
 		value, exists := object.Values[key]
 		if !exists {
 			continue
 		}
-		keep, ok := invokeCollectionCallback(args[0], []OSValue{
-			value,
-			objectString(key),
-			this,
-		}, vm)
+		callbackArgs[0], callbackArgs[1], callbackArgs[2] = value, objectString(key), this
+		keep, ok := invokeCollectionCallback(args[0], callbackArgs, vm)
 		if !ok {
 			return vm.Null
 		}
@@ -97,17 +93,15 @@ func ObjectFind(this OSValue, vm *VM, args []OSValue) OSValue {
 		return vm.Null
 	}
 	length := len(object.Keys)
+	callbackArgs := make([]OSValue, 3)
 	for index := 0; index < length; index++ {
 		key := object.Keys[index]
 		value, exists := object.Values[key]
 		if !exists {
 			continue
 		}
-		found, ok := invokeCollectionCallback(args[0], []OSValue{
-			value,
-			objectString(key),
-			this,
-		}, vm)
+		callbackArgs[0], callbackArgs[1], callbackArgs[2] = value, objectString(key), this
+		found, ok := invokeCollectionCallback(args[0], callbackArgs, vm)
 		if !ok {
 			return vm.Null
 		}

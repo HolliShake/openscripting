@@ -155,8 +155,7 @@ func parseFloatPrefix(text string) (float64, bool) {
 	}
 	value, err := strconv.ParseFloat(text[:numberEnd], 64)
 	if err != nil {
-		var numberError *strconv.NumError
-		if !errors.As(err, &numberError) || !errors.Is(numberError.Err, strconv.ErrRange) {
+		if numberError, ok := err.(*strconv.NumError); !ok || !errors.Is(numberError.Err, strconv.ErrRange) {
 			return 0, false
 		}
 	}

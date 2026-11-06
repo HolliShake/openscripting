@@ -588,11 +588,13 @@ func regexReplaceCallback(vm *VM, this OSValue, args []OSValue, name string, rep
 		return vm.Null
 	}
 	var callbackErr string
+	callbackArgs := make([]OSValue, 1)
 	result := replace(compiled, source, func(match string) string {
 		if callbackErr != "" {
 			return ""
 		}
-		value, succeeded := invokeCollectionCallback(args[1], []OSValue{regexString(match)}, vm)
+		callbackArgs[0] = regexString(match)
+		value, succeeded := invokeCollectionCallback(args[1], callbackArgs, vm)
 		if !succeeded {
 			callbackErr = vm.NativeError
 			vm.NativeError = ""
