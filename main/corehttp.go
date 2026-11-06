@@ -330,7 +330,7 @@ func (state *httpAppState) ServeHTTP(writer http.ResponseWriter, request *http.R
 	if route.handler.Type == OSVFunction {
 		incoming := &httpIncoming{
 			method: request.Method, path: request.URL.Path, query: request.URL.RawQuery,
-			body: string(body), headers: request.Header.Clone(), route: route,
+			body: unsafe.String(unsafe.SliceData(body), len(body)), headers: request.Header.Clone(), route: route,
 			done: make(chan struct{}),
 		}
 		incoming.write = func(status int, contentType, responseBody string) {
@@ -522,7 +522,7 @@ func nativeHTTPFetch(vm *VM, args []OSValue) OSValue {
 		vm.HTTPFetches <- httpFetchResult{
 			promise: promise, status: response.StatusCode, statusText: response.Status,
 			url: response.Request.URL.String(), headers: response.Header.Clone(),
-			body: string(responseBody), err: err,
+			body: unsafe.String(unsafe.SliceData(responseBody), len(responseBody)), err: err,
 		}
 	}()
 	return OSValue{Type: OSVPromise, Opaque: unsafe.Pointer(promise)}

@@ -282,7 +282,8 @@ func regexExpandString(this OSValue, vm *VM, args []OSValue) OSValue {
 			return vm.Null
 		}
 	}
-	return regexString(string(compiled.ExpandString(nil, template, source, match)))
+	expanded := compiled.ExpandString(nil, template, source, match)
+	return regexString(unsafe.String(unsafe.SliceData(expanded), len(expanded)))
 }
 
 func regexFindAllString(this OSValue, vm *VM, args []OSValue) OSValue {
@@ -311,17 +312,17 @@ func regexFindAllStringSubmatchIndex(this OSValue, vm *VM, args []OSValue) OSVal
 
 func regexFind(this OSValue, vm *VM, args []OSValue) OSValue {
 	return regexFindOne(vm, this, args, "find", func(re *regexp.Regexp, source string) OSValue {
-		found := re.Find([]byte(source))
-		if found == nil {
+		indices := re.FindStringIndex(source)
+		if indices == nil {
 			return vm.Null
 		}
-		return regexString(string(found))
+		return regexString(source[indices[0]:indices[1]])
 	})
 }
 
 func regexFindIndex(this OSValue, vm *VM, args []OSValue) OSValue {
 	return regexFindOne(vm, this, args, "findIndex", func(re *regexp.Regexp, source string) OSValue {
-		if indices := re.FindIndex([]byte(source)); indices != nil {
+		if indices := re.FindStringIndex(source); indices != nil {
 			return regexIndexArray(indices)
 		}
 		return vm.Null
@@ -330,18 +331,13 @@ func regexFindIndex(this OSValue, vm *VM, args []OSValue) OSValue {
 
 func regexFindSubmatch(this OSValue, vm *VM, args []OSValue) OSValue {
 	return regexFindOne(vm, this, args, "findSubmatch", func(re *regexp.Regexp, source string) OSValue {
-		matches := re.FindSubmatch([]byte(source))
-		values := make([]string, len(matches))
-		for index, match := range matches {
-			values[index] = string(match)
-		}
-		return regexStringArray(values)
+		return regexStringArray(re.FindStringSubmatch(source))
 	})
 }
 
 func regexFindSubmatchIndex(this OSValue, vm *VM, args []OSValue) OSValue {
 	return regexFindOne(vm, this, args, "findSubmatchIndex", func(re *regexp.Regexp, source string) OSValue {
-		if indices := re.FindSubmatchIndex([]byte(source)); indices != nil {
+		if indices := re.FindStringSubmatchIndex(source); indices != nil {
 			return regexIndexArray(indices)
 		}
 		return vm.Null
@@ -368,38 +364,25 @@ func regexFindReaderSubmatchIndex(this OSValue, vm *VM, args []OSValue) OSValue 
 
 func regexFindAllBytes(this OSValue, vm *VM, args []OSValue) OSValue {
 	return regexFindAll(vm, this, args, "findAll", func(re *regexp.Regexp, source string, count int) OSValue {
-		matches := re.FindAll([]byte(source), count)
-		values := make([]string, len(matches))
-		for index, match := range matches {
-			values[index] = string(match)
-		}
-		return regexStringArray(values)
+		return regexStringArray(re.FindAllString(source, count))
 	})
 }
 
 func regexFindAllIndex(this OSValue, vm *VM, args []OSValue) OSValue {
 	return regexFindAll(vm, this, args, "findAllIndex", func(re *regexp.Regexp, source string, count int) OSValue {
-		return regexIndexArrayArray(re.FindAllIndex([]byte(source), count))
+		return regexIndexArrayArray(re.FindAllStringIndex(source, count))
 	})
 }
 
 func regexFindAllSubmatch(this OSValue, vm *VM, args []OSValue) OSValue {
 	return regexFindAll(vm, this, args, "findAllSubmatch", func(re *regexp.Regexp, source string, count int) OSValue {
-		matches := re.FindAllSubmatch([]byte(source), count)
-		values := make([][]string, len(matches))
-		for index, match := range matches {
-			values[index] = make([]string, len(match))
-			for submatchIndex, submatch := range match {
-				values[index][submatchIndex] = string(submatch)
-			}
-		}
-		return regexStringArrayArray(values)
+		return regexStringArrayArray(re.FindAllStringSubmatch(source, count))
 	})
 }
 
 func regexFindAllSubmatchIndex(this OSValue, vm *VM, args []OSValue) OSValue {
 	return regexFindAll(vm, this, args, "findAllSubmatchIndex", func(re *regexp.Regexp, source string, count int) OSValue {
-		return regexIndexArrayArray(re.FindAllSubmatchIndex([]byte(source), count))
+		return regexIndexArrayArray(re.FindAllStringSubmatchIndex(source, count))
 	})
 }
 
@@ -488,7 +471,7 @@ func regexMatchString(this OSValue, vm *VM, args []OSValue) OSValue {
 
 func regexMatch(this OSValue, vm *VM, args []OSValue) OSValue {
 	return regexMatchSource(vm, this, args, "match", func(re *regexp.Regexp, source string) bool {
-		return re.Match([]byte(source))
+		return re.MatchString(source)
 	})
 }
 
@@ -554,21 +537,19 @@ func regexReplaceAllLiteralString(this OSValue, vm *VM, args []OSValue) OSValue 
 
 func regexReplaceAllLiteral(this OSValue, vm *VM, args []OSValue) OSValue {
 	return regexReplace(vm, this, args, "replaceAllLiteral", func(re *regexp.Regexp, source, replacement string) string {
-		return string(re.ReplaceAllLiteral([]byte(source), []byte(replacement)))
+		return re.ReplaceAllLiteralString(source, replacement)
 	})
 }
 
 func regexReplaceAll(this OSValue, vm *VM, args []OSValue) OSValue {
 	return regexReplace(vm, this, args, "replaceAll", func(re *regexp.Regexp, source, replacement string) string {
-		return string(re.ReplaceAll([]byte(source), []byte(replacement)))
+		return re.ReplaceAllString(source, replacement)
 	})
 }
 
 func regexReplaceAllFunc(this OSValue, vm *VM, args []OSValue) OSValue {
 	return regexReplaceCallback(vm, this, args, "replaceAllFunc", func(re *regexp.Regexp, source string, replace func(string) string) string {
-		return string(re.ReplaceAllFunc([]byte(source), func(match []byte) []byte {
-			return []byte(replace(string(match)))
-		}))
+		return re.ReplaceAllStringFunc(source, replace)
 	})
 }
 
@@ -587,27 +568,29 @@ func regexReplaceCallback(vm *VM, this OSValue, args []OSValue, name string, rep
 	if !ok {
 		return vm.Null
 	}
-	var callbackErr string
-	callbackArgs := make([]OSValue, 1)
+	var callback struct {
+		err  string
+		args [1]OSValue
+	}
 	result := replace(compiled, source, func(match string) string {
-		if callbackErr != "" {
+		if callback.err != "" {
 			return ""
 		}
-		callbackArgs[0] = regexString(match)
-		value, succeeded := invokeCollectionCallback(args[1], callbackArgs, vm)
+		callback.args[0] = regexString(match)
+		value, succeeded := invokeCollectionCallback(args[1], callback.args[:], vm)
 		if !succeeded {
-			callbackErr = vm.NativeError
+			callback.err = vm.NativeError
 			vm.NativeError = ""
 			return ""
 		}
 		if !IsString(value) {
-			callbackErr = "Regex." + name + " callback must return a string"
+			callback.err = "Regex." + name + " callback must return a string"
 			return ""
 		}
 		return value.StringValue()
 	})
-	if callbackErr != "" {
-		vm.NativeError = callbackErr
+	if callback.err != "" {
+		vm.NativeError = callback.err
 		return vm.Null
 	}
 	return regexString(result)
@@ -685,7 +668,7 @@ func regexAppendText(this OSValue, vm *VM, args []OSValue) OSValue {
 		vm.NativeError = "Regex.appendText: " + err.Error()
 		return vm.Null
 	}
-	return regexString(string(encoded))
+	return regexString(unsafe.String(unsafe.SliceData(encoded), len(encoded)))
 }
 
 func regexMarshalText(this OSValue, vm *VM, _ []OSValue) OSValue {
@@ -698,7 +681,7 @@ func regexMarshalText(this OSValue, vm *VM, _ []OSValue) OSValue {
 		vm.NativeError = "Regex.marshalText: " + err.Error()
 		return vm.Null
 	}
-	return regexString(string(encoded))
+	return regexString(unsafe.String(unsafe.SliceData(encoded), len(encoded)))
 }
 
 func regexUnmarshalText(this OSValue, vm *VM, args []OSValue) OSValue {
@@ -756,7 +739,7 @@ func nativeRegexMatch(vm *VM, args []OSValue) OSValue {
 	if !ok {
 		return vm.Null
 	}
-	matched, err := regexp.Match(pattern, []byte(source))
+	matched, err := regexp.MatchString(pattern, source)
 	if err != nil {
 		vm.NativeError = "core:regex.match: " + err.Error()
 		return vm.Null

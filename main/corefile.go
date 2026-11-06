@@ -17,7 +17,7 @@ func nativeReadText(vm *VM, args []OSValue) OSValue {
 		vm.NativeError = "core:file.readText: " + err.Error()
 		return vm.Null
 	}
-	value := string(content)
+	value := unsafe.String(unsafe.SliceData(content), len(content))
 	return OSValue{
 		Type:   OSVString,
 		Number: float64(len(value)),
@@ -30,7 +30,8 @@ func nativeWriteText(vm *VM, args []OSValue) OSValue {
 		vm.NativeError = "core:file.writeText expects a path and text string"
 		return vm.False
 	}
-	if err := os.WriteFile(args[0].StringValue(), []byte(args[1].StringValue()), 0644); err != nil {
+	text := args[1].StringValue()
+	if err := os.WriteFile(args[0].StringValue(), unsafe.Slice(unsafe.StringData(text), len(text)), 0644); err != nil {
 		vm.NativeError = "core:file.writeText: " + err.Error()
 		return vm.False
 	}

@@ -37,9 +37,7 @@ type Function struct {
 
 func (fn *Function) Clone() *Function {
 	c := *fn
-	c.Bytecode = slices.Clone(fn.Bytecode)
-	c.TryCatchTable = slices.Clone(fn.TryCatchTable)
-	c.Lines = slices.Clone(fn.Lines)
+	// Bytecode, handlers and lines are read-only after compilation, so closures share them (and the VM's literal table keyed by bytecode).
 	c.CaptureMeta = slices.Clone(fn.CaptureMeta)
 	return &c
 }

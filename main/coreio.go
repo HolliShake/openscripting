@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -12,7 +11,7 @@ import (
 var coreIOInput = bufio.NewReader(os.Stdin)
 
 func nativeScan(vm *VM, args []OSValue) OSValue {
-	fmt.Print(args[0].String())
+	os.Stdout.WriteString(args[0].String())
 	line, err := coreIOInput.ReadString('\n')
 	if err != nil && err != io.EOF {
 		vm.NativeError = "core:io.scan: " + err.Error()
@@ -33,9 +32,9 @@ func nativeScan(vm *VM, args []OSValue) OSValue {
 func nativePrint(vm *VM, args []OSValue) OSValue {
 	for index, value := range args {
 		if index > 0 {
-			fmt.Print(" ")
+			os.Stdout.WriteString(" ")
 		}
-		fmt.Print(value.String())
+		os.Stdout.WriteString(value.String())
 	}
 	return vm.Null
 }
@@ -43,11 +42,11 @@ func nativePrint(vm *VM, args []OSValue) OSValue {
 func nativePrintln(vm *VM, args []OSValue) OSValue {
 	for index, value := range args {
 		if index > 0 {
-			fmt.Print(" ")
+			os.Stdout.WriteString(" ")
 		}
-		fmt.Print(value.String())
+		os.Stdout.WriteString(value.String())
 	}
-	fmt.Println()
+	os.Stdout.WriteString("\n")
 	return vm.Null
 }
 

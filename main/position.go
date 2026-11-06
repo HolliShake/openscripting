@@ -1,6 +1,6 @@
 package main
 
-import "fmt"
+import "strconv"
 
 type Position struct {
 	// Line is the one-based source line for parser/compiler diagnostics.
@@ -10,5 +10,5 @@ type Position struct {
 }
 
 func (p Position) String() string {
-	return fmt.Sprintf("Position {Line: %d, Colm: %d}", p.Line, p.Column)
+	return "Position {Line: " + strconv.Itoa(p.Line) + ", Colm: " + strconv.Itoa(p.Column) + "}"
 }

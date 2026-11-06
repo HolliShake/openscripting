@@ -100,7 +100,7 @@ type envBlock16 struct {
 func newEnv(n int) []*Cell {
 	switch {
 	case n <= 0:
-		return make([]*Cell, 0)
+		return nil
 	case n <= 4:
 		b := new(envBlock4)
 		for i := 0; i < n; i++ {

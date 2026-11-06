@@ -1,9 +1,6 @@
 package main
 
-import (
-	"fmt"
-	"strconv"
-)
+import "strconv"
 
 const (
 	KEY TokenType = iota
@@ -51,5 +48,5 @@ func (t Token) String() string {
 	typeStr := t.Type.String()
 	valStr := strconv.Quote(t.Value)
 	posStr := t.Pos.String()
-	return fmt.Sprintf("Token {Type: %s, Value: %s, Pos: %s}", typeStr, valStr, posStr)
+	return "Token {Type: " + typeStr + ", Value: " + valStr + ", Pos: " + posStr + "}"
 }

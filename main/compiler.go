@@ -261,7 +261,7 @@ func assert(astType AstType, ast *Ast) {
 //
 //go:noinline
 func unexpected(where string, t AstType) {
-	panic(fmt.Sprintf("%s: unexpected type %v", where, t))
+	panic(where + ": unexpected type " + strconv.Itoa(int(t)))
 }
 
 func emitLine(fn *Function, line Position) {

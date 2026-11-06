@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 	"unsafe"
@@ -278,7 +279,7 @@ func applyNumericBitwise(op int32, left, right int64) int64 {
 
 //go:noinline
 func argcMessage(expected, got int) string {
-	return fmt.Sprintf("function expects %d arguments, got %d", expected, got)
+	return "function expects " + strconv.Itoa(expected) + " arguments, got " + strconv.Itoa(got)
 }
 
 // writeLog avoids boxing the string into a []any for log.Println.
@@ -1147,12 +1148,12 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 				ip++
 
 				if funcIndex < 0 || funcIndex >= len(state.Functions) {
-					panic(fmt.Sprintf("invalid function index: %d", funcIndex))
+					panic("invalid function index: " + strconv.Itoa(funcIndex))
 				}
 
 				fn := state.Functions[funcIndex]
 				if fn == nil {
-					panic(fmt.Sprintf("function at index %d is nil", funcIndex))
+					panic("function at index " + strconv.Itoa(funcIndex) + " is nil")
 				}
 
 				// Only functions that capture variables need a per-closure
@@ -1160,7 +1161,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 				if len(fn.CaptureMeta) > 0 {
 					fn = fn.Clone()
 					if fn == nil {
-						panic(fmt.Sprintf("function at index %d is nil", funcIndex))
+						panic("function at index " + strconv.Itoa(funcIndex) + " is nil")
 					}
 
 					// Save captured variables from the current environment
@@ -2068,7 +2069,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 					returnValue = env[frame.Function.ClassThisOffset].Value
 				}
 				if sp != 0 {
-					panic(fmt.Sprintf("stack not empty on return (stack pointer: %d)", sp))
+					panic("stack not empty on return (stack pointer: " + strconv.Itoa(sp) + ")")
 				}
 
 				if module := frame.Function.Module; module != nil {
@@ -2144,7 +2145,7 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 			}
 		default:
 			{
-				panic(fmt.Sprintf("unknown opcode %d at offset %d", op, ip-1))
+				panic("unknown opcode " + strconv.Itoa(int(op)) + " at offset " + strconv.Itoa(ip-1))
 			}
 		}
 		continue

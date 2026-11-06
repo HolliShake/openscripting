@@ -8,10 +8,18 @@ import (
 	"io"
 	"math"
 	"strconv"
+	"strings"
 	"unsafe"
 )
 
 var errJSONCycle = errors.New("cannot serialize a cyclic value")
+
+var (
+	errJSONKeyNotString = errors.New("object key is not a string")
+	errJSONNonFinite    = errors.New("cannot serialize a non-finite number")
+	errJSONNilArray     = errors.New("cannot serialize a nil array")
+	errJSONNilObject    = errors.New("cannot serialize a nil object")
+)
 
 func coreJSONFunction(paramCount int, callable func(vm *VM, args []OSValue) OSValue) OSValue {
 	return OSValue{
@@ -37,7 +45,7 @@ func nativeJSONParse(vm *VM, args []OSValue) OSValue {
 		return vm.Null
 	}
 
-	decoder := json.NewDecoder(bytes.NewBufferString(args[0].StringValue()))
+	decoder := json.NewDecoder(strings.NewReader(args[0].StringValue()))
 	decoder.UseNumber()
 	value, err := parseJSONValue(decoder)
 	if err != nil {
@@ -74,7 +82,7 @@ func parseJSONValue(decoder *json.Decoder) (OSValue, error) {
 	case json.Number:
 		number, err := strconv.ParseFloat(string(value), 64)
 		if err != nil || math.IsInf(number, 0) || math.IsNaN(number) {
-			return OSValue{}, fmt.Errorf("number %q is outside the supported range", value)
+			return OSValue{}, errors.New("number " + strconv.Quote(string(value)) + " is outside the supported range")
 		}
 		return OSValue{Type: OSVNum, Number: number}, nil
 	case json.Delim:
@@ -101,7 +109,7 @@ func parseJSONValue(decoder *json.Decoder) (OSValue, error) {
 				}
 				key, ok := keyToken.(string)
 				if !ok {
-					return OSValue{}, fmt.Errorf("object key is not a string")
+					return OSValue{}, errJSONKeyNotString
 				}
 				property, err := parseJSONValue(decoder)
 				if err != nil {
@@ -124,7 +132,8 @@ func nativeJSONStringify(vm *VM, args []OSValue) OSValue {
 		vm.NativeError = "core:json.stringify: " + err.Error()
 		return vm.Null
 	}
-	return jsonString(buffer.String())
+	out := buffer.Bytes()
+	return jsonString(unsafe.String(unsafe.SliceData(out), len(out)))
 }
 
 func writeJSONValue(buffer *bytes.Buffer, value OSValue, active map[unsafe.Pointer]bool) error {
@@ -139,14 +148,16 @@ func writeJSONValue(buffer *bytes.Buffer, value OSValue, active map[unsafe.Point
 		}
 	case OSVInt:
 		if math.IsNaN(value.Number) || math.IsInf(value.Number, 0) {
-			return fmt.Errorf("cannot serialize a non-finite number")
+			return errJSONNonFinite
 		}
-		buffer.Write(strconv.AppendInt(nil, int64(value.Number), 10))
+		var scratch [24]byte
+		buffer.Write(strconv.AppendInt(scratch[:0], int64(value.Number), 10))
 	case OSVNum:
 		if math.IsNaN(value.Number) || math.IsInf(value.Number, 0) {
-			return fmt.Errorf("cannot serialize a non-finite number")
+			return errJSONNonFinite
 		}
-		buffer.Write(strconv.AppendFloat(nil, value.Number, 'f', -1, 64))
+		var scratch [32]byte
+		buffer.Write(strconv.AppendFloat(scratch[:0], value.Number, 'f', -1, 64))
 	case OSVString:
 		encoded, err := json.Marshal(value.StringValue())
 		if err != nil {
@@ -155,7 +166,7 @@ func writeJSONValue(buffer *bytes.Buffer, value OSValue, active map[unsafe.Point
 		buffer.Write(encoded)
 	case OSVArray:
 		if value.Opaque == nil {
-			return fmt.Errorf("cannot serialize a nil array")
+			return errJSONNilArray
 		}
 		if active[value.Opaque] {
 			return errJSONCycle
@@ -174,7 +185,7 @@ func writeJSONValue(buffer *bytes.Buffer, value OSValue, active map[unsafe.Point
 		buffer.WriteByte(']')
 	case OSVObject:
 		if value.Opaque == nil {
-			return fmt.Errorf("cannot serialize a nil object")
+			return errJSONNilObject
 		}
 		if active[value.Opaque] {
 			return errJSONCycle
@@ -187,7 +198,7 @@ func writeJSONValue(buffer *bytes.Buffer, value OSValue, active map[unsafe.Point
 		for _, key := range object.Keys {
 			property, exists := object.Values[key]
 			if !exists {
-				return fmt.Errorf("object key %q has no value", key)
+				return errors.New("object key " + strconv.Quote(key) + " has no value")
 			}
 			encodedKey, err := json.Marshal(key)
 			if err != nil {
@@ -210,7 +221,7 @@ func writeJSONValue(buffer *bytes.Buffer, value OSValue, active map[unsafe.Point
 		}
 		buffer.WriteByte('}')
 	default:
-		return fmt.Errorf("cannot serialize value of type %d", value.Type)
+		return errors.New("cannot serialize value of type " + strconv.Itoa(int(value.Type)))
 	}
 	return nil
 }
