@@ -193,10 +193,10 @@ Or use `build.bat`, which also embeds the project icon. Running either build scr
 
 The build scripts also support:
 
-| Flag     | What it does                                                                                                                                     |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `--all`  | Builds optimized archives under `dist/compressed/` for supported Windows, Linux, macOS, and BSD targets. Windows uses ZIP; others use `.tar.gz`. |
-| `--help` | Lists all options.                                                                                                                               |
+| Flag     | What it does                                                                                                                                                                                                                                                                                    |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--all`  | Builds optimized archives under `dist/compressed/` for supported Windows, Linux, macOS, BSD, and `js/wasm` / `wasip1/wasm` targets. Windows uses ZIP; others use `.tar.gz`. Each archive has its own `<archive>.sha256` checksum file. The JS/WASM archive includes Go's Node.js runtime files. |
+| `--help` | Lists all options.                                                                                                                                                                                                                                                                              |
 
 ### 3. Run a script
 

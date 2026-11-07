@@ -23,8 +23,8 @@ usage() {
 	printf '\nBuild the current operating system and architecture into openscript.\n'
 	printf 'Windows builds use the .exe extension and embed docs/openscript.ico.\n'
 	printf '\nOptions:\n'
-	printf '  --all      Build optimized Windows, Linux, macOS, and BSD releases for amd64, arm64, 386, arm, and riscv64.\n'
-	printf '             Packages go to dist/compressed as .zip or .tar.gz with lib/ included.\n'
+	printf '  --all      Build optimized Windows, Linux, macOS, BSD, and WebAssembly releases for supported architectures.\n'
+	printf '             Packages go to dist/compressed; js/wasm includes Go runtime files for Node.js.\n'
 	printf '  --help, -h, /? Show this help and exit.\n'
 }
 
@@ -55,6 +55,9 @@ build_target() {
 			return 1
 		fi
 		output+=.exe
+	fi
+	if [[ "$target_os" == js || "$target_os" == wasip1 ]]; then
+		output+=.wasm
 	fi
 
 	mkdir -p "$(dirname "$output")"
@@ -95,6 +98,11 @@ package_target() {
 		return 1
 	fi
 	cp -R lib "$stage/lib"
+	if [[ "$target_os" == js ]]; then
+		local wasm_runtime="$(go env GOROOT)/lib/wasm"
+		cp "$wasm_runtime/wasm_exec.js" "$stage/wasm_exec.js"
+		cp "$wasm_runtime/wasm_exec_node.js" "$stage/wasm_exec_node.js"
+	fi
 	if [[ "$target_os" == windows ]]; then
 		if ! command -v zip >/dev/null 2>&1; then
 			printf 'zip is required to package Windows targets.\n' >&2
@@ -115,6 +123,14 @@ package_target() {
 		fi
 	fi
 	rm -rf "$stage"
+	(
+		cd "$ROOT_DIR/dist/compressed"
+		if command -v sha256sum >/dev/null 2>&1; then
+			sha256sum "$(basename "$archive")" > "$(basename "$archive").sha256"
+		else
+			shasum -a 256 "$(basename "$archive")" > "$(basename "$archive").sha256"
+		fi
+	)
 	printf 'Packaged %s/%s to %s.\n' "$target_os" "$target_arch" "${archive#"$ROOT_DIR/"}"
 }
 
@@ -122,11 +138,15 @@ target_supported() {
 	local target_os=$1
 	local target_arch=$2
 	case "$target_os" in
-		windows|linux|darwin|dragonfly|freebsd|netbsd|openbsd) ;;
-		*) return 1 ;;
-	esac
-	case "$target_arch" in
-		amd64|arm64|386|arm|riscv64) return 0 ;;
+		js|wasip1)
+			[[ "$target_arch" == wasm ]]
+			;;
+		windows|linux|darwin|dragonfly|freebsd|netbsd|openbsd)
+			case "$target_arch" in
+				amd64|arm64|386|arm|riscv64) return 0 ;;
+				*) return 1 ;;
+			esac
+			;;
 		*) return 1 ;;
 	esac
 }
@@ -142,7 +162,6 @@ case "${1:-}" in
 			exit 2
 		fi
 		ALL_MODE=1
-		RELEASE_MODE=1
 		mkdir -p dist/compressed
 		while IFS=/ read -r target_os target_arch; do
 			if target_supported "$target_os" "$target_arch"; then

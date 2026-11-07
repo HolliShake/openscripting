@@ -5,6 +5,7 @@ if /I "%~1"=="-h" goto help
 if "%~1"=="/?" goto help
 for /f %%A in ('go env GOOS') do set "HOST_OS=%%A"
 for /f %%A in ('go env GOARCH') do set "HOST_ARCH=%%A"
+for /f "delims=" %%A in ('go env GOROOT') do set "GOROOT=%%A"
 set "FAILED=0"
 set "ALL_MODE=0"
 
@@ -32,6 +33,12 @@ if /I "%~1"=="dragonfly" goto supported_os
 if /I "%~1"=="freebsd" goto supported_os
 if /I "%~1"=="netbsd" goto supported_os
 if /I "%~1"=="openbsd" goto supported_os
+if /I "%~1"=="js" goto supported_wasm
+if /I "%~1"=="wasip1" goto supported_wasm
+exit /b 1
+
+:supported_wasm
+if /I "%~2"=="wasm" exit /b 0
 exit /b 1
 
 :supported_os
@@ -57,6 +64,12 @@ call :build_target "%TARGET_OS%" "%TARGET_ARCH%" "%STAGE%\openscript"
 if errorlevel 1 goto package_failed
 xcopy /E /I /Y /Q "lib" "%STAGE%\lib" >nul
 if errorlevel 1 goto package_failed
+if /I "%TARGET_OS%"=="js" (
+    copy /Y "%GOROOT%\lib\wasm\wasm_exec.js" "%STAGE%\wasm_exec.js" >nul
+    if errorlevel 1 goto package_failed
+    copy /Y "%GOROOT%\lib\wasm\wasm_exec_node.js" "%STAGE%\wasm_exec_node.js" >nul
+    if errorlevel 1 goto package_failed
+)
 if /I "%TARGET_OS%"=="windows" (
     powershell -NoProfile -Command "Compress-Archive -Path '%STAGE%\*' -DestinationPath '%ARCHIVE%' -Force"
 ) else (
@@ -64,6 +77,8 @@ if /I "%TARGET_OS%"=="windows" (
 )
 if errorlevel 1 goto package_failed
 rmdir /S /Q "%STAGE%"
+powershell -NoProfile -Command "$sha=[Security.Cryptography.SHA256]::Create(); $bytes=[IO.File]::ReadAllBytes('%ARCHIVE%'); $digestValue=[BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '').ToLower(); Set-Content -LiteralPath '%ARCHIVE%.sha256' -Value ($digestValue + '  ' + [IO.Path]::GetFileName('%ARCHIVE%'))"
+if errorlevel 1 goto package_failed
 echo Packaged %TARGET_OS%/%TARGET_ARCH% to %ARCHIVE%.
 exit /b 0
 
@@ -96,6 +111,8 @@ if /I "%TARGET_OS%"=="windows" (
 )
 
 if /I "%TARGET_OS%"=="windows" if /I not "%OUTPUT:~-4%"==".exe" set "OUTPUT=%OUTPUT%.exe"
+if /I "%TARGET_OS%"=="js" set "OUTPUT=%OUTPUT%.wasm"
+if /I "%TARGET_OS%"=="wasip1" set "OUTPUT=%OUTPUT%.wasm"
 
 set "GOOS=%TARGET_OS%"
 set "GOARCH=%TARGET_ARCH%"
@@ -126,8 +143,8 @@ echo(Build the current operating system and architecture into openscript.exe.
 echo(Windows builds use the .exe extension.
 echo(
 echo(Options:
-echo(  --all    Build optimized Windows, Linux, macOS, and BSD releases for amd64, arm64, 386, arm, and riscv64.
-echo(           Packages are written to dist\compressed as .zip or .tar.gz with lib\ included.
+echo(  --all    Build optimized Windows, Linux, macOS, BSD, and WebAssembly releases for supported architectures.
+echo(           Packages are written to dist\compressed; js/wasm includes Go's Node.js runtime launcher.
 echo(  --help   Show this help and exit.
 echo(  -h       Show this help and exit.
 echo(  /?       Show this help and exit.

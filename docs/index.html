@@ -541,7 +541,9 @@
                     <code>build.bat</code> on Windows. With no arguments, either script writes the executable to the
                     repository root as <code>openscript</code> or <code>openscript.exe</code>. The optional
                     <code>--all</code> builds compressed releases under <code>dist/compressed/</code> for supported
-                    Windows, Linux, macOS, and BSD targets.
+                    Windows, Linux, macOS, BSD, and WebAssembly targets (<code>js/wasm</code> and
+                    <code>wasip1/wasm</code>). Each archive has its own <code>.sha256</code> checksum file, and the
+                    JS/WASM package includes Go's Node.js runtime files.
                 </p>
                 <p>Scripts use the <code>.os</code> extension. The executable accepts a script path with <code>-f</code>
                     or <code>-file</code>. The built-in I/O module provides <code>println</code>.</p>
