@@ -194,11 +194,11 @@ Or use `build.bat`, which also embeds the project icon.
 
 The build scripts also support:
 
-| Flag        | What it does                                                                                                                      |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `--all`     | Builds Windows, Linux, and macOS binaries for the current Go architecture into `bin/`. Cross-builds disable cgo (no native JIT).   |
-| `--release` | Builds an optimized, stripped executable in `dist/` and copies the bundled libraries into `dist/lib/`.                            |
-| `--help`    | Lists all options.                                                                                                                |
+| Flag        | What it does                                                                                                                     |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `--all`     | Builds Windows, Linux, and macOS binaries for the current Go architecture into `bin/`. Cross-builds disable cgo (no native JIT). |
+| `--release` | Builds an optimized, stripped executable in `dist/` and copies the bundled libraries into `dist/lib/`.                           |
+| `--help`    | Lists all options.                                                                                                               |
 
 ### 3. Run a script
 
@@ -226,11 +226,11 @@ Use `-f` or `-file` to pass a script, and `-help` to see all command-line option
 
 ## Documentation
 
-| Resource                                                                | What you'll find                                                  |
-| ----------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| [Language Reference](https://hollishake.github.io/openscripting/)       | Syntax, semantics, operators, modules, and runnable API examples. |
-| [`tests/`](tests/)                                                      | Regression programs that double as usage examples.                |
-| [`lib/`](lib/)                                                          | Source of the bundled OpenScript libraries.                       |
+| Resource                                                          | What you'll find                                                  |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------- |
+| [Language Reference](https://hollishake.github.io/openscripting/) | Syntax, semantics, operators, modules, and runnable API examples. |
+| [`tests/`](tests/)                                                | Regression programs that double as usage examples.                |
+| [`lib/`](lib/)                                                    | Source of the bundled OpenScript libraries.                       |
 
 The reference is the canonical feature and API guide; this README focuses on building, running, and working on the project.
 
@@ -242,13 +242,13 @@ The reference is the canonical feature and API guide; this README focuses on bui
 import { println } from "core:io";
 ```
 
-| Module                                                                                    | Purpose                              |
-| ----------------------------------------------------------------------------------------- | ------------------------------------ |
-| `core:io`, `core:file`, `core:path`                                                       | Console I/O, filesystem, paths       |
-| `core:math`, `core:number`, `core:unicode`                                                | Numerics and Unicode operations      |
-| `core:json`, `core:regex`                                                                 | JSON and regular expressions         |
-| `core:http`, `core:socket`                                                                | HTTP and loopback TCP                |
-| `core:crypto`, `core:sys`, `core:error`                                                   | Crypto, host system, error handling  |
+| Module                                     | Purpose                             |
+| ------------------------------------------ | ----------------------------------- |
+| `core:io`, `core:file`, `core:path`        | Console I/O, filesystem, paths      |
+| `core:math`, `core:number`, `core:unicode` | Numerics and Unicode operations     |
+| `core:json`, `core:regex`                  | JSON and regular expressions        |
+| `core:http`, `core:socket`                 | HTTP and loopback TCP               |
+| `core:crypto`, `core:sys`, `core:error`    | Crypto, host system, error handling |
 
 **Bundled libraries** (loaded from the executable's `lib/` directory):
 
@@ -256,12 +256,12 @@ import { println } from "core:io";
 import { isEven } from "lib:number";
 ```
 
-| Module         | Purpose                                                                       |
-| -------------- | ----------------------------------------------------------------------------- |
-| `lib:argparse` | Command-line argument parsing (`ArgumentParser`)                              |
-| `lib:number`   | Numeric predicates (`isEven`, `isOdd`, `isPositive`, ...)                     |
-| `lib:crypto`   | CryptoJS-style hashes, HMAC, encoders, PBKDF2, and EvpKDF                     |
-| `lib:tui`      | Terminal colors, prompts, confirmation, and table output                      |
+| Module         | Purpose                                                   |
+| -------------- | --------------------------------------------------------- |
+| `lib:argparse` | Command-line argument parsing (`ArgumentParser`)          |
+| `lib:number`   | Numeric predicates (`isEven`, `isOdd`, `isPositive`, ...) |
+| `lib:crypto`   | CryptoJS-style hashes, HMAC, encoders, PBKDF2, and EvpKDF |
+| `lib:tui`      | Terminal colors, prompts, confirmation, and table output  |
 
 ## Tests
 
@@ -280,11 +280,11 @@ OpenScript can speed up frequently called, two-argument numeric functions with a
 
 **Supported platforms** (built with cgo enabled):
 
-| OS      | Architectures      |
-| ------- | ------------------ |
-| Windows | amd64, ARM64, 386  |
-| Linux   | ARMv7              |
-| macOS   | ARM64              |
+| OS      | Architectures     |
+| ------- | ----------------- |
+| Windows | amd64, ARM64, 386 |
+| Linux   | ARMv7             |
+| macOS   | ARM64             |
 
 Notes:
 
