@@ -7,8 +7,10 @@ type Function struct {
 	File *File
 	// Name identifies the callable in error reports and runtime diagnostics.
 	Name string
-	// Async selects promise-based scheduling and await/yield behavior for this function.
+	// Async selects promise-based scheduling for this function.
 	Async bool
+	// Generator marks functions whose calls create suspended generator coroutines.
+	Generator bool
 	// ClassConstructor marks the special constructor frame that receives instance and superclass values.
 	ClassConstructor bool
 	// ClassThisOffset is the constructor-frame slot containing the new instance.

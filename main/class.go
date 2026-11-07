@@ -37,6 +37,8 @@ func runtimeClass(value OSValue) *Class {
 			return nil
 		}
 		return getCorePromiseClass()
+	case OSVGenerator:
+		return getCoreGeneratorClass()
 	case OSVObject:
 		if value.Opaque == nil {
 			return nil

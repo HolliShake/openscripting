@@ -67,4 +67,5 @@ const (
 	OpMakeClass
 	OpCloneLocal
 	OpThrow
+	OpYield
 )

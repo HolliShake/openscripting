@@ -24,6 +24,7 @@ const (
 	KeyThrow    = "throw"
 	KeyTypeOf   = "typeof"
 	KeyAwait    = "await"
+	KeyYield    = "yield"
 	KeyTrue     = "true"
 	KeyFalse    = "false"
 	KeyNull     = "null"
@@ -35,7 +36,7 @@ func isKeyword(value string) bool {
 	switch value {
 	case KeyImport, KeyFrom, KeyVar, KeyLet, KeyConst, KeyLog, KeyAsync, KeyClass,
 		KeyFn, KeyLoop, KeyTry, KeyCatch, KeySwitch, KeyCase, KeyDefault,
-		KeyIf, KeyElse, KeyContinue, KeyBreak, KeyReturn, KeyThrow, KeyTypeOf, KeyAwait,
+		KeyIf, KeyElse, KeyContinue, KeyBreak, KeyReturn, KeyThrow, KeyTypeOf, KeyAwait, KeyYield,
 		KeyTrue, KeyFalse, KeyNull, KeyThis, KeySuper:
 		return true
 	default:

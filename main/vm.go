@@ -1463,6 +1463,35 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 							errMsg = "invalid function argument count"
 							goto throwError
 						}
+						if fn.Generator {
+							vaIndex := fn.VarArgIndex
+							if (vaIndex == -1 && argCount != fn.ParamCount) || (vaIndex != -1 && argCount < vaIndex) {
+								errMsg = argcMessage(fn.ParamCount, argCount)
+								goto throwError
+							}
+							argStart := sp - argCount
+							coroutine := NewCoroutine(co, fn, InitialStack(argCount))
+							for i := range fn.CaptureMeta {
+								capMeta := &fn.CaptureMeta[i]
+								coroutine.Frame.Env[capMeta.Dst] = capMeta.Cell
+							}
+							if vaIndex >= 0 {
+								variadicArgs := append([]OSValue(nil), stack[argStart+vaIndex:sp]...)
+								copy(coroutine.OperandStack[:vaIndex], stack[argStart:argStart+vaIndex])
+								coroutine.OperandStack[vaIndex] = OSValue{Type: OSVArray, Opaque: unsafe.Pointer(&Array{Elements: variadicArgs})}
+								coroutine.Sp = vaIndex + 1
+							} else {
+								copy(coroutine.OperandStack[:argCount], stack[argStart:sp])
+								coroutine.Sp = argCount
+							}
+							clear(stack[argStart:sp])
+							sp = argStart
+							generator := &Generator{Coroutine: coroutine}
+							coroutine.Generator = generator
+							stack[sp] = OSValue{Type: OSVGenerator, Opaque: unsafe.Pointer(generator)}
+							sp++
+							continue
+						}
 
 						if module := fn.Module; module != nil && module.Initialized {
 							if argCount != 0 {
@@ -2036,6 +2065,20 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 				stack[sp] = value
 				sp++
 			}
+		case OpYield:
+			{
+				if co.Generator == nil || sp <= 0 {
+					panic("yield outside generator coroutine")
+				}
+				sp--
+				co.Generator.Yielded = stack[sp]
+				stack[sp] = OSValue{}
+				frame.Ip = ip
+				co.Sp = sp
+				co.State = CoroutineStateSuspended
+				vm.Current = nil
+				return
+			}
 		case OpThrow:
 			{
 				if sp <= 0 {
@@ -2082,6 +2125,15 @@ func runCoroutineLoop(state *State, vm *VM, co *Coroutine) {
 				co.Sp = sp
 
 				co.State = CoroutineStateDead
+				if generator := co.Generator; generator != nil {
+					generator.Done = true
+					generator.Final = returnValue
+					generator.Coroutine = nil
+					co.Generator = nil
+					vm.Current = nil
+					co.Release()
+					return
+				}
 				if promise := co.AsyncResult; promise != nil {
 					resolvePromise(vm, promise, returnValue)
 				}

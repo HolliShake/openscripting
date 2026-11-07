@@ -22,6 +22,7 @@ const (
 	OSVClass
 	OSVBigInt
 	OSVMethod
+	OSVGenerator
 )
 
 type OSValueType byte
@@ -55,6 +56,8 @@ func (v OSValue) TypeName() string {
 	case OSVArray:
 		return "array"
 	case OSVObject:
+		return "object"
+	case OSVGenerator:
 		return "object"
 	case OSVFunction, OSVNativeFunction, OSVMethod, OSVNativeMethod:
 		return "function"
@@ -134,6 +137,10 @@ func (v OSValue) String() string {
 	case OSVPromise:
 		{
 			return "<promise " + promiseState(v) + ">"
+		}
+	case OSVGenerator:
+		{
+			return "<generator>"
 		}
 	case OSVArray, OSVObject:
 		{
@@ -248,6 +255,10 @@ func (v OSValue) writeString(builder *strings.Builder, path []unsafe.Pointer) {
 			}
 			builder.WriteByte('}')
 		}
+	case OSVGenerator:
+		{
+			builder.WriteString("<generator>")
+		}
 	case OSVFunction:
 		{
 			builder.WriteString("<function>")
@@ -321,7 +332,7 @@ func IsEqual(a, b OSValue) bool {
 			}
 			return a.StringValue() == b.StringValue()
 		}
-	case OSVFunction, OSVClass, OSVPromise:
+	case OSVFunction, OSVClass, OSVPromise, OSVGenerator:
 		{
 			return a.Opaque == b.Opaque
 		}
@@ -347,7 +358,7 @@ func CoerceToBool(v OSValue) bool {
 		{
 			return v.Opaque != nil && (*big.Int)(v.Opaque).Sign() != 0
 		}
-	case OSVFunction, OSVPromise, OSVClass:
+	case OSVFunction, OSVPromise, OSVClass, OSVGenerator:
 		{
 			return v.Opaque != nil
 		}

@@ -84,6 +84,8 @@ const (
 	AstExpressionStmt
 	AstProgram
 	AstThrowStmt
+	AstGeneratorFunctionExpression
+	AstYieldStmt
 )
 
 const astChunk = 1024
