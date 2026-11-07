@@ -13,7 +13,8 @@ var (
 func getCoreGeneratorClass() *Class {
 	coreGeneratorClassOnce.Do(func() {
 		coreGeneratorClass = &Class{Name: "Generator", Template: map[string]OSValue{
-			"next": nativeMethodTemplate(0, generatorNext),
+			"hasNext": nativeMethodTemplate(0, generatorHasNext),
+			"next":    nativeMethodTemplate(0, generatorNext),
 		}}
 	})
 	return coreGeneratorClass
@@ -21,27 +22,72 @@ func getCoreGeneratorClass() *Class {
 
 func generatorNext(this OSValue, vm *VM, _ []OSValue) OSValue {
 	generator := (*Generator)(this.Opaque)
-	if generator == nil || generator.Done {
+	if generator == nil {
 		return generatorResult(vm.Null, true)
 	}
+	if generator.Done {
+		return generatorFinalResult(generator)
+	}
 
+	if generator.HasValue {
+		value := generator.Value
+		generator.Value = OSValue{}
+		generator.HasValue = false
+		return generatorResult(value, false)
+	}
+	if !advanceGenerator(generator, vm) {
+		return generatorFinalResult(generator)
+	}
+	value := generator.Value
+	generator.Value = OSValue{}
+	generator.HasValue = false
+	return generatorResult(value, false)
+}
+
+func generatorFinalResult(generator *Generator) OSValue {
+	value := OSValue{}
+	if !generator.FinalRead {
+		value = generator.Final
+		generator.FinalRead = true
+	}
+	return generatorResult(value, true)
+}
+
+func generatorHasNext(this OSValue, vm *VM, _ []OSValue) OSValue {
+	generator := (*Generator)(this.Opaque)
+	if generator != nil && !generator.HasValue {
+		advanceGenerator(generator, vm)
+	}
+	if generator != nil && generator.HasValue {
+		return vm.True
+	}
+	return vm.False
+}
+
+func advanceGenerator(generator *Generator, vm *VM) bool {
+	if generator == nil || generator.Done {
+		return false
+	}
 	coroutine := generator.Coroutine
 	if coroutine == nil || coroutine.State == CoroutineStateDead {
 		generator.Done = true
-		return generatorResult(generator.Final, true)
+		return false
 	}
 	if coroutine.State == CoroutineStateRunning {
 		vm.NativeError = "generator is already running"
-		return vm.Null
+		return false
 	}
 
 	caller := vm.Current
 	runCoroutine(vm.State, vm, coroutine)
 	vm.Current = caller
 	if generator.Done {
-		return generatorResult(generator.Final, true)
+		return false
 	}
-	return generatorResult(generator.Yielded, false)
+	generator.Value = generator.Yielded
+	generator.Yielded = OSValue{}
+	generator.HasValue = true
+	return true
 }
 
 func generatorResult(value OSValue, done bool) OSValue {

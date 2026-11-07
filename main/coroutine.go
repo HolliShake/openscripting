@@ -13,6 +13,9 @@ type CoroutineState int
 type Generator struct {
 	Coroutine *Coroutine
 	Done      bool
+	FinalRead bool
+	HasValue  bool
+	Value     OSValue
 	Yielded   OSValue
 	Final     OSValue
 }

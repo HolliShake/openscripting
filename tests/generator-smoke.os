@@ -104,4 +104,21 @@ if (pauseResult->value != null || pauseResult->done != false ||
 	println("FAIL: valueless yield and return", pauseResult, pauseDone);
 }
 
+var loopSequence::fn*() {
+	loop (let number = 1; number <= 5; number++) {
+		yield number;
+	}
+	return 6;
+};
+var loopValues = [];
+loop (let current = loopSequence(); current->hasNext();) {
+	loopValues = [...loopValues, current->next()->value];
+}
+if (loopValues->len() != 5 || loopValues[0] != 1 || loopValues[1] != 2 ||
+	loopValues[2] != 3 || loopValues[3] != 4 || loopValues[4] != 5) {
+	println("FAIL: hasNext/value generator loop", loopValues);
+}
+
+println(loopValues);
+
 println("generator smoke ok");

@@ -270,3 +270,8 @@ var lmnop = "asdasd";
 
 
 log lmnop + "asdasd";
+
+
+loop (let x = generator();x->hasNext();x->next()) {
+    println(x->value);
+}
