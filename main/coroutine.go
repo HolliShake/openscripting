@@ -10,6 +10,13 @@ const (
 
 type CoroutineState int
 
+type Generator struct {
+	Coroutine *Coroutine
+	Done      bool
+	Yielded   OSValue
+	Final     OSValue
+}
+
 type Coroutine struct {
 	// Parent is the lexical environment chain used to resolve captured outer variables.
 	Parent *Coroutine
@@ -45,6 +52,8 @@ type Coroutine struct {
 	SyncResult OSValue
 	// SyncBoundary carries an uncaught callback error back to the collection method without a process panic.
 	SyncBoundary *Promise
+	// Generator links a resumable generator coroutine to its public iterator state.
+	Generator *Generator
 	// snapshot caches this coroutine's immutable lexical snapshot (see
 	// SnapshotLexicalChain). Function and Env never change during a
 	// coroutine's life, so the snapshot can be built once and shared.
@@ -75,6 +84,7 @@ func (co *Coroutine) Release() {
 	co.SyncDone = false
 	co.SyncResult = OSValue{}
 	co.SyncBoundary = nil
+	co.Generator = nil
 	co.snapshot = nil
 	co.Frame = CallFrame{}
 }

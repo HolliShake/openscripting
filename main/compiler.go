@@ -173,8 +173,8 @@ func visitClassExpression(s *State, scope *Scope, fn *Function, ast *Ast, name s
 	for method := ast.B; method != nil; method = method.Next {
 		methodName := objectKey(method.A)
 		if methodName == "constructor" {
-			if method.B.Type == AstAsyncFunctionExpression {
-				ThrowError(fn.File, "class constructors cannot be async", method.Pos)
+			if method.B.Type == AstAsyncFunctionExpression || method.B.Type == AstGeneratorFunctionExpression {
+				ThrowError(fn.File, "class constructors cannot be async or generators", method.Pos)
 			}
 			if constructorFound {
 				ThrowError(fn.File, "duplicate class constructor", method.Pos)
@@ -182,9 +182,9 @@ func visitClassExpression(s *State, scope *Scope, fn *Function, ast *Ast, name s
 			constructorFound = true
 		}
 		emitString(fn, methodName)
-		if method.B.Type == AstFunctionExpression || method.B.Type == AstAsyncFunctionExpression {
+		if method.B.Type == AstFunctionExpression || method.B.Type == AstAsyncFunctionExpression || method.B.Type == AstGeneratorFunctionExpression {
 			funcOffset := compileFunction(s, scope, fn, name+"."+methodName,
-				method.B.Type == AstAsyncFunctionExpression, true, false, methodName == "constructor", method.B.A, method.B.B)
+				method.B.Type == AstAsyncFunctionExpression, method.B.Type == AstGeneratorFunctionExpression, true, false, methodName == "constructor", method.B.A, method.B.B)
 			emitInt(fn, OpLoadFunction, funcOffset)
 		} else {
 			if methodName == "constructor" {
@@ -195,7 +195,7 @@ func visitClassExpression(s *State, scope *Scope, fn *Function, ast *Ast, name s
 		methodCount++
 	}
 	if !constructorFound {
-		funcOffset := compileFunction(s, scope, fn, name+".constructor", false, true, false, true, nil, nil)
+		funcOffset := compileFunction(s, scope, fn, name+".constructor", false, false, true, false, true, nil, nil)
 		emitString(fn, "constructor")
 		emitInt(fn, OpLoadFunction, funcOffset)
 		methodCount++
@@ -860,7 +860,7 @@ func resolveVar(scope *Scope, fn *Function, ast *Ast) (offset int, isConst bool)
 // compileFunction compiles a function (declaration or expression) into a new
 // Function saved in the parser state and returns its offset. Shared by both
 // visitors, which used to carry identical copies of this code.
-func compileFunction(s *State, scope *Scope, fn *Function, name string, async bool, implicitThis, staticThis, classConstructor bool, parmNode, bodyNode *Ast) int {
+func compileFunction(s *State, scope *Scope, fn *Function, name string, async, generator bool, implicitThis, staticThis, classConstructor bool, parmNode, bodyNode *Ast) int {
 	parameterPos := Position{}
 	if parmNode != nil {
 		parameterPos = parmNode.Pos
@@ -927,6 +927,7 @@ func compileFunction(s *State, scope *Scope, fn *Function, name string, async bo
 	}
 
 	function.Async = async
+	function.Generator = generator
 	function.VarArgIndex = vaIndex
 	function.ParamCount = len(reverse)
 
@@ -1294,10 +1295,10 @@ func visitExpression(s *State, scope *Scope, fn *Function, ast *Ast) {
 		{
 			visitClassExpression(s, scope, fn, ast, "")
 		}
-	case AstFunctionExpression, AstAsyncFunctionExpression:
+	case AstFunctionExpression, AstAsyncFunctionExpression, AstGeneratorFunctionExpression:
 		{
 			funcOffset := compileFunction(s, scope, fn, "<anon/>",
-				ast.Type == AstAsyncFunctionExpression, false, false, false, ast.A, ast.B)
+				ast.Type == AstAsyncFunctionExpression, ast.Type == AstGeneratorFunctionExpression, false, false, false, ast.A, ast.B)
 			emitInt(fn, OpLoadFunction, funcOffset)
 		}
 	case AstSwitchExpr:
@@ -1757,7 +1758,7 @@ func visitFunctionDeclaration(s *State, scope *Scope, fn *Function, ast *Ast) {
 	nameNode := ast.A
 
 	funcOffset := compileFunction(s, scope, fn, nameNode.Value,
-		ast.B.Type == AstAsyncFunctionExpression, false, false, false, ast.B.A, ast.B.B)
+		ast.B.Type == AstAsyncFunctionExpression, ast.B.Type == AstGeneratorFunctionExpression, false, false, false, ast.B.A, ast.B.B)
 
 	sym, exists := scope.GetVariable(nameNode.Value)
 	if !exists {
@@ -1976,6 +1977,18 @@ func visitReturn(s *State, scope *Scope, fn *Function, ast *Ast) {
 func visitThrow(s *State, scope *Scope, fn *Function, ast *Ast) {
 	visitExpression(s, scope, fn, ast.A)
 	emit(fn, OpThrow)
+}
+
+func visitYield(s *State, scope *Scope, fn *Function, ast *Ast) {
+	if !fn.Generator {
+		ThrowError(fn.File, "yield is only allowed inside generator functions", ast.Pos)
+	}
+	if ast.A == nil {
+		emit(fn, OpLoadNull)
+	} else {
+		visitExpression(s, scope, fn, ast.A)
+	}
+	emit(fn, OpYield)
 }
 
 func visitTryCatch(s *State, scope *Scope, fn *Function, ast *Ast) {
@@ -2372,6 +2385,10 @@ func visitDeclarationOrStatement(s *State, scope *Scope, fn *Function, ast *Ast)
 	case AstThrowStmt:
 		{
 			visitThrow(s, scope, fn, ast)
+		}
+	case AstYieldStmt:
+		{
+			visitYield(s, scope, fn, ast)
 		}
 	case AstTryCatch:
 		{

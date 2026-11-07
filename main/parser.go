@@ -1463,6 +1463,11 @@ func (p *Parser) functionExpression() *Ast {
 	pos := p.lookahead.Pos
 	p.expect(KeyFn)
 
+	isGenerator := p.match("*")
+	if isGenerator {
+		p.expect("*")
+	}
+
 	p.expect("(")
 	parameterHead := p.identifier(false)
 
@@ -1494,9 +1499,13 @@ func (p *Parser) functionExpression() *Ast {
 
 	astType := AstFunctionExpression
 
-	if p.match(KeyAsync) {
+	if p.match(KeyAsync) && !isGenerator {
 		p.expect(KeyAsync)
 		astType = AstAsyncFunctionExpression
+	}
+
+	if isGenerator {
+		astType = AstGeneratorFunctionExpression
 	}
 
 	p.expect("{")
@@ -1673,6 +1682,16 @@ func (p *Parser) throwStatement() *Ast {
 	return NewThrowStatement(position, value)
 }
 
+func (p *Parser) yieldStatement() *Ast {
+	pos := p.lookahead.Pos
+	p.expect(KeyYield)
+	value := p.expression(false)
+	p.expect(";")
+	node := newAst(AstYieldStmt, pos)
+	node.A = value
+	return node
+}
+
 func (p *Parser) blockStatement() *Ast {
 	pos := p.lookahead.Pos
 	p.expect("{")
@@ -1725,6 +1744,8 @@ func (p *Parser) blockLevelStatement() *Ast {
 		return p.returnStatement()
 	} else if p.match(KeyThrow) {
 		return p.throwStatement()
+	} else if p.match(KeyYield) {
+		return p.yieldStatement()
 	} else if p.match("{") {
 		return p.blockStatement()
 	}
@@ -1772,7 +1793,7 @@ func init() {
 	// Only words that isKeyword accepts are added, so behavior can never diverge.
 	keywords = make(map[string]string, 32)
 	for _, k := range [...]string{
-		KeyTrue, KeyFalse, KeyNull, KeyClass, KeyFn, KeySwitch, KeyAwait, KeyAsync,
+		KeyTrue, KeyFalse, KeyNull, KeyClass, KeyFn, KeySwitch, KeyAwait, KeyAsync, KeyYield,
 		KeyImport, KeyFrom, KeyVar, KeyLet, KeyConst, KeyTry, KeyCatch, KeyCase,
 		KeyDefault, KeyIf, KeyElse, KeyLoop, KeyContinue, KeyBreak, KeyReturn,
 	} {
