@@ -7,7 +7,6 @@ cd "$ROOT_DIR"
 HOST_OS=$(go env GOOS)
 HOST_ARCH=$(go env GOARCH)
 ALL_MODE=0
-RELEASE_MODE=0
 FAILED=0
 RESOURCE_FILE=""
 
@@ -20,13 +19,12 @@ cleanup() {
 trap cleanup EXIT
 
 usage() {
-	printf 'Usage: %s [--all | --release | --help | -h]\n' "$(basename "$0")"
-	printf '\nBuild the current operating system and architecture into bin/openscript.\n'
+	printf 'Usage: %s [--all | --help | -h]\n' "$(basename "$0")"
+	printf '\nBuild the current operating system and architecture into openscript.\n'
 	printf 'Windows builds use the .exe extension and embed docs/openscript.ico.\n'
 	printf '\nOptions:\n'
-	printf '  --all      Build Windows, Linux, and macOS binaries for the current Go architecture.\n'
-	printf '             Cross-builds disable cgo and write artifacts to bin/.\n'
-	printf '  --release  Build an optimized current-platform binary into dist/ and copy lib/ beside it.\n'
+	printf '  --all      Build optimized Windows, Linux, macOS, and BSD releases for amd64, arm64, 386, arm, and riscv64.\n'
+	printf '             Packages go to dist/compressed as .zip or .tar.gz with lib/ included.\n'
 	printf '  --help, -h, /? Show this help and exit.\n'
 }
 
@@ -52,6 +50,8 @@ build_target() {
 		if ! GOOS="$HOST_OS" GOARCH="$HOST_ARCH" go run github.com/akavel/rsrc@v0.10.2 \
 			-ico docs/openscript.ico -o "$RESOURCE_FILE" -arch "$target_arch"; then
 			FAILED=1
+			rm -f "$RESOURCE_FILE"
+			RESOURCE_FILE=""
 			return 1
 		fi
 		output+=.exe
@@ -59,38 +59,76 @@ build_target() {
 
 	mkdir -p "$(dirname "$output")"
 	printf 'Building %s/%s to %s...\n' "$target_os" "$target_arch" "$output"
-	if [[ "$RELEASE_MODE" -eq 1 ]]; then
-		if ! GOOS="$target_os" GOARCH="$target_arch" go build \
+	if [[ "$ALL_MODE" -eq 1 ]]; then
+		if ! CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" go build \
 			-trimpath -ldflags='-s -w' -o "$output" ./main; then
 			FAILED=1
+			rm -f "$RESOURCE_FILE"
+			RESOURCE_FILE=""
 			return 1
 		fi
+		rm -f "$RESOURCE_FILE"
+		RESOURCE_FILE=""
 		return 0
 	fi
 
-	if [[ "$ALL_MODE" -eq 1 ]]; then
-		if ! GOOS="$target_os" GOARCH="$target_arch" CGO_ENABLED=0 \
-			go build -gcflags='-m' -o "$output" ./main > build.tmp 2>&1; then
-			cat build.tmp
+	if ! GOOS="$target_os" GOARCH="$target_arch" go build -o "$output" ./main; then
+		FAILED=1
+		return 1
+	fi
+}
+
+package_target() {
+	local target_os=$1
+	local target_arch=$2
+	local stage archive output
+	stage=$(mktemp -d "${TMPDIR:-/tmp}/openscript-${target_os}-${target_arch}.XXXXXX")
+	output="$stage/openscript"
+	if [[ "$target_os" == windows ]]; then
+		archive="$ROOT_DIR/dist/compressed/openscript-${target_os}-${target_arch}.zip"
+	else
+		archive="$ROOT_DIR/dist/compressed/openscript-${target_os}-${target_arch}.tar.gz"
+	fi
+
+	if ! build_target "$target_os" "$target_arch" "$output"; then
+		rm -rf "$stage"
+		return 1
+	fi
+	cp -R lib "$stage/lib"
+	if [[ "$target_os" == windows ]]; then
+		if ! command -v zip >/dev/null 2>&1; then
+			printf 'zip is required to package Windows targets.\n' >&2
 			FAILED=1
-			rm -f build.tmp
+			rm -rf "$stage"
+			return 1
+		fi
+		if ! (cd "$stage" && zip -qr "$archive" .); then
+			FAILED=1
+			rm -rf "$stage"
 			return 1
 		fi
 	else
-		if ! GOOS="$target_os" GOARCH="$target_arch" \
-			go build -gcflags='-m' -o "$output" ./main > build.tmp 2>&1; then
-			cat build.tmp
+		if ! tar -czf "$archive" -C "$stage" .; then
 			FAILED=1
-			rm -f build.tmp
+			rm -rf "$stage"
 			return 1
 		fi
 	fi
+	rm -rf "$stage"
+	printf 'Packaged %s/%s to %s.\n' "$target_os" "$target_arch" "${archive#"$ROOT_DIR/"}"
+}
 
-	{
-		printf '[ %s/%s ]\n' "$target_os" "$target_arch"
-		grep -E 'escapes to heap|moved to heap|leaking param' build.tmp || true
-	} >> build.txt
-	rm -f build.tmp
+target_supported() {
+	local target_os=$1
+	local target_arch=$2
+	case "$target_os" in
+		windows|linux|darwin|dragonfly|freebsd|netbsd|openbsd) ;;
+		*) return 1 ;;
+	esac
+	case "$target_arch" in
+		amd64|arm64|386|arm|riscv64) return 0 ;;
+		*) return 1 ;;
+	esac
 }
 
 case "${1:-}" in
@@ -104,26 +142,19 @@ case "${1:-}" in
 			exit 2
 		fi
 		ALL_MODE=1
-		mkdir -p bin
-		: > build.txt
-		for target_os in windows linux darwin; do
-			build_target "$target_os" "$HOST_ARCH" "bin/openscript-${target_os}-${HOST_ARCH}" || true
-		done
-		(( FAILED == 0 ))
-		;;
-	--release)
-		if [[ $# -ne 1 ]]; then
-			usage >&2
-			exit 2
-		fi
 		RELEASE_MODE=1
-		mkdir -p dist
-		build_target "$HOST_OS" "$HOST_ARCH" dist/openscript
-		cp -R lib dist/
+		mkdir -p dist/compressed
+		while IFS=/ read -r target_os target_arch; do
+			if target_supported "$target_os" "$target_arch"; then
+				package_target "$target_os" "$target_arch" || true
+			fi
+		done < <(go tool dist list)
+		if (( FAILED != 0 )); then
+			exit 1
+		fi
 		;;
 	'')
-		mkdir -p bin
-		build_target "$HOST_OS" "$HOST_ARCH" bin/openscript
+		build_target "$HOST_OS" "$HOST_ARCH" openscript
 		;;
 	*)
 		usage >&2

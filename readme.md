@@ -186,19 +186,17 @@ cd openscripting
 **Windows (PowerShell)**
 
 ```powershell
-New-Item -ItemType Directory -Force bin | Out-Null
-go build -o bin/openscript.exe ./main
+go build -o openscript.exe ./main
 ```
 
-Or use `build.bat`, which also embeds the project icon.
+Or use `build.bat`, which also embeds the project icon. Running either build script without arguments creates the executable in the repository root (`openscript` on macOS/Linux, `openscript.exe` on Windows).
 
 The build scripts also support:
 
-| Flag        | What it does                                                                                                                     |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `--all`     | Builds Windows, Linux, and macOS binaries for the current Go architecture into `bin/`. Cross-builds disable cgo (no native JIT). |
-| `--release` | Builds an optimized, stripped executable in `dist/` and copies the bundled libraries into `dist/lib/`.                           |
-| `--help`    | Lists all options.                                                                                                               |
+| Flag     | What it does                                                                                                                                     |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--all`  | Builds optimized archives under `dist/compressed/` for supported Windows, Linux, macOS, and BSD targets. Windows uses ZIP; others use `.tar.gz`. |
+| `--help` | Lists all options.                                                                                                                               |
 
 ### 3. Run a script
 
@@ -213,13 +211,13 @@ println("Hello, OpenScript!");
 Then run it:
 
 ```sh
-./bin/openscript -f hello.os
+./openscript -f hello.os
 ```
 
 On Windows:
 
 ```powershell
-./bin/openscript.exe -f .\hello.os
+.\openscript.exe -f .\hello.os
 ```
 
 Use `-f` or `-file` to pass a script, and `-help` to see all command-line options along with the colored banner.
@@ -268,8 +266,8 @@ import { isEven } from "lib:number";
 The `tests/` directory contains OpenScript regression programs covering language syntax, module loading, built-ins, async behavior, and runtime error handling. Run a focused script with the built executable:
 
 ```powershell
-./bin/openscript.exe -file .\tests\throw-statement.os
-./bin/openscript.exe -file .\tests\core-error.os
+./openscript.exe -file .\tests\throw-statement.os
+./openscript.exe -file .\tests\core-error.os
 ```
 
 Run other `.os` files in `tests/` the same way.
@@ -302,8 +300,8 @@ openscripting/
 ├── lib/         Bundled OpenScript modules (loaded from the executable's lib/ directory)
 ├── tests/       Regression scripts and module-loading fixtures
 ├── docs/        Language and API reference (docs/index.html)
-├── build.sh     macOS / Linux build, cross-build, and release script
-└── build.bat    Windows build, cross-build, and release script
+├── build.sh     macOS / Linux build and cross-platform archive script
+└── build.bat    Windows build and cross-platform archive script
 ```
 
 ## Contributing

@@ -537,12 +537,20 @@
         <main>
             <section id="quick-start">
                 <h2>Quick start</h2>
+                <p>Build from the repository root with <code>./build.sh</code> on macOS/Linux or
+                    <code>build.bat</code> on Windows. With no arguments, either script writes the executable to the
+                    repository root as <code>openscript</code> or <code>openscript.exe</code>. The optional
+                    <code>--all</code> builds compressed releases under <code>dist/compressed/</code> for supported
+                    Windows, Linux, macOS, and BSD targets.
+                </p>
                 <p>Scripts use the <code>.os</code> extension. The executable accepts a script path with <code>-f</code>
                     or <code>-file</code>. The built-in I/O module provides <code>println</code>.</p>
                 <pre><code><span class="kw">import</span> { println } <span class="kw">from</span> <span class="str">"core:io"</span>;
 
 <span class="kw">const</span> greeting = <span class="str">"Hello, OpenScript!"</span>;
 println(greeting);</code></pre>
+                <pre><code>./openscript -f hello.os
+# Windows: .\openscript.exe -f .\hello.os</code></pre>
                 <p>Statements generally end in semicolons. Blocks use braces. Whitespace and comments separate tokens
                     but are otherwise insignificant.</p>
             </section>
