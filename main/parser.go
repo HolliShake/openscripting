@@ -39,8 +39,6 @@ type Parser struct {
 	offset int
 	// lookahead caches the next token so parser routines can branch without rescanning source.
 	lookahead Token
-	// errors accumulates recoverable parse diagnostics until the parser reports failure.
-	errors []string
 }
 
 /******************* Character classes (package-level tables, no struct changes) ***/
@@ -58,10 +56,6 @@ func (p *Parser) isIdentifierContinue(ch rune) bool {
 	}
 	return p.isIdentifierStart(ch) || unicode.IsDigit(ch) || unicode.IsMark(ch) ||
 		unicode.Is(unicode.Pc, ch) || unicode.Is(otherIDContinue, ch)
-}
-
-func (p *Parser) pushError(err string) {
-	p.errors = append(p.errors, err)
 }
 
 func (p *Parser) current() rune {
