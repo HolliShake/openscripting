@@ -25,6 +25,8 @@ type VM struct {
 	HTTPRequests chan *httpIncoming
 	// HTTPDone reports listener shutdowns so the event loop can decrement active server count.
 	HTTPDone chan *httpAppState
+	// HTTPTimeouts delivers expired request dispatches to the VM thread.
+	HTTPTimeouts chan *httpIncoming
 	// HTTPFetches transfers worker results back to the VM thread for Promise settlement.
 	HTTPFetches chan httpFetchResult
 	// SocketResults transfers accepted connections from listener workers to the VM thread.
@@ -597,6 +599,12 @@ func interpreterLoop(state *State, vm *VM) {
 			case <-vm.HTTPDone:
 				{
 					vm.HTTPActive--
+				}
+			case incoming := <-vm.HTTPTimeouts:
+				{
+					if incoming != nil && incoming.dispatch != nil {
+						incoming.dispatch.timeout()
+					}
 				}
 			case result := <-vm.HTTPFetches:
 				{
@@ -2275,6 +2283,7 @@ func Run(state *State, program *Function) {
 		strs:          make(map[unsafe.Pointer][]string, 16),
 		HTTPRequests:  make(chan *httpIncoming, 64),
 		HTTPDone:      make(chan *httpAppState, 64),
+		HTTPTimeouts:  make(chan *httpIncoming, 64),
 		HTTPFetches:   make(chan httpFetchResult, 64),
 		SocketResults: make(chan socketResult, 64),
 	}

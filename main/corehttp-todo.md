@@ -8,21 +8,21 @@ This document lists everything still required to take `core_http.go` from an Exp
 
 - [x] HTTP verbs: `get`, `post`, `put`, `delete`, `patch`, `head`, `options`, `all`
 - [x] Multiple handlers per route
-- [x] `use([path], ...handlers | subApp)` with prefix matching
-- [x] Mounting an `Express`/`Router` instance under a prefix (snapshot at mount time)
-- [x] `next()` and `next(err)`, plus a single global `app.onError(fn)`
+- [x] `use([path], ...handlers)` with prefix matching
+- [x] Mounting an `Express`/`Router` instance under a prefix (snapshot at mount time; live delegation remains pending)
+- [x] `next()` and `next(err)`, arity-based error middleware, and `app.onError(fn)` as a fallback
+- [x] `next("route")` skips remaining handlers from the current route registration
 - [x] Path params (`:id`) and `*` wildcard exposed as `req.params`
-- [x] Request: `method`, `path`, `originalUrl`, `query` (raw), `queryParams`, `body`, `hostname`, `ip`, `headers`, `get()`, `json()`
-- [x] Response: `status`, `sendStatus`, `send`, `json`, `set`/`header`, `get`, `type`, `redirect`, `end`
+- [x] Request: `method`, `path`, `url`, `baseUrl`, `originalUrl`, parsed `query`, `rawQuery`, `body`, `hostname`, `ip`, protocol metadata, headers, `get()`, `getAll()`, `json()`, and `route`
+- [x] Response: `status`, `sendStatus`, `send`, `json`, `jsonp`, `sendFile`, `download`, `attachment`, `set`/`header`, `append`, `get`, `type`, `links`, `vary`, `location`, `redirect`, `end`, `locals`, `headersSent`
 - [x] HEAD falls back to GET routes, and an unhandled chain returns 404
 - [x] `Router` export, `listen`, `address`, `close`, and `fetch`
+- [x] Async route and error handlers suspend on Promises; rejections and synchronous throws enter error handling
+- [x] Automatic `OPTIONS` responses include an `Allow` header, with `HEAD` included for `GET`
 
 ### Known limitations of what exists
 
-- Handlers must be synchronous.
-- The request body limit is hard-coded at 1 MB.
-- Only the first value of repeated headers is kept.
-- Responses are buffered in memory.
+- Responses, including file responses, are buffered in memory.
 - Mounting copies layers, so later route additions to a router are ignored.
 
 ## 2. Ground rules for every phase
@@ -38,28 +38,29 @@ These affect how every other feature behaves, so do them first.
 
 ### 3.1 Async handlers (L, needs VM work)
 
-- [ ] Allow `async` functions as handlers (remove the `Async` rejection in `httpValidTarget`).
-- [ ] Suspend the request when a handler returns a pending Promise. Resume the chain when it settles.
-- [ ] Reject means `next(err)`, so a rejected handler Promise routes to the error handler.
-- [ ] Keep the request alive across event-loop turns: `httpIncoming.done` must not be closed until the chain finishes.
-- [ ] Add a per-request timeout so a never-settling Promise does not leak the connection.
-- [ ] Restructure `serveHTTPIncoming` into a resumable state machine (`chain index`, `error mode`, `response data`).
+- [x] Allow `async` functions as handlers (remove the `Async` rejection in `httpValidTarget`).
+- [x] Suspend the request when a handler returns a pending Promise. Resume the chain when it settles.
+- [x] Reject means `next(err)`, so a rejected handler Promise routes to the error handler.
+- [x] Keep the request alive across event-loop turns: `httpIncoming.done` must not be closed until the chain finishes.
+- [x] Add a per-request timeout so a never-settling Promise does not leak the connection.
+- [x] Restructure request dispatch into a resumable state machine (`chain index`, `error mode`, `response data`).
 
 **Done when:** `app.get("/", async (req, res) => { res.json(await fetch(...).json()) })` works, and a thrown error inside an async handler reaches `onError`.
 
 ### 3.2 Real error-handling middleware (M)
 
-- [ ] Detect error handlers by arity (4 parameters) so they can sit anywhere in the stack, not only via `onError`.
-- [ ] While in error mode, skip normal layers and run only error layers.
-- [ ] Catch runtime errors thrown by script handlers and convert them to `next(err)`.
-- [ ] Keep `app.onError` as a convenience that registers a trailing error layer.
-- [ ] Default error handler: 500, or `err.status`/`err.statusCode` when present, and hide the message in production mode.
+- [x] Detect error handlers by arity (4 parameters) so they can sit anywhere in the stack, not only via `onError`.
+- [x] While in error mode, skip normal layers and run only error layers.
+- [x] Catch runtime errors thrown by script handlers and convert them to `next(err)`.
+- [x] Keep `app.onError` as a trailing fallback for errors not handled by stack middleware.
+- [x] Default error handler: 500, or `err.status`/`err.statusCode` when present, and hide the message in production mode.
 
 ### 3.3 Full `next()` semantics (S)
 
-- [ ] `next("route")` skips the remaining handlers of the current route.
+- [x] `next("route")` skips the remaining handlers of the current route registration.
 - [ ] `next("router")` exits the current router and returns to the parent.
-- [ ] Calling `next()` twice, or sending after `next()`, should be detected and ignored or logged.
+- [x] Repeated `next()` calls are ignored.
+- [x] Sending after `next()` should be detected and ignored or logged.
 
 ### 3.4 Live router mounting (M)
 
@@ -71,49 +72,49 @@ These affect how every other feature behaves, so do them first.
 
 ### 3.5 Route chaining and `app.param` (M)
 
-- [ ] `app.route(path)` returns a `Route` with `.get()/.post()/.all()/...` chainable (this replaces the current 4-arg `route()` or coexists via arity).
-- [ ] `app.param(name, fn)` and `router.param(name, fn)` with the `(req, res, next, value, name)` signature.
-- [ ] Run each param callback once per request per value.
+- [x] `app.route(path)` returns a `Route` with `.get()/.post()/.all()/...` chainable (this replaces the current 4-arg `route()` or coexists via arity).
+- [x] `app.param(name, fn)` and `router.param(name, fn)` with the `(req, res, next, value, name)` signature.
+- [x] Run each param callback once per request per value.
 
 ### 3.6 Path pattern engine (M)
 
-- [ ] Optional params (`:id?`), repeated params, and param constraints (`:id(\\d+)`).
-- [ ] Wildcards (`*`) at any position, not only the tail.
+- [x] Optional params (`:id?`), repeated params (`:name+`, `:name*`), and param constraints (`:id(\\d+)`).
+- [x] Wildcards (`*`) at any position, not only the tail.
 - [ ] Regex routes (`/regex/`) if the VM has a regex type, with capture groups in `req.params[0]`.
-- [ ] Array of paths (`["/a", "/b"]`).
-- [ ] `case sensitive routing` and `strict routing` settings (see 6.1).
-- [ ] Param decoding rules: decode once, and return a clean error on malformed percent-encoding.
+- [x] Array of paths (`["/a", "/b"]`).
+- [x] `case sensitive routing` and `strict routing` settings (see 6.1).
+- [x] Param decoding rules: decode once; malformed percent-encoding is rejected with 400 before matching.
 - [ ] Consider porting `path-to-regexp` semantics and compiling to a segment matcher or regex once at registration.
 
 ### 3.7 Automatic OPTIONS and 405 (S)
 
-- [ ] Auto-respond to `OPTIONS` with an `Allow` header built from registered methods for that path.
-- [ ] Optionally answer 405 with `Allow` when the path matches but the method does not (Express 5 behavior is a 404, so make this a setting).
+- [x] Auto-respond to `OPTIONS` with an `Allow` header built from registered methods for that path.
+- [x] Optionally answer 405 with `Allow` when the path matches but the method does not (Express 5 behavior is a 404, so make this a setting).
 
 ## 4. Phase 2: Request and response completeness
 
 ### 4.1 Request object
 
-- [ ] `req.params` per layer, with parent params merged when `mergeParams` is on
-- [ ] `req.baseUrl`, `req.url`, `req.originalUrl` (kept consistent with mounting)
-- [ ] `req.protocol`, `req.secure`, `req.hostname` (honoring `trust proxy`), `req.subdomains`, `req.ips`
-- [ ] `req.xhr`
-- [ ] `req.route` (the matched route)
-- [ ] `req.app` and `req.res` back-references
-- [ ] `req.accepts()`, `acceptsCharsets()`, `acceptsEncodings()`, `acceptsLanguages()` (see 4.4)
-- [ ] `req.is(type)` for content-type matching
-- [ ] `req.range()`
+- [x] `req.params` per matched layer; parent params merged with `mergeParams` remains pending
+- [x] `req.baseUrl`, `req.url`, `req.originalUrl` (kept consistent with mounting; mount-aware values pending live router support)
+- [x] `req.protocol`, `req.secure`, `req.hostname`, `req.ip`
+- [x] `req.xhr`
+- [x] `req.route` (the matched route)
+- [x] `req.app` and `req.res` back-references
+- [x] `req.accepts()`, `req.acceptsCharsets()`, `req.acceptsEncodings()`, `req.acceptsLanguages()` (see 4.4)
+- [x] `req.is(type)` for content-type matching
+- [x] `req.range()` with byte-range parsing and malformed/unsatisfiable result codes.
 - [ ] `req.fresh` and `req.stale` (see 4.5)
-- [ ] Multi-value headers: keep all values (`req.headers` as array when repeated, or `req.getAll(name)`)
-- [ ] Parsed `req.query` as an object (Express behavior). Keep the raw string available as `req.rawQuery`, and migrate existing scripts. A `query parser` setting should cover `simple`/`extended`/custom.
-- [ ] Nested and array query syntax (`a[b]=1`, `a=1&a=2`) under the `extended` parser.
+- [x] Multi-value headers: keep all values (`req.headers` as array when repeated, or `req.getAll(name)`)
+- [x] Parsed `req.query` as an object with repeated-key arrays. Keep the raw string available as `req.rawQuery`.
+- [x] Nested and array query syntax (`a[b]=1`, `a[]=1`, `a=1&a=2`) under the `extended` parser.
 
 ### 4.2 Body parsing (M)
 
 - [ ] `express.json({ limit, strict, type })`
 - [ ] `express.urlencoded({ extended, limit })`
 - [ ] `express.text()` and `express.raw()`
-- [ ] Configurable body size limit (replace the hard-coded 1 MB), returning 413
+- [x] Configurable body size limit, returning 413
 - [ ] Charset handling and `Content-Encoding` (gzip/deflate) decoding
 - [ ] Populate `req.body` as a parsed value only when a parser matched, and leave it undefined otherwise. Today `req.body` is the raw string, so keep it as `req.rawBody` for compatibility.
 - [ ] Error mapping: 400 for malformed JSON, 415 for unsupported media type, 413 for too large.
@@ -121,52 +122,61 @@ These affect how every other feature behaves, so do them first.
 
 ### 4.3 Response object
 
-- [ ] `res.append(field, value)`
-- [ ] `res.location(url)`
-- [ ] `res.links(map)`
-- [ ] `res.vary(field)`
-- [ ] `res.cookie(name, value, opts)` and `res.clearCookie(name, opts)` (see 5.1)
-- [ ] `res.attachment([filename])`
-- [ ] `res.sendFile(path, opts)` and `res.download(path, name)` (see 5.2)
+- [x] `res.append(field, value)`
+- [x] `res.location(url)`
+- [x] `res.links(map)`
+- [x] `res.vary(field)`
+- [x] `res.cookie(name, value, opts)` and `res.clearCookie(name, opts)` for unsigned cookies (see 5.1)
+- [x] `res.attachment([filename])`
+- [x] Buffered `res.sendFile(path, opts)` and `res.download(path, name)` with root containment
 - [ ] `res.format({ ... })` (content negotiation)
-- [ ] `res.jsonp()` (with the `jsonp callback name` setting)
+- [x] `res.jsonp()` (with the configurable `jsonp callback name` setting)
 - [ ] `res.render(view, locals)` (see 6.3)
-- [ ] `res.locals` and `res.headersSent`
+- [x] `res.locals`
+- [x] `res.headersSent`
 - [ ] `res.send` type handling for Buffer, string, object, and number/status quirks
-- [ ] `res.json` honoring `json spaces`, `json replacer`, and `json escape` settings
-- [ ] Automatic `Content-Length`, `ETag` (see 4.5), and `Content-Type` charset
-- [ ] Guard against double sends (second `send`/`json` should error or be ignored)
-- [ ] `res.status().send()` chaining should keep `sent` correct when `status()` is called after `send()`.
+- [ ] `res.json` honoring the `json replacer` setting
+- [x] `res.json` honoring the `json spaces` setting
+- [x] `res.json` honoring the `json escape` setting
+- [x] Automatic `Content-Length` and `Content-Type` charset
+- [x] `ETag` (see 4.5)
+- [x] Guard against double sends (second `send`/`json` should error or be ignored)
+- [x] `res.status().send()` chaining should keep `sent` correct when `status()` is called after `send()`.
 
 ### 4.4 Content negotiation (S)
 
-- [ ] Implement Accept parsing with q-values (types, languages, encodings, charsets).
-- [ ] Wire `req.accepts*` and `res.format`.
-- [ ] Reply 406 from `res.format` when nothing matches and no `default` is given.
+- [x] Implement Accept parsing with q-values for media types.
+- [x] Wire `req.accepts()`.
+- [x] Wire `req.accepts()`, `req.acceptsCharsets()`, `req.acceptsEncodings()`, and `req.acceptsLanguages()`.
+- [ ] Wire `res.format` with 406 when nothing matches.
 
 ### 4.5 Caching headers (M)
 
-- [ ] Weak and strong ETag generation (setting: `etag`)
-- [ ] `If-None-Match` and `If-Modified-Since` handling, producing 304 responses
+- [x] Weak and strong ETag generation (setting: `etag`)
+- [x] `If-None-Match` handling, producing 304 responses
+- [x] Strong ETag generation (`app.set("etag", "strong")`)
+- [x] `If-Modified-Since` handling when `If-None-Match` is absent
 - [ ] `req.fresh` and `req.stale`
-- [ ] `Last-Modified` for `sendFile`
+- [x] `Last-Modified` for `sendFile` and `download`
 
 ## 5. Phase 3: Features people expect from Express apps
 
 ### 5.1 Cookies (M)
 
-- [ ] Parse the `Cookie` header into `req.cookies`.
-- [ ] `res.cookie` options: `maxAge`, `expires`, `path`, `domain`, `secure`, `httpOnly`, `sameSite`, `signed`.
+- [x] Parse the `Cookie` header into `req.cookies`.
+- [x] `res.cookie` options: `maxAge`, `expires`, `path`, `domain`, `secure`, `httpOnly`, `sameSite`.
 - [ ] Signed cookies with HMAC and `req.signedCookies` (needs a secret, so `cookieParser(secret)`).
-- [ ] Multiple `Set-Cookie` headers (needs multi-value response headers, see 7.4).
+- [x] Multiple `Set-Cookie` headers.
 
 ### 5.2 Static files and file sending (M-L)
 
+- [x] Path traversal protection for rooted `sendFile`/`download` (resolve symlinks and verify the target remains under root).
+- [x] MIME type lookup by extension for file responses.
+
 - [ ] `express.static(root, opts)` with `index`, `dotfiles`, `extensions`, `maxAge`, `immutable`, `redirect`, `fallthrough`, `setHeaders`.
 - [ ] Path traversal protection (reject `..` and encoded variants, confirm the resolved path stays under root).
-- [ ] MIME type lookup by extension.
 - [ ] Range requests (`206`, `Content-Range`) and `If-Range`.
-- [ ] `res.sendFile` and `res.download`, including error callback and `Content-Disposition`.
+- [x] Buffered `res.sendFile` and `res.download` with `Content-Disposition`; Express error callbacks remain pending.
 - [ ] Stream file contents instead of loading them into memory (needs 7.3).
 
 ### 5.3 Sessions (out of core, but required for parity with common apps)
@@ -191,15 +201,15 @@ These are third-party packages in the Express ecosystem. Decide whether each is 
 
 ### 6.1 Settings (S-M)
 
-- [ ] `app.set(name, value)`, `app.get(name)`, `app.enable/disable/enabled/disabled`
-- [ ] Settings to honor: `case sensitive routing`, `strict routing`, `etag`, `json spaces`, `json replacer`, `json escape`, `jsonp callback name`, `query parser`, `trust proxy`, `subdomain offset`, `x-powered-by`, `env`, `views`, `view engine`, `view cache`
+- [x] `app.set(name, value)`, `app.get(name)`, `app.enable/disable/enabled/disabled`
+- [ ] Settings to honor: `json replacer`, `trust proxy`, `subdomain offset`, `views`, `view engine`, `view cache` (case-sensitive routing, strict routing, environment, weak/strong ETag, x-powered-by, simple/extended query-parser, json spaces, json escape, and JSONP callback-name settings are implemented)
 - [ ] Inheritance: a mounted child app inherits parent settings unless overridden.
-- [ ] `app.get(path, ...handlers)` vs `app.get(setting)` dispatch by arity (Express behavior).
+- [x] `app.get(path, ...handlers)` vs `app.get(setting)` dispatch by arity (Express behavior).
 
 ### 6.2 `app.locals` and `res.locals` (S)
 
-- [ ] `app.locals` available to all templates and handlers.
-- [ ] `res.locals` is per request and merged into render context.
+- [x] `app.locals` available to all handlers.
+- [x] `res.locals` is per request and available to handlers.
 
 ### 6.3 View engines (M)
 
