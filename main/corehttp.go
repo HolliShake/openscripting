@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,10 @@ const (
 	fetchTimeout          = 30 * time.Second
 )
 
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
 type httpRoute struct {
 	// status is the response status returned by a route without a script handler.
 	status int
@@ -25,36 +30,63 @@ type httpRoute struct {
 	handler OSValue
 }
 
-type httpIncoming struct {
-	// method is the HTTP verb copied from the listener request for VM-thread dispatch.
+// httpLayer is one ordered entry in the app's stack (a route or a middleware).
+type httpLayer struct {
+	// method is the HTTP verb this layer answers; "" matches every method (use/all).
 	method string
-	// path is the URL path used to select the registered route.
-	path string
-	// query contains the encoded query string for the script request object.
-	query string
-	// body is the bounded request payload copied before the listener goroutine returns.
-	body string
+	// pattern is the path split into segments; segments may be ":name" params or "*".
+	pattern []string
+	// prefix is true for use(): the layer matches any path below the pattern.
+	prefix bool
+	// route is the static response or script handler for this layer.
+	route httpRoute
+}
+
+// httpMatch is a layer that matched a request, with its extracted path params.
+type httpMatch struct {
+	route  httpRoute
+	params map[string]string
+}
+
+type httpIncoming struct {
+	// method, path, query, body are copied from the listener request for VM-thread dispatch.
+	method, path, query, body string
+	// host and remote are the Host header and peer address of the request.
+	host, remote string
 	// headers carries request metadata without sharing the mutable net/http request object.
 	headers http.Header
-	// route is the listener-thread route snapshot selected for this request.
-	route httpRoute
-	// write sends status, content type, and body back to the listener goroutine for the actual response.
-	write func(int, string, string)
+	// chain is the ordered list of matching layers selected on the listener thread.
+	chain []httpMatch
+	// onError is the app's error handler snapshot, or null.
+	onError OSValue
+	// write sends status, headers, and body back to the listener goroutine.
+	write func(int, http.Header, string)
 	// done signals that the response was written and the listener may release request resources.
 	done chan struct{}
-	// status, text, and json hold the script handler's response fields until write consumes them.
-	status int
-	text   string
-	json   string
+}
+
+type httpRequestData struct {
+	// headers are the request headers, used by req.get.
+	headers http.Header
+	// body is the raw request body, used by req.json.
+	body string
 }
 
 type httpResponseData struct {
-	// status is the response code returned by a script handler.
+	// status is the response code selected by the script.
 	status int
-	// text is the plain-text response body, when selected.
-	text string
-	// json is the serialized JSON response body, when selected.
-	json string
+	// headers are the response headers selected by the script.
+	headers http.Header
+	// body is the response payload.
+	body string
+	// sent is set once a handler produced a final response.
+	sent bool
+	// next is set when a handler called next() with no error.
+	next bool
+	// hasErr is set when a handler called next(err).
+	hasErr bool
+	// errValue is the value passed to next(err).
+	errValue OSValue
 }
 
 type httpFetchResult struct {
@@ -88,10 +120,12 @@ type httpFetchResponse struct {
 }
 
 type httpAppState struct {
-	// mu protects route registration and lifecycle flags shared by VM and listener goroutines.
+	// mu protects layer registration and lifecycle flags shared by VM and listener goroutines.
 	mu sync.RWMutex
-	// routes maps method/path keys to listener-safe route snapshots.
-	routes map[string]httpRoute
+	// layers is the ordered stack of routes and middleware.
+	layers []httpLayer
+	// onError is the error handler invoked by next(err) or script errors.
+	onError OSValue
 	// server owns the listener and supports graceful shutdown.
 	server *http.Server
 	// done signals that the listener has stopped and allows the event loop to release this app.
@@ -110,6 +144,10 @@ var (
 	coreHTTPClass *Class
 	coreHTTPOnce  sync.Once
 )
+
+// ---------------------------------------------------------------------------
+// Class / constructor
+// ---------------------------------------------------------------------------
 
 func ensureCoreHTTPClass() *Class {
 	coreHTTPOnce.Do(func() {
@@ -136,16 +174,25 @@ func coreHTTPString(value string) OSValue {
 }
 
 func nativeHTTPConstructor(_ *VM, _ []OSValue) OSValue {
-	state := &httpAppState{routes: make(map[string]httpRoute)}
+	state := &httpAppState{}
 	instance := &Object{
 		ClassName: "Express",
 		Class:     ensureCoreHTTPClass(),
 		Native:    state,
-		Values:    make(map[string]OSValue, 6),
+		Values:    make(map[string]OSValue, 16),
 	}
 	value := OSValue{Type: OSVObject, Opaque: unsafe.Pointer(instance)}
-	instance.Set("get", httpBoundMethod(value, 2, nativeHTTPGet))
-	instance.Set("post", httpBoundMethod(value, 2, nativeHTTPPost))
+	for _, verb := range []string{"get", "post", "put", "delete", "patch", "head", "options"} {
+		method := strings.ToUpper(verb)
+		instance.Set(verb, httpBoundMethod(value, -1, func(this OSValue, vm *VM, args []OSValue) OSValue {
+			return nativeHTTPVerb(this, vm, args, method)
+		}))
+	}
+	instance.Set("all", httpBoundMethod(value, -1, func(this OSValue, vm *VM, args []OSValue) OSValue {
+		return nativeHTTPVerb(this, vm, args, "")
+	}))
+	instance.Set("use", httpBoundMethod(value, -1, nativeHTTPUse))
+	instance.Set("onError", httpBoundMethod(value, 1, nativeHTTPOnError))
 	instance.Set("route", httpBoundMethod(value, 4, nativeHTTPRoute))
 	instance.Set("listen", httpBoundMethod(value, 1, nativeHTTPListen))
 	instance.Set("address", httpBoundMethod(value, 0, nativeHTTPAddress))
@@ -165,21 +212,101 @@ func httpBoundMethod(this OSValue, paramCount int, callable func(OSValue, *VM, [
 }
 
 func httpApp(this OSValue, vm *VM) (*httpAppState, bool) {
-	if this.Type == OSVObject && this.Opaque != nil {
-		if state, ok := (*Object)(this.Opaque).Native.(*httpAppState); ok {
-			return state, true
-		}
+	if state, ok := httpAppFromValue(this); ok {
+		return state, true
 	}
 	vm.NativeError = "core:http method called with an invalid Express instance"
 	return nil, false
 }
 
-func nativeHTTPGet(this OSValue, vm *VM, args []OSValue) OSValue {
-	return nativeHTTPRegister(this, vm, args, http.MethodGet, 200)
+func httpAppFromValue(value OSValue) (*httpAppState, bool) {
+	if value.Type == OSVObject && value.Opaque != nil {
+		state, ok := (*Object)(value.Opaque).Native.(*httpAppState)
+		return state, ok
+	}
+	return nil, false
 }
 
-func nativeHTTPPost(this OSValue, vm *VM, args []OSValue) OSValue {
-	return nativeHTTPRegister(this, vm, args, http.MethodPost, 200)
+// ---------------------------------------------------------------------------
+// Path matching
+// ---------------------------------------------------------------------------
+
+func splitPath(path string) []string {
+	path = strings.Trim(path, "/")
+	if path == "" {
+		return nil
+	}
+	return strings.Split(path, "/")
+}
+
+func splitRequestPath(escaped string) []string {
+	parts := splitPath(escaped)
+	for i, part := range parts {
+		if decoded, err := url.PathUnescape(part); err == nil {
+			parts[i] = decoded
+		}
+	}
+	return parts
+}
+
+// matchSegments matches a registered pattern against request segments.
+// ":name" captures a segment, "*" captures the rest as params["0"], and
+// prefix layers (use) accept any path below the pattern.
+func matchSegments(pattern, actual []string, prefix bool) (map[string]string, bool) {
+	params := make(map[string]string)
+	for i, segment := range pattern {
+		if segment == "*" {
+			if i < len(actual) {
+				params["0"] = strings.Join(actual[i:], "/")
+			} else {
+				params["0"] = ""
+			}
+			return params, true
+		}
+		if i >= len(actual) {
+			return nil, false
+		}
+		if strings.HasPrefix(segment, ":") && len(segment) > 1 {
+			params[segment[1:]] = actual[i]
+		} else if segment != actual[i] {
+			return nil, false
+		}
+	}
+	if !prefix && len(actual) != len(pattern) {
+		return nil, false
+	}
+	return params, true
+}
+
+// ---------------------------------------------------------------------------
+// Registration
+// ---------------------------------------------------------------------------
+
+func httpValidTarget(vm *VM, value OSValue, allowString bool) bool {
+	switch {
+	case value.Type == OSVString && allowString:
+		return true
+	case value.Type == OSVFunction:
+		if value.Opaque == nil {
+			vm.NativeError = "core:http route handler cannot be nil"
+			return false
+		}
+		if (*Function)(value.Opaque).Async {
+			vm.NativeError = "core:http route handlers must be synchronous"
+			return false
+		}
+		return true
+	}
+	vm.NativeError = "core:http expects a handler function (only the last route target may be a string)"
+	return false
+}
+
+func nativeHTTPVerb(this OSValue, vm *VM, args []OSValue, method string) OSValue {
+	if len(args) < 2 || !IsString(args[0]) {
+		vm.NativeError = "core:http route expects a path followed by one or more handlers"
+		return vm.Null
+	}
+	return httpRegister(this, vm, method, args[0].StringValue(), false, 200, args[1:])
 }
 
 func nativeHTTPRoute(this OSValue, vm *VM, args []OSValue) OSValue {
@@ -192,18 +319,10 @@ func nativeHTTPRoute(this OSValue, vm *VM, args []OSValue) OSValue {
 		vm.NativeError = "core:http.route status must be between 100 and 599"
 		return vm.Null
 	}
-	return httpRegister(this, vm, strings.ToUpper(args[0].StringValue()), args[1].StringValue(), status, args[3])
+	return httpRegister(this, vm, strings.ToUpper(args[0].StringValue()), args[1].StringValue(), false, status, args[3:4])
 }
 
-func nativeHTTPRegister(this OSValue, vm *VM, args []OSValue, method string, status int) OSValue {
-	if !IsString(args[0]) || (args[1].Type != OSVString && args[1].Type != OSVFunction) {
-		vm.NativeError = "core:http route expects a path and response string or handler function"
-		return vm.Null
-	}
-	return httpRegister(this, vm, method, args[0].StringValue(), status, args[1])
-}
-
-func httpRegister(this OSValue, vm *VM, method, path string, status int, handlerOrBody OSValue) OSValue {
+func httpRegister(this OSValue, vm *VM, method, path string, prefix bool, status int, targets []OSValue) OSValue {
 	state, ok := httpApp(this, vm)
 	if !ok {
 		return vm.Null
@@ -212,15 +331,18 @@ func httpRegister(this OSValue, vm *VM, method, path string, status int, handler
 		vm.NativeError = "core:http route path must start with /"
 		return vm.Null
 	}
-	if handlerOrBody.Type == OSVFunction {
-		if handlerOrBody.Opaque == nil {
-			vm.NativeError = "core:http route handler cannot be nil"
+	layers := make([]httpLayer, 0, len(targets))
+	for i, target := range targets {
+		if !httpValidTarget(vm, target, i == len(targets)-1) {
 			return vm.Null
 		}
-		if (*Function)(handlerOrBody.Opaque).Async {
-			vm.NativeError = "core:http route handlers must be synchronous"
-			return vm.Null
+		route := httpRoute{status: status}
+		if target.Type == OSVFunction {
+			route.handler = target
+		} else {
+			route.body = target.StringValue()
 		}
+		layers = append(layers, httpLayer{method: method, pattern: splitPath(path), prefix: prefix, route: route})
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
@@ -228,22 +350,84 @@ func httpRegister(this OSValue, vm *VM, method, path string, status int, handler
 		vm.NativeError = "core:http cannot add routes after close"
 		return vm.Null
 	}
-	route := httpRoute{status: status}
-	if IsString(handlerOrBody) {
-		route.body = handlerOrBody.StringValue()
-	} else if handlerOrBody.Type == OSVFunction {
-		route.handler = handlerOrBody
-	} else {
-		vm.NativeError = "core:http route response must be a string or function"
-		return vm.Null
-	}
-	state.routes[httpRouteKey(method, path)] = route
+	state.layers = append(state.layers, layers...)
 	return this
 }
 
-func httpRouteKey(method, path string) string {
-	return method + " " + path
+func nativeHTTPUse(this OSValue, vm *VM, args []OSValue) OSValue {
+	state, ok := httpApp(this, vm)
+	if !ok {
+		return vm.Null
+	}
+	prefix := "/"
+	if len(args) > 0 && IsString(args[0]) {
+		prefix = args[0].StringValue()
+		args = args[1:]
+	}
+	if prefix == "" || prefix[0] != '/' {
+		vm.NativeError = "core:http.use path must start with /"
+		return vm.Null
+	}
+	if len(args) == 0 {
+		vm.NativeError = "core:http.use expects a handler function or an Express/Router instance"
+		return vm.Null
+	}
+	base := splitPath(prefix)
+	for _, arg := range args {
+		if sub, isApp := httpAppFromValue(arg); isApp {
+			if sub == state {
+				vm.NativeError = "core:http.use cannot mount an app on itself"
+				return vm.Null
+			}
+			sub.mu.RLock()
+			layers := make([]httpLayer, len(sub.layers))
+			copy(layers, sub.layers)
+			subError := sub.onError
+			sub.mu.RUnlock()
+			state.mu.Lock()
+			if state.closed {
+				state.mu.Unlock()
+				vm.NativeError = "core:http cannot add routes after close"
+				return vm.Null
+			}
+			for _, layer := range layers {
+				layer.pattern = append(append([]string{}, base...), layer.pattern...)
+				state.layers = append(state.layers, layer)
+			}
+			if subError.Type == OSVFunction && state.onError.Type != OSVFunction {
+				state.onError = subError
+			}
+			state.mu.Unlock()
+			continue
+		}
+		if arg.Type != OSVFunction {
+			vm.NativeError = "core:http.use expects handler functions or Express/Router instances"
+			return vm.Null
+		}
+		if result := httpRegister(this, vm, "", prefix, true, 200, []OSValue{arg}); result.Type == OSVNull {
+			return vm.Null
+		}
+	}
+	return this
 }
+
+func nativeHTTPOnError(this OSValue, vm *VM, args []OSValue) OSValue {
+	state, ok := httpApp(this, vm)
+	if !ok {
+		return vm.Null
+	}
+	if !httpValidTarget(vm, args[0], false) {
+		return vm.Null
+	}
+	state.mu.Lock()
+	state.onError = args[0]
+	state.mu.Unlock()
+	return this
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle
+// ---------------------------------------------------------------------------
 
 func nativeHTTPListen(this OSValue, vm *VM, args []OSValue) OSValue {
 	if !IsString(args[0]) {
@@ -314,92 +498,236 @@ func nativeHTTPClose(this OSValue, vm *VM, _ []OSValue) OSValue {
 	return vm.True
 }
 
+// ---------------------------------------------------------------------------
+// Listener goroutine
+// ---------------------------------------------------------------------------
+
 func (state *httpAppState) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	body, err := io.ReadAll(http.MaxBytesReader(writer, request.Body, 1<<20))
 	if err != nil {
 		http.Error(writer, "request body too large or unreadable", http.StatusRequestEntityTooLarge)
 		return
 	}
+	segments := splitRequestPath(request.URL.EscapedPath())
+	var chain []httpMatch
 	state.mu.RLock()
-	route, exists := state.routes[httpRouteKey(request.Method, request.URL.Path)]
+	for _, layer := range state.layers {
+		if layer.method != "" && layer.method != request.Method &&
+			!(request.Method == http.MethodHead && layer.method == http.MethodGet) {
+			continue
+		}
+		if params, ok := matchSegments(layer.pattern, segments, layer.prefix); ok {
+			chain = append(chain, httpMatch{route: layer.route, params: params})
+		}
+	}
+	onError := state.onError
 	state.mu.RUnlock()
-	if !exists {
+	if len(chain) == 0 {
 		http.NotFound(writer, request)
 		return
 	}
-	if route.handler.Type == OSVFunction {
-		incoming := &httpIncoming{
-			method: request.Method, path: request.URL.Path, query: request.URL.RawQuery,
-			body: unsafe.String(unsafe.SliceData(body), len(body)), headers: request.Header.Clone(), route: route,
-			done: make(chan struct{}),
+	write := func(status int, headers http.Header, responseBody string) {
+		for key, values := range headers {
+			for _, value := range values {
+				writer.Header().Add(key, value)
+			}
 		}
-		incoming.write = func(status int, contentType, responseBody string) {
-			writer.Header().Set("Content-Type", contentType)
-			writer.WriteHeader(status)
+		writer.WriteHeader(status)
+		if request.Method != http.MethodHead {
 			_, _ = io.WriteString(writer, responseBody)
 		}
-		select {
-		case state.vm.HTTPRequests <- incoming:
-		case <-state.done:
-			http.Error(writer, "server is closed", http.StatusServiceUnavailable)
-			return
-		}
-		select {
-		case <-incoming.done:
-		case <-state.done:
-			http.Error(writer, "server is closed", http.StatusServiceUnavailable)
-			return
-		}
+	}
+	// Fast path: a single static route needs no VM round trip.
+	if len(chain) == 1 && chain[0].route.handler.Type != OSVFunction {
+		write(chain[0].route.status, http.Header{"Content-Type": {"text/plain; charset=utf-8"}}, chain[0].route.body)
 		return
 	}
-	writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	writer.WriteHeader(route.status)
-	_, _ = io.WriteString(writer, route.body)
+	incoming := &httpIncoming{
+		method: request.Method, path: request.URL.Path, query: request.URL.RawQuery,
+		body: unsafe.String(unsafe.SliceData(body), len(body)), host: request.Host,
+		remote: request.RemoteAddr, headers: request.Header.Clone(),
+		chain: chain, onError: onError, write: write, done: make(chan struct{}),
+	}
+	select {
+	case state.vm.HTTPRequests <- incoming:
+	case <-state.done:
+		http.Error(writer, "server is closed", http.StatusServiceUnavailable)
+		return
+	}
+	select {
+	case <-incoming.done:
+	case <-state.done:
+		http.Error(writer, "server is closed", http.StatusServiceUnavailable)
+	}
 }
 
-func serveHTTPIncoming(vm *VM, incoming *httpIncoming) {
-	request := &Object{Values: make(map[string]OSValue, 5)}
-	request.Set("method", coreHTTPString(incoming.method))
-	request.Set("path", coreHTTPString(incoming.path))
-	request.Set("query", coreHTTPString(incoming.query))
-	request.Set("body", coreHTTPString(incoming.body))
-	headers := &Object{Values: make(map[string]OSValue, len(incoming.headers))}
-	for key, values := range incoming.headers {
+// ---------------------------------------------------------------------------
+// VM thread: request dispatch
+// ---------------------------------------------------------------------------
+
+func httpStringObject(values map[string]string) OSValue {
+	object := &Object{Values: make(map[string]OSValue, len(values))}
+	for key, value := range values {
+		object.Set(key, coreHTTPString(value))
+	}
+	return OSValue{Type: OSVObject, Opaque: unsafe.Pointer(object)}
+}
+
+func httpHeadersObject(headers http.Header) OSValue {
+	object := &Object{Values: make(map[string]OSValue, len(headers))}
+	for key, values := range headers {
 		if len(values) != 0 {
-			headers.Set(strings.ToLower(key), coreHTTPString(values[0]))
+			object.Set(strings.ToLower(key), coreHTTPString(values[0]))
 		}
 	}
-	request.Set("headers", OSValue{Type: OSVObject, Opaque: unsafe.Pointer(headers)})
-	responseData := &httpResponseData{status: incoming.route.status}
-	response := &Object{Values: make(map[string]OSValue, 3)}
-	responseValue := OSValue{Type: OSVObject, Opaque: unsafe.Pointer(response)}
-	response.Set("status", httpBoundMethod(responseValue, 1, nativeHTTPResponseStatus))
-	response.Set("send", httpBoundMethod(responseValue, 1, nativeHTTPResponseSend))
-	response.Set("json", httpBoundMethod(responseValue, 1, nativeHTTPResponseJSON))
-	response.Native = responseData
-	function := (*Function)(incoming.route.handler.Opaque)
-	coroutine := NewCoroutine(nil, function, InitialStack(2))
+	return OSValue{Type: OSVObject, Opaque: unsafe.Pointer(object)}
+}
+
+func runHTTPHandler(vm *VM, handler OSValue, args ...OSValue) {
+	function := (*Function)(handler.Opaque)
+	coroutine := NewCoroutine(nil, function, InitialStack(len(args)))
 	for index := range function.CaptureMeta {
 		capture := &function.CaptureMeta[index]
 		coroutine.Frame.Env[capture.Dst] = capture.Cell
 	}
-	coroutine.OperandStack[0] = OSValue{Type: OSVObject, Opaque: unsafe.Pointer(request)}
-	coroutine.OperandStack[1] = responseValue
-	coroutine.Sp = 2
+	copy(coroutine.OperandStack[:], args)
+	coroutine.Sp = len(args)
 	vm.Current = coroutine
 	runCoroutine(nil, vm, coroutine)
-	if vm.Current != nil {
-		vm.Current = nil
+	vm.Current = nil
+}
+
+func serveHTTPIncoming(vm *VM, incoming *httpIncoming) {
+	// ----- request object -----
+	queryParams := make(map[string]string)
+	if parsed, err := url.ParseQuery(incoming.query); err == nil {
+		for key, values := range parsed {
+			if len(values) != 0 {
+				queryParams[key] = values[0]
+			}
+		}
 	}
-	contentType := "text/plain; charset=utf-8"
-	body := responseData.text
-	if responseData.json != "" {
-		contentType = "application/json; charset=utf-8"
-		body = responseData.json
+	hostname := incoming.host
+	if h, _, err := net.SplitHostPort(incoming.host); err == nil {
+		hostname = h
 	}
-	incoming.write(responseData.status, contentType, body)
+	ip := incoming.remote
+	if h, _, err := net.SplitHostPort(incoming.remote); err == nil {
+		ip = h
+	}
+	originalURL := incoming.path
+	if incoming.query != "" {
+		originalURL += "?" + incoming.query
+	}
+	request := &Object{
+		Native: &httpRequestData{headers: incoming.headers, body: incoming.body},
+		Values: make(map[string]OSValue, 16),
+	}
+	requestValue := OSValue{Type: OSVObject, Opaque: unsafe.Pointer(request)}
+	request.Set("method", coreHTTPString(incoming.method))
+	request.Set("path", coreHTTPString(incoming.path))
+	request.Set("originalUrl", coreHTTPString(originalURL))
+	request.Set("query", coreHTTPString(incoming.query))
+	request.Set("queryParams", httpStringObject(queryParams))
+	request.Set("body", coreHTTPString(incoming.body))
+	request.Set("hostname", coreHTTPString(hostname))
+	request.Set("ip", coreHTTPString(ip))
+	request.Set("headers", httpHeadersObject(incoming.headers))
+	request.Set("get", httpBoundMethod(requestValue, 1, nativeHTTPRequestGet))
+	request.Set("json", httpBoundMethod(requestValue, 0, nativeHTTPRequestJSON))
+
+	// ----- response object -----
+	data := &httpResponseData{status: 200, headers: make(http.Header)}
+	response := &Object{Native: data, Values: make(map[string]OSValue, 12)}
+	responseValue := OSValue{Type: OSVObject, Opaque: unsafe.Pointer(response)}
+	response.Set("status", httpBoundMethod(responseValue, 1, nativeHTTPResponseStatus))
+	response.Set("sendStatus", httpBoundMethod(responseValue, 1, nativeHTTPResponseSendStatus))
+	response.Set("send", httpBoundMethod(responseValue, 1, nativeHTTPResponseSend))
+	response.Set("json", httpBoundMethod(responseValue, 1, nativeHTTPResponseJSON))
+	response.Set("set", httpBoundMethod(responseValue, 2, nativeHTTPResponseSet))
+	response.Set("header", httpBoundMethod(responseValue, 2, nativeHTTPResponseSet))
+	response.Set("get", httpBoundMethod(responseValue, 1, nativeHTTPResponseGet))
+	response.Set("type", httpBoundMethod(responseValue, 1, nativeHTTPResponseType))
+	response.Set("redirect", httpBoundMethod(responseValue, -1, nativeHTTPResponseRedirect))
+	response.Set("end", httpBoundMethod(responseValue, -1, nativeHTTPResponseEnd))
+	nextValue := httpBoundMethod(responseValue, -1, nativeHTTPNext)
+
+	// ----- middleware / route chain -----
+	for index := 0; index < len(incoming.chain) && !data.sent && !data.hasErr; index++ {
+		match := incoming.chain[index]
+		if match.route.handler.Type != OSVFunction {
+			data.status = match.route.status
+			data.body = match.route.body
+			data.sent = true
+			break
+		}
+		request.Set("params", httpStringObject(match.params))
+		data.next = false
+		runHTTPHandler(vm, match.route.handler, requestValue, responseValue, nextValue)
+		if !data.next {
+			break // handler finished the request (or chose not to continue)
+		}
+	}
+
+	// ----- error handling / fallbacks -----
+	switch {
+	case data.hasErr:
+		errValue := data.errValue
+		*data = httpResponseData{status: 500, headers: make(http.Header)}
+		if incoming.onError.Type == OSVFunction {
+			runHTTPHandler(vm, incoming.onError, errValue, requestValue, responseValue, nextValue)
+		}
+		if data.hasErr || !data.sent {
+			*data = httpResponseData{status: 500, headers: make(http.Header), body: "Internal Server Error"}
+		}
+	case !data.sent && data.next:
+		data.status = 404
+		data.body = "Cannot " + incoming.method + " " + incoming.path
+	}
+	if data.headers.Get("Content-Type") == "" {
+		data.headers.Set("Content-Type", "text/plain; charset=utf-8")
+	}
+	incoming.write(data.status, data.headers, data.body)
 	close(incoming.done)
 }
+
+// ---------------------------------------------------------------------------
+// Request methods
+// ---------------------------------------------------------------------------
+
+func httpRequestDataFrom(this OSValue, vm *VM) *httpRequestData {
+	if this.Type == OSVObject && this.Opaque != nil {
+		if data, ok := (*Object)(this.Opaque).Native.(*httpRequestData); ok {
+			return data
+		}
+	}
+	vm.NativeError = "core:http request method called with an invalid request"
+	return nil
+}
+
+func nativeHTTPRequestGet(this OSValue, vm *VM, args []OSValue) OSValue {
+	data := httpRequestDataFrom(this, vm)
+	if data == nil || !IsString(args[0]) {
+		vm.NativeError = "core:http req.get expects a header name"
+		return vm.Null
+	}
+	if value := data.headers.Get(args[0].StringValue()); value != "" {
+		return coreHTTPString(value)
+	}
+	return vm.Null
+}
+
+func nativeHTTPRequestJSON(this OSValue, vm *VM, _ []OSValue) OSValue {
+	data := httpRequestDataFrom(this, vm)
+	if data == nil {
+		return vm.Null
+	}
+	return nativeJSONParse(vm, []OSValue{coreHTTPString(data.body)})
+}
+
+// ---------------------------------------------------------------------------
+// Response methods
+// ---------------------------------------------------------------------------
 
 func httpResponseDataFrom(this OSValue, vm *VM) *httpResponseData {
 	if this.Type == OSVObject && this.Opaque != nil {
@@ -411,9 +739,30 @@ func httpResponseDataFrom(this OSValue, vm *VM) *httpResponseData {
 	return nil
 }
 
+func httpValidStatus(value OSValue) bool {
+	return IsNumber(value) && value.Number >= 100 && value.Number <= 599
+}
+
+func nativeHTTPNext(this OSValue, vm *VM, args []OSValue) OSValue {
+	data := httpResponseDataFrom(this, vm)
+	if data == nil {
+		return vm.Null
+	}
+	if len(args) > 0 && args[0].Type != OSVNull {
+		data.hasErr = true
+		data.errValue = args[0]
+	} else {
+		data.next = true
+	}
+	return vm.Null
+}
+
 func nativeHTTPResponseStatus(this OSValue, vm *VM, args []OSValue) OSValue {
 	data := httpResponseDataFrom(this, vm)
-	if data == nil || !IsNumber(args[0]) || args[0].Number < 100 || args[0].Number > 599 {
+	if data == nil {
+		return vm.Null
+	}
+	if !httpValidStatus(args[0]) {
 		vm.NativeError = "core:http response status must be between 100 and 599"
 		return vm.Null
 	}
@@ -421,12 +770,32 @@ func nativeHTTPResponseStatus(this OSValue, vm *VM, args []OSValue) OSValue {
 	return this
 }
 
+func nativeHTTPResponseSendStatus(this OSValue, vm *VM, args []OSValue) OSValue {
+	data := httpResponseDataFrom(this, vm)
+	if data == nil {
+		return vm.Null
+	}
+	if !httpValidStatus(args[0]) {
+		vm.NativeError = "core:http response status must be between 100 and 599"
+		return vm.Null
+	}
+	data.status = int(args[0].Number)
+	data.body = http.StatusText(data.status)
+	data.sent = true
+	return this
+}
+
 func nativeHTTPResponseSend(this OSValue, vm *VM, args []OSValue) OSValue {
 	data := httpResponseDataFrom(this, vm)
-	if data != nil {
-		data.text = args[0].String()
+	if data == nil {
+		return vm.Null
 	}
-	return vm.Null
+	if args[0].Type == OSVObject {
+		return nativeHTTPResponseJSON(this, vm, args)
+	}
+	data.body = args[0].String()
+	data.sent = true
+	return this
 }
 
 func nativeHTTPResponseJSON(this OSValue, vm *VM, args []OSValue) OSValue {
@@ -435,17 +804,107 @@ func nativeHTTPResponseJSON(this OSValue, vm *VM, args []OSValue) OSValue {
 		return vm.Null
 	}
 	vm.NativeError = ""
-	encoded := nativeJSONStringify(vm, args)
+	encoded := nativeJSONStringify(vm, args[:1])
 	if vm.NativeError != "" {
 		return vm.Null
 	}
-	data.json = encoded.StringValue()
+	data.body = encoded.StringValue()
+	if data.headers.Get("Content-Type") == "" {
+		data.headers.Set("Content-Type", "application/json; charset=utf-8")
+	}
+	data.sent = true
+	return this
+}
+
+func nativeHTTPResponseSet(this OSValue, vm *VM, args []OSValue) OSValue {
+	data := httpResponseDataFrom(this, vm)
+	if data == nil {
+		return vm.Null
+	}
+	if !IsString(args[0]) {
+		vm.NativeError = "core:http res.set expects a header name and value"
+		return vm.Null
+	}
+	data.headers.Set(args[0].StringValue(), args[1].String())
+	return this
+}
+
+func nativeHTTPResponseGet(this OSValue, vm *VM, args []OSValue) OSValue {
+	data := httpResponseDataFrom(this, vm)
+	if data == nil || !IsString(args[0]) {
+		vm.NativeError = "core:http res.get expects a header name"
+		return vm.Null
+	}
+	if value := data.headers.Get(args[0].StringValue()); value != "" {
+		return coreHTTPString(value)
+	}
 	return vm.Null
 }
 
+func nativeHTTPResponseType(this OSValue, vm *VM, args []OSValue) OSValue {
+	data := httpResponseDataFrom(this, vm)
+	if data == nil || !IsString(args[0]) {
+		vm.NativeError = "core:http res.type expects a type string"
+		return vm.Null
+	}
+	kind := args[0].StringValue()
+	switch kind {
+	case "json":
+		kind = "application/json; charset=utf-8"
+	case "html":
+		kind = "text/html; charset=utf-8"
+	case "text", "txt":
+		kind = "text/plain; charset=utf-8"
+	case "xml":
+		kind = "application/xml; charset=utf-8"
+	}
+	data.headers.Set("Content-Type", kind)
+	return this
+}
+
+func nativeHTTPResponseRedirect(this OSValue, vm *VM, args []OSValue) OSValue {
+	data := httpResponseDataFrom(this, vm)
+	if data == nil {
+		return vm.Null
+	}
+	status, location := http.StatusFound, ""
+	switch {
+	case len(args) == 1 && IsString(args[0]):
+		location = args[0].StringValue()
+	case len(args) == 2 && httpValidStatus(args[0]) && IsString(args[1]):
+		status, location = int(args[0].Number), args[1].StringValue()
+	default:
+		vm.NativeError = "core:http res.redirect expects ([status,] url)"
+		return vm.Null
+	}
+	data.status = status
+	data.headers.Set("Location", location)
+	data.body = http.StatusText(status) + ". Redirecting to " + location
+	data.sent = true
+	return this
+}
+
+func nativeHTTPResponseEnd(this OSValue, vm *VM, args []OSValue) OSValue {
+	data := httpResponseDataFrom(this, vm)
+	if data == nil {
+		return vm.Null
+	}
+	if len(args) > 0 && args[0].Type != OSVNull {
+		data.body = args[0].String()
+	}
+	data.sent = true
+	return this
+}
+
+// ---------------------------------------------------------------------------
+// Module exports
+// ---------------------------------------------------------------------------
+
 func getCoreHTTP() map[string]OSValue {
+	class := OSValue{Type: OSVClass, Opaque: unsafe.Pointer(ensureCoreHTTPClass())}
 	return map[string]OSValue{
-		"Express": {Type: OSVClass, Opaque: unsafe.Pointer(ensureCoreHTTPClass())},
+		"Express": class,
+		"Router":  class,
 		"fetch":   coreHTTPFunction(-1, nativeHTTPFetch),
 	}
 }
@@ -459,6 +918,10 @@ func coreHTTPFunction(paramCount int, callable func(vm *VM, args []OSValue) OSVa
 		}),
 	}
 }
+
+// ---------------------------------------------------------------------------
+// fetch
+// ---------------------------------------------------------------------------
 
 func nativeHTTPFetch(vm *VM, args []OSValue) OSValue {
 	if len(args) < 1 || len(args) > 2 || !IsString(args[0]) {
