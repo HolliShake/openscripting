@@ -75,7 +75,7 @@ build_target() {
 		return 0
 	fi
 
-	if ! GOOS="$target_os" GOARCH="$target_arch" go build -o "$output" ./main; then
+	if ! GOOS="$target_os" GOARCH="$target_arch" go build -gcflags="-m=2" -o "$output" ./main; then
 		FAILED=1
 		return 1
 	fi
@@ -173,7 +173,8 @@ case "${1:-}" in
 		fi
 		;;
 	'')
-		build_target "$HOST_OS" "$HOST_ARCH" openscript
+		rm -f build.txt
+		build_target "$HOST_OS" "$HOST_ARCH" openscript 2>&1 | tee -a build.txt
 		;;
 	*)
 		usage >&2

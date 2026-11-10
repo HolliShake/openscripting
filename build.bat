@@ -12,7 +12,8 @@ set "ALL_MODE=0"
 if /I "%~1"=="--all" if "%~2"=="" goto build_all
 if not "%~1"=="" goto usage
 
-call :build_target "%HOST_OS%" "%HOST_ARCH%" "openscript"
+if exist build.txt del build.txt
+call :build_target "%HOST_OS%" "%HOST_ARCH%" "openscript" >> build.txt 2>&1
 exit /b %ERRORLEVEL%
 
 :build_all
@@ -122,7 +123,7 @@ if "%ALL_MODE%"=="1" (
     set "CGO_ENABLED=0"
     go build -trimpath -ldflags="-s -w" -o "%OUTPUT%" ./main
 ) else (
-    go build -o "%OUTPUT%" ./main
+    go build -gcflags="-m=2" -o "%OUTPUT%" ./main
 )
 set "BUILD_RC=%ERRORLEVEL%"
 if not "%BUILD_RC%"=="0" set "FAILED=1"
