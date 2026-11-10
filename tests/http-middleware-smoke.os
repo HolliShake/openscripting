@@ -21,7 +21,7 @@ app->post("/text", fn(req, res) {
 	}
 });
 app->post("/raw", fn(req, res) {
-	res->send(req->body[0]);
+	res->send(req->body);
 });
 app->get("/signed", fn(req, res) {
 	res->cookie("token", "signed-value", { signed: true });

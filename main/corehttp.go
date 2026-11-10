@@ -2202,8 +2202,30 @@ func runHTTPHandler(vm *VM, handler OSValue, args ...OSValue) *Promise {
 	coroutine.SyncBoundary = completion
 	previous := vm.Current
 	vm.Current = coroutine
-	runCoroutine(nil, vm, coroutine)
+	runCoroutine(vm.State, vm, coroutine)
 	vm.Current = previous
+	return completion
+}
+
+func runHTTPSyncCallback(vm *VM, handler OSValue, args ...OSValue) *Promise {
+	if handler.Type != OSVFunction || handler.Opaque == nil {
+		return &Promise{Rejected: true, Resolved: true, Value: newErrorValue("HTTP callback must be a function", 0), Handled: true}
+	}
+	function := (*Function)(handler.Opaque)
+	if function.Async {
+		return &Promise{Rejected: true, Resolved: true, Value: newErrorValue("HTTP callback must be synchronous", 0), Handled: true}
+	}
+	if function.VarArgIndex < 0 && len(args) > function.ParamCount {
+		args = args[:function.ParamCount]
+	}
+	result, ok := invokeSyncArrayFunction(vm, function, args)
+	completion := &Promise{Resolved: true, Value: result, Handled: true}
+	if !ok {
+		message := vm.NativeError
+		vm.NativeError = ""
+		completion.Rejected = true
+		completion.Value = newErrorValue(message, 0)
+	}
 	return completion
 }
 

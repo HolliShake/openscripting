@@ -41,7 +41,7 @@ func httpWalkReplace(vm *VM, function OSValue, allowed []string, filter bool, ke
 		return value, true
 	}
 	if function.Type == OSVFunction {
-		completion := runHTTPHandler(vm, function, coreHTTPString(key), value)
+		completion := runHTTPSyncCallback(vm, function, coreHTTPString(key), value)
 		if completion.Resolved && !completion.Rejected {
 			value = completion.Value
 		}
@@ -129,7 +129,7 @@ func nativeHTTPResponseFormat(this OSValue, vm *VM, args []OSValue) OSValue {
 		data.hasErr, data.errValue, data.nextCalled = true, failure, true
 		return vm.Null
 	}
-	completion := runHTTPHandler(vm, chosen)
+	completion := runHTTPSyncCallback(vm, chosen)
 	if completion.Rejected {
 		data.hasErr, data.errValue, data.nextCalled = true, completion.Value, true
 	}

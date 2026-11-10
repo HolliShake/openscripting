@@ -1087,42 +1087,82 @@ println("Hello", name);`
             },
             {
                 name: "core:http",
-                exports: ["Express", "fetch(url, options?)"],
+                exports: ["Express", "fetch(url, options?)", "json(options?)", "urlencoded(options?)", "text(options?)", "raw(options?)", "cookieParser(secret?)"],
                 behavior: [
-                    { name: "Express()", doc: `Creates a server object.` },
-                    { name: "app->get(path, bodyOrHandler)", doc: `Registers a route for <code>GET</code> on the exact path.` },
-                    { name: "app->post(path, bodyOrHandler)", doc: `Registers a route for <code>POST</code> on the exact path.` },
-                    { name: "app->route(method, path, status, bodyOrHandler)", doc: `Registers a route for any method with an explicit response status.` },
-                    { name: "app->listen(address)", doc: `Starts the server and returns the bound address.` },
-                    { name: "app->address()", doc: `Returns the server's address.` },
-                    { name: "app->close()", doc: `Stops the server and returns a boolean.` },
-                    { name: "fn(request, response)", doc: `Handler form. Handlers are synchronous and run serially on the interpreter thread. The request has <code>method</code>, <code>path</code>, <code>query</code>, <code>body</code>, and <code>headers</code>.` },
-                    { name: "response->status(code)", doc: `Sets the response status code.` },
-                    { name: "response->send(value)", doc: `Sends a value as the response body.` },
-                    { name: "response->json(value)", doc: `Sends a value as a JSON response.` },
-                    `Routes match the exact HTTP method and path. Unmatched routes return 404. Request bodies are limited to 1 MiB.`,
+                    { name: "<strong>App Creation and Configuration</strong>", doc: `` },
+                    { name: "Express(options?)", doc: `Creates an HTTP application server. Options may include <code>mergeParams</code> to merge route parameters from parent routers into child routers.` },
+                    { name: "app->set(name, value)", doc: `Sets a configuration property. Common settings include <code>env</code> (development/production), <code>etag</code> (strong/weak/false), <code>x-powered-by</code> (boolean), <code>405</code> (enable Method Not Allowed), <code>handler timeout</code> (milliseconds), <code>body limit</code> (bytes for request bodies).` },
+                    { name: "app->get(name)", doc: `Retrieves a configuration property set by <code>app->set()</code>.` },
+                    { name: "<strong>Routing</strong>", doc: `` },
+                    { name: "app->get(path, handler)", doc: `Registers a handler for <code>GET</code> requests on the exact path. Handler may be a string (static response), a function, or an array of middleware/handlers.` },
+                    { name: "app->post(path, handler)", doc: `Registers a handler for <code>POST</code> requests on the exact path.` },
+                    { name: "app->route(method, path, handler)", doc: `Registers a handler for any HTTP method on the exact path.` },
+                    { name: "app->use(...handlers)", doc: `Registers middleware that runs on all requests in order. Handlers may be functions or mounted Express apps. Supports optional path prefix for conditional mounting.` },
+                    { name: "app->listen(address)", doc: `Starts the server on the given address (e.g., <code>127.0.0.1:8080</code> or <code>127.0.0.1:0</code> for auto-assigned port) and returns the bound address.` },
+                    { name: "app->address()", doc: `Returns the server's current listening address.` },
+                    { name: "app->close()", doc: `Stops the server and returns <code>true</code> on success.` },
+                    { name: "<strong>Request Object Properties</strong>", doc: `` },
+                    { name: "req->method", doc: `HTTP method string (e.g., <code>GET</code>, <code>POST</code>).` },
+                    { name: "req->path", doc: `Request path after the mount point.` },
+                    { name: "req->query", doc: `Parsed query string as an object.` },
+                    { name: "req->body", doc: `Parsed request body. Populated by middleware such as <code>json()</code>, <code>urlencoded()</code>, <code>text()</code>, or <code>raw()</code>. For unparsed requests, use <code>req->rawBody</code>.` },
+                    { name: "req->rawBody", doc: `The unparsed request body as a string.` },
+                    { name: "req->headers", doc: `Object containing request headers (lowercased keys).` },
+                    { name: "req->cookies", doc: `Object containing parsed cookies (populated by <code>cookieParser()</code>).` },
+                    { name: "req->signedCookies", doc: `Object containing verified signed cookies (populated by <code>cookieParser(secret)</code>).` },
+                    { name: "req->params", doc: `Object containing captured route parameters (e.g., from <code>/users/:id</code>).` },
+                    { name: "req->is(type)", doc: `Tests the Content-Type header. Returns <code>true</code> if the request type matches (e.g., <code>req->is(\"json\")</code>, <code>req->is(\"text\")</code>).` },
+                    { name: "<strong>Response Object Methods</strong>", doc: `` },
+                    { name: "res->status(code)", doc: `Sets the HTTP response status code. Returns the response object for chaining.` },
+                    { name: "res->send(value)", doc: `Sends a text or plain response body and ends the response. Automatically sets <code>Content-Type</code>.` },
+                    { name: "res->json(value)", doc: `Serializes a value as JSON and sends it as the response body with <code>Content-Type: application/json</code>.` },
+                    { name: "res->write(chunk)", doc: `Writes a chunk to the response body without ending it.` },
+                    { name: "res->flush()", doc: `Flushes buffered response data to the client.` },
+                    { name: "res->end(chunk?)", doc: `Optionally writes a final chunk and ends the response.` },
+                    { name: "res->cookie(name, value, options?)", doc: `Sets a cookie. Options include <code>signed</code> (boolean), <code>maxAge</code> (milliseconds), <code>httpOnly</code> (boolean), <code>secure</code> (boolean), <code>sameSite</code> (string).` },
+                    { name: "res->format(handlers)", doc: `Dispatches based on the Accept header. <code>handlers</code> is an object with content-type keys (e.g., <code>json</code>, <code>html</code>) mapping to functions.` },
+                    { name: "res->sendFile(path, options?)", doc: `Sends a file as the response. Options may include <code>root</code> (base directory for relative paths).` },
+                    { name: "res->set(field, value)", doc: `Sets a response header.` },
+                    { name: "res->type(type)", doc: `Sets the Content-Type header.` },
+                    { name: "<strong>Middleware</strong>", doc: `` },
+                    { name: "json(options?)", doc: `Middleware to parse JSON request bodies. Options include <code>limit</code> (max bytes).` },
+                    { name: "urlencoded(options?)", doc: `Middleware to parse URL-encoded form data. Options include <code>extended</code> (true for complex types) and <code>limit</code>.` },
+                    { name: "text(options?)", doc: `Middleware to parse plain text request bodies. Options include <code>limit</code>.` },
+                    { name: "raw(options?)", doc: `Middleware to parse raw binary request bodies. Options include <code>limit</code>.` },
+                    { name: "cookieParser(secret?)", doc: `Middleware to parse cookies. If <code>secret</code> is provided, signed cookies are verified and available in <code>req->signedCookies</code>.` },
+                    { name: "next(error?)", doc: `Callback passed to handlers. Call to pass control to the next middleware or route. Passing a string or error object skips remaining handlers and jumps to error handling.` },
+                    `Routes match the exact HTTP method and path; trailing slashes are significant. Static string responses are supported as shorthand. Unmatched requests return 404. Request bodies default to 1 MiB limit. Response methods support chaining. Handlers run synchronously and serially. Method Not Allowed (405) and automatic OPTIONS are configurable.`,
                     { name: "fetch(url, options?)", doc: `Returns a Promise for a response. <code>options</code> is an optional object with <code>method</code>, <code>headers</code>, and <code>body</code>. The response has <code>status</code>, <code>statusText</code>, <code>url</code>, <code>ok</code>, <code>headers</code>, and Promise-returning <code>text()</code> and <code>json()</code> methods.` },
                     `HTTP error statuses such as 404 and 500 resolve normally with <code>ok</code> set to <code>false</code>. Network failures and invalid JSON reject. Requests time out after 30 seconds; response bodies are limited to 10 MiB.`
                 ],
                 example: {
-                    code: `import { Express, fetch } from "core:http";
+                    code: `import { Express, json, fetch } from "core:http";
 import { println } from "core:io";
 
 const app = Express();
-app->get("/health", fn(request, response) {
-    response->json({ status: "ready" });
-});
-const address = app->listen("127.0.0.1:0");
+app->set("env", "production");
+app->use(json());
 
-var check::fn() async {
+app->get("/health", fn(req, res) {
+    res->json({ status: "ok", mode: app->get("env") });
+});
+app->post("/echo", fn(req, res) {
+    res->status(201)->json({ received: req->body });
+});
+app->get("/file", fn(req, res) {
+    res->sendFile("data.txt", { root: "." });
+});
+
+const address = app->listen("127.0.0.1:8080");
+
+var test = fn() async {
     const response = await fetch("http://" + address + "/health");
-    println(response->status, response->ok);
-    println(await response->json());
+    println(response->status, await response->json());
     app->close();
 };
 
-check();`,
-                    note: "Handlers are synchronous. Fetch network failures reject; HTTP error statuses resolve with ok set to false."
+test();`,
+                    note: "Response methods chain and support multiple patterns. Use middleware for request parsing. Handlers are synchronous and configurable with timeouts."
                 }
             },
             {
