@@ -75,10 +75,15 @@ build_target() {
 		return 0
 	fi
 
-	if ! GOOS="$target_os" GOARCH="$target_arch" go build -gcflags="-m=2" -o "$output" ./main; then
+	local build_log=build.tmp
+	if ! GOOS="$target_os" GOARCH="$target_arch" go build -gcflags="-m" -o "$output" ./main >"$build_log" 2>&1; then
+		cat "$build_log"
+		rm -f "$build_log"
 		FAILED=1
 		return 1
 	fi
+	grep -E 'escapes to heap|moved to heap' "$build_log" || printf 'No heap escape diagnostics found.\n'
+	rm -f "$build_log"
 }
 
 package_target() {

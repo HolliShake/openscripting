@@ -123,9 +123,18 @@ if "%ALL_MODE%"=="1" (
     set "CGO_ENABLED=0"
     go build -trimpath -ldflags="-s -w" -o "%OUTPUT%" ./main
 ) else (
-    go build -gcflags="-m=2" -o "%OUTPUT%" ./main
+    go build -gcflags="-m" -o "%OUTPUT%" ./main > build.tmp 2>&1
+    if errorlevel 1 (
+        set "BUILD_RC=1"
+        type build.tmp
+    ) else (
+        set "BUILD_RC=0"
+        findstr /R /C:"escapes to heap" /C:"moved to heap" build.tmp
+        if errorlevel 1 echo No heap escape diagnostics found.
+    )
+    del build.tmp
 )
-set "BUILD_RC=%ERRORLEVEL%"
+if "%ALL_MODE%"=="1" set "BUILD_RC=%ERRORLEVEL%"
 if not "%BUILD_RC%"=="0" set "FAILED=1"
 
 :target_cleanup
